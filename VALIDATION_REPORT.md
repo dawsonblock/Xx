@@ -1,114 +1,37 @@
-# Validation Report — AIDE-DREAM-RSI v1.3.0
+# Validation Report — AIDE-DREAM-RSI v1.3.1
 
-Build date: 2026-09-29
+Build identity: `VERSION=1.3.1`, distribution `aideml-rsi==1.3.1`.
+Validation date: 2026-09-29.
 
-## Evaluator authority boundary
+## Current validation
 
-- Candidate metrics interpreted by the AIDE feedback model are tagged advisory and cannot authorize replay promotion or best-solution publication. Qualification requires trusted external evaluator provenance with SHA-256 bindings for candidate source, evaluator, dataset, split, and result; the publisher independently enforces those bindings and verifies the content-addressed source.
-- This repository has no task-independent hidden-data evaluator contract. Automatic promotion and publication therefore remain blocked until each task supplies a trusted evaluator, immutable split identity, fixed metric, and evaluator version. The code can record/replay advisory metrics, but they are not empirical ground truth.
-- Replay generation in RSI now receives fixed prior-world memory plus only its selected parent and observed parent failure. A SHA-256 digest of the generation prompt is recorded with each candidate.
-- Canary decision recovery reconciles the durable transaction and winner after a crash. Stored policy digests are checked at startup rather than rewritten over mismatched policy files.
-- Bubblewrap and OCI workspaces now use size-limited temporary filesystems. OCI timeout cleanup records the container ID and explicitly kills/removes it after the CLI exits.
-- Qualification requires at least three immutable held-out worlds by default. This is a minimum evidence gate, not a statistical guarantee.
-- The full project suite passes **121 tests, 1 skipped**. Ruff 0.7.1, Black 24.3.0, compileall, and `git diff --check` pass. Bubblewrap/OCI execution was not available on this macOS host; command construction and container timeout cleanup have focused tests.
+- Full project suite: **125 passed, 1 skipped**, using declared dependencies installed in `/tmp/aide-rsi-review-deps`.
+- RSI suite: **74 passed, 1 skipped**.
+- Ruff 0.7.1: passed for `aide/`.
+- Black 24.3.0: passed for `aide/`.
+- `python -m compileall -q aide tests`: passed.
+- `python setup.py --version`: `1.3.1`.
+- `git diff --check`: passed.
 
-## Security review follow-up (2026-09-29)
+Bubblewrap and OCI execution were not run on this macOS host. Their workspace construction and OCI timeout cleanup are covered by focused unit tests. The suite and prior local qualification exercised macOS Seatbelt paths. No live model backend or task-specific trusted evaluator was run.
 
-- Host-owned stdout/stderr capture now uses a private temporary directory outside
-  the candidate's writable mount. A regression test has the child replace its
-  former `.stdout` path with a host-file symlink and verifies that the host
-  secret is not returned or modified.
-- Seatbelt now allows available Homebrew `opt` and `Cellar` runtime paths even
-  when Python itself is installed by pyenv or uv. The native sandbox preflight
-  and regression test passed on this macOS host.
-- With missing declared test dependencies installed into a temporary target,
-  `python -m pytest -q` — **110 passed, 1 skipped**. The RSI suite separately
-  passed **59 tests, 1 skipped**; focused output-capture, Seatbelt, and recovery
-  tests passed **15 tests**.
-- Ruff passed on the changed Python files; Black passed on the changed sandbox
-  and Seatbelt tests.
+## Evaluation authority
 
-## Bounded local macOS workspace follow-up (2026-09-29)
+AIDE feedback-model metrics are advisory. Replay qualification, the paired real canary, and best-solution publication require an HMAC-attested record binding candidate, task, evaluator/configuration, dataset/split, predictions, environment, metric identity/direction, and score. Verification uses the host-only `AIDE_RSI_EVALUATION_HMAC_KEY`; strict candidate sandboxes clear the environment.
 
-- The Seatbelt workspace now mounts a case-sensitive sparse disk image with
-  configurable capacity. A 64 MiB test image returned `ENOSPC` on an oversized
-  write; the candidate and image were cleaned afterward.
-- A `proc_pidinfo` supervisor stopped sustained resident memory above a
-  configured threshold and refused execution when monitoring failed. This is
-  a sampled guard, not a hard memory ceiling; short spikes can overshoot it.
-- The local Seatbelt ceiling defaults to 1 GiB via `seatbelt_memory_mb`, while
-  the image capacity defaults to 2 GiB via `workspace_mb`.
-- The full project suite passes **109 tests**. Ruff and Black pass for `aide/`.
+This repository still has no task-specific external evaluator or hidden-data contract. Its live runner therefore creates no trusted evaluation records, so autonomous promotion and best-solution publication remain fail-closed. HMAC proves which shared-key holder created the record; the evaluator integration must verify its approved evaluator and dataset identities before signing. This is not public-key non-repudiation.
 
-## Local macOS Seatbelt follow-up (2026-09-29)
+## Holdout and recovery controls
 
-- Added an explicit native `seatbelt` backend and macOS `auto` selection when
-  no OCI image is configured. It performs a live confinement probe before
-  candidate execution and fails closed if the probe fails.
-- On macOS 26.2, a real candidate using the isolated Python 3.10 environment
-  read permitted task input. Host-file reads and writes, input mutation,
-  loopback network connection, and subprocess creation were denied by the
-  kernel profile. A deliberately permissive profile was rejected by preflight.
-  A native timeout stopped an overlong candidate and cleaned its workspace.
-- Seatbelt is a deprecated macOS interface and lacks the OCI backend's
-  process/memory isolation. These local checks do not establish security
-  qualification across macOS or Python runtime versions.
-- A follow-up audit found that a rejected Darwin `RLIMIT_AS` value skipped
-  later resource limits. CPU, per-file size, and open-file limits now apply
-  independently; a failure to set one of those limits refuses candidate
-  execution. Address-space limiting remains unsupported on this host.
-- The full project suite now passes **106 tests**. Ruff and Black pass for
-  `aide/`, and the updated wheel and source distribution build successfully.
+- Development worlds alone feed live memory, replay support, grid planning, and best-solution selection.
+- Validation worlds are used for candidate tuning; qualification worlds are only used for promotion decisions and are retired after a complete attested shard is evaluated.
+- The split bootstrap assigns 2 development, 1 validation, and 3 qualification worlds by the sixth discovery round. Seven default rounds provide a subsequent paired-canary opportunity.
+- Candidate artifacts are content-addressed and source hashes are checked before publication.
+- Canary decisions are recovered from durable policy transactions; persisted incumbent and pending policy digests are checked at startup.
+- OCI and Bubblewrap writable workspaces use size-limited temporary filesystems; OCI containers are explicitly killed and removed after CLI failure or timeout.
 
-## Post-review local hardening (2026-09-29)
+These controls do not establish deployment readiness. The task-specific trusted evaluator remains a release blocker for automatic recursive promotion.
 
-- In an isolated Python 3.10 environment with test/runtime imports installed, `PYTHONPATH=. python -m pytest -q` — **100 passed**.
-- The repository CI style gate also passes locally: Ruff 0.7.1 and Black 24.3.0 over `aide/`.
-- Bundled LocalJevFabric fabric suite — **57 passed**. Bundled LLM2Jev suite — **220 passed, 17 skipped** (optional model backends). The only LLM2Jev change was a stale test assertion updated to check the existing instruction boundary; the bundled source implementation was not changed. Its SHA256SUMS entry was updated and the full checksum list verifies.
-- `python3 -m compileall -q aide tests vendor/LocalJevFabric-v1.5.0/fabric/local_jev_fabric vendor/LocalJevFabric-v1.5.0/components/LLM2Jev/src vendor/LocalJevFabric-v1.5.0/components/AnyJev` — passed. Wheel and source distribution built successfully; the wheel contains the changed AIDE modules and imports from an isolated installation target.
-- The AIDE advisor was exercised against the bundled fabric ASGI endpoint with a deterministic fake backend. This verifies typed request/response integration and confirms failure text secrets are excluded from that request. It does not qualify a live model backend.
-- Strict Bubblewrap/OCI execution was not run: this host is macOS, Docker Desktop's socket did not answer a five-second ping, and Colima is stopped. Sandbox command construction, fail-closed behavior, output limits, and timeout handling have local test coverage.
+## Historical validation
 
-These are local source/build checks; they do not replace the original build-environment results below or establish deployment qualification.
-
-## Passed in the build environment
-
-- `PYTHONPATH=. pytest -q tests/test_rsi_*.py` — **43 passed**
-- bundled LocalJevFabric fabric suite — **57 passed**
-- `python -m compileall -q aide tests vendor/LocalJevFabric-v1.5.0/fabric/local_jev_fabric vendor/LocalJevFabric-v1.5.0/components/LLM2Jev/src vendor/LocalJevFabric-v1.5.0/components/AnyJev`
-- replay CLI smoke: `build-world` → `evaluate` → `evolve`
-- JEV evidence CLI smoke: `aide.rsi.jev_cli report`
-- package metadata smoke: `python setup.py --version` → `1.3.0`
-
-The v1.3 regression suite covers:
-
-- all v1.2 replay/live parity, split, qualification, sandbox-command, canary, and provenance checks;
-- typed SystemOne response validation;
-- high-confidence repairability mapping;
-- low-confidence fallback to deterministic recovery logic;
-- fail-open JEV outage behavior;
-- replay persistence of recorded JEV repairability and confidence;
-- shadow action ranking being unable to alter the authoritative DREAM batch;
-- policy use of explicitly enabled recorded repairability.
-
-## Bundled LocalJevFabric
-
-The supplied LocalJevFabric v1.5.0 `fabric/tests` suite passes **57/57** with the source-tree import path configured. The bundled source itself was not functionally modified.
-
-The bundled LLM2Jev component suite was not certified in this environment because its optional runtime dependency `openai` is not installed here. The complete LLM2Jev source remains included unchanged.
-
-## Not certified in this environment
-
-The inherited AIDE full pytest suite cannot fully collect because several dependencies declared by the original project are not installed in this build environment (`humanize`, `backoff`, `dataclasses_json`). This report does not claim the legacy AIDE suite passed.
-
-Bubblewrap and Docker/Podman are not available in this build container, so strict sandbox execution itself was not run. Fail-closed behavior and command construction remain covered by the RSI regression suite inherited from v1.2.
-
-No live AnyJev or LLM2Jev model backend was started in the build environment. JEV integration behavior was validated with typed mock SystemOne responses plus the LocalJevFabric fabric unit suite.
-
-## Remaining intentional limitations
-
-- live discovery remains serial (`rsi.max_parallelism=1`);
-- replay remains empirical only;
-- JEV is advisory/shadow by default;
-- enabling `rsi.jev.failure_influence=true` is an operator decision and does not constitute formal calibration proof;
-- canary and replay qualification reduce promotion risk but do not provide a formal statistical guarantee.
+The v1.3.0 validation snapshots are preserved in [docs/archive/VALIDATION_REPORT_v1.3.0.md](docs/archive/VALIDATION_REPORT_v1.3.0.md) and do not apply to this build.

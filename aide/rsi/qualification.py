@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .evaluator import ReplayEvaluator
-from .evidence import has_trusted_evaluation
+from .evidence import has_trusted_world_evidence
 from .policy import AdaptiveReplayPolicy
 from .split import WorldSplit
 from .types import PolicyGenome, PromotionRecord
@@ -79,15 +79,10 @@ class QualificationGate:
             promoted = True
             reason = "candidate passed immutable replay qualification; repeated paired online canary still required"
 
-        evidence_nodes = [
-            node
-            for world in (split.development + split.validation + split.qualification)
-            for node in world.nodes.values()
-            if node.valid
-        ]
+        evaluation_worlds = split.development + split.validation + split.qualification
         if promoted and (
-            not evidence_nodes
-            or any(not has_trusted_evaluation(node) for node in evidence_nodes)
+            not evaluation_worlds
+            or any(not has_trusted_world_evidence(w) for w in evaluation_worlds)
         ):
             promoted = False
             reason = (

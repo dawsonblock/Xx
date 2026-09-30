@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from statistics import median
 from typing import Any, Iterable
 
+from .evidence import has_trusted_evaluation
+
 
 @dataclass(frozen=True)
 class CanaryResult:
@@ -59,13 +61,14 @@ class RealCanaryGate:
         self.score_scale_floor = max(1e-9, float(score_scale_floor))
 
     @staticmethod
-    def _journal_scores(journal: Any) -> tuple[list[float], bool]:
+    def _journal_scores(journal: Any) -> tuple[list[float], bool, bool]:
         maximize = (
             True
             if getattr(journal, "metric_maximize", None) is None
             else bool(journal.metric_maximize)
         )
         values: list[float] = []
+        all_trusted = True
         for node in getattr(journal, "nodes", []):
             metric = getattr(node, "metric", None)
             if (
@@ -79,14 +82,25 @@ class RealCanaryGate:
             except (TypeError, ValueError, AttributeError):
                 continue
             if math.isfinite(v):
+                all_trusted = all_trusted and has_trusted_evaluation(
+                    node, maximize=maximize
+                )
                 values.append(v)
-        return values, maximize
+        return values, maximize, all_trusted
 
     def evaluate_pair(
         self, candidate_journal: Any, incumbent_journal: Any
     ) -> CanaryResult:
-        cvals, cmax = self._journal_scores(candidate_journal)
-        ivals, imax = self._journal_scores(incumbent_journal)
+        cvals, cmax, ctrusted = self._journal_scores(candidate_journal)
+        ivals, imax, itrusted = self._journal_scores(incumbent_journal)
+        if not ctrusted or not itrusted:
+            return CanaryResult(
+                False,
+                None,
+                None,
+                -math.inf,
+                "canary requires HMAC-attested trusted external evaluator records",
+            )
         if cmax != imax:
             return CanaryResult(
                 False, None, None, -math.inf, "metric direction mismatch"

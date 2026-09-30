@@ -1,4 +1,4 @@
-# AIDE-DREAM-RSI v1.3.0
+# AIDE-DREAM-RSI v1.3.1
 
 This repository retains the owner's MIT license in `LICENSE`. The included AIDE ML code retains its Weco AI MIT notice in `LICENSE-AIDE`; bundled component licenses remain under `vendor/LocalJevFabric-v1.5.0/components/`.
 
@@ -18,7 +18,9 @@ Qualifier   -> promotion gate (fails closed without trusted metrics)
 
 JEV cannot create legal search actions, execute tools, rewrite replay history, alter the evaluator, bypass the sandbox, or promote a policy. In v1.3, branch ranking, model routing, verification depth, and failure classification are **shadow/advisory by default**. After reviewing evidence, an operator may explicitly set `rsi.jev.failure_influence=true`; only then may a high-confidence failure-repairability classification refine recovery priority. JEV still cannot add legal actions or gain promotion authority.
 
-The bundled live AIDE feedback path currently asks a model to interpret candidate output and report a metric. Those values remain useful for exploration, but are not trusted evaluation evidence: replay qualification blocks promotion and best-solution publication unless every scored node binds SHA-256 digests for candidate source, evaluator, dataset, split, and result. This release does not provide a generic hidden-label evaluator because each task needs an operator-defined dataset, split, metric, and evaluator version.
+The bundled live AIDE feedback path currently asks a model to interpret candidate output and report a metric. Those values remain useful for exploration, but are not trusted evaluation evidence. Replay qualification, canary promotion, and best-solution publication require HMAC-attested records binding candidate, task, evaluator and configuration, dataset, split, predictions, environment, metric identity/direction, and result. The host and trusted evaluator must share `AIDE_RSI_EVALUATION_HMAC_KEY` (at least 32 bytes); strict candidate sandboxes do not inherit it. This release does not provide a generic hidden-label evaluator because each task needs an operator-defined dataset, split, metric, and evaluator version, so live promotion remains disabled until that integration exists.
+
+Persistent qualification worlds are excluded from live memory, replay support, grid planning, and best-solution selection. A qualification shard is retired after a complete HMAC-attested decision so later candidates cannot tune against it. The default split bootstrap assigns two development, one validation, and three qualification worlds within six discovery rounds; seven rounds leave one subsequent canary opportunity.
 
 The full LocalJevFabric v1.5.0 source tree is bundled under `vendor/LocalJevFabric-v1.5.0/`. It does not include TypeSafe Jev weights. Configure an AnyJev specialist, LLM2Jev generalist, or another Jev-compatible SystemOne backend before enabling the integration.
 
@@ -110,7 +112,7 @@ aide-rsi \
   goal="Optimize the solution" \
   rsi.sandbox.mode=strict \
   rsi.sandbox.backend=container \
-  rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.0
+  rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.1
 ```
 
 The reference live executor remains intentionally serial (`rsi.max_parallelism=1`); replay parallel reward stays zero until real isolated concurrency exists.

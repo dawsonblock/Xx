@@ -121,7 +121,7 @@ class RSICanaryConfig:
 @dataclass
 class RSIConfig:
     enabled: bool = False
-    outer_rounds: int = 5
+    outer_rounds: int = 7
     steps_per_round: int = 24
     max_parallelism: int = 1
     fallback_width: int = 6

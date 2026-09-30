@@ -1,9 +1,18 @@
+import pytest
+
 from aide.rsi.evaluator import ReplayEvaluator
 from aide.rsi.evolution import PolicyEvolutionEngine
-from aide.rsi.evidence import evaluation_result_digest, has_trusted_evaluation
+from aide.rsi.evidence import attest_evaluation, has_trusted_evaluation
 from aide.rsi.qualification import QualificationGate
 from aide.rsi.split import split_worlds
 from aide.rsi.types import PolicyGenome, ReplayNode, ReplayWorld, ROOT_ID
+
+_TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
+
+
+@pytest.fixture(autouse=True)
+def trusted_evaluator_key(monkeypatch):
+    monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", _TEST_ATTESTATION_KEY)
 
 
 def trusted_provenance(score: float) -> dict:
@@ -11,12 +20,16 @@ def trusted_provenance(score: float) -> dict:
         "evaluation_authority": "trusted_external",
         "candidate_sha256": "a" * 64,
         "evaluator_sha256": "b" * 64,
+        "evaluator_config_sha256": "f" * 64,
+        "task_sha256": "9" * 64,
         "dataset_sha256": "c" * 64,
         "split_sha256": "d" * 64,
+        "predictions_sha256": "8" * 64,
+        "environment_sha256": "7" * 64,
+        "metric_id": "test.metric",
         "metric_maximize": True,
     }
-    provenance["result_sha256"] = evaluation_result_digest(provenance, score)
-    return provenance
+    return attest_evaluation(provenance, score, key=_TEST_ATTESTATION_KEY)
 
 
 def mk_world(i: int):
@@ -149,4 +162,19 @@ def test_trusted_evaluation_requires_complete_hash_bindings():
             "result_sha256": "not-a-digest",
         },
     )
+    assert not has_trusted_evaluation(node)
+
+
+def test_trusted_evaluation_requires_hmac_attestation():
+    provenance = trusted_provenance(1.0)
+    node = ReplayNode("n", ROOT_ID, 0, 1, "n", 1.0, True, False, provenance=provenance)
+    assert has_trusted_evaluation(node)
+    provenance["candidate_sha256"] = "f" * 64
+    assert not has_trusted_evaluation(node)
+
+
+def test_trusted_evaluation_fails_when_host_key_is_unavailable(monkeypatch):
+    provenance = trusted_provenance(1.0)
+    node = ReplayNode("n", ROOT_ID, 0, 1, "n", 1.0, True, False, provenance=provenance)
+    monkeypatch.delenv("AIDE_RSI_EVALUATION_HMAC_KEY")
     assert not has_trusted_evaluation(node)

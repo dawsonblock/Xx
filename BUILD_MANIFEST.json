@@ -1,7 +1,7 @@
 {
-  "build": "AIDE-DREAM-RSI-v1.3.0",
+  "build": "AIDE-DREAM-RSI-v1.3.1",
   "distribution_name": "aideml-rsi",
-  "distribution_version": "1.3.0",
+  "distribution_version": "1.3.1",
   "base_artifact": {
     "name": "AIDE-DREAM-RSI-v1.2.0.zip",
     "sha256": "88a9fc88a3253b24e31cc4b64b4bd3ffffd8ef7bacd7ddb9b24ac326a683ee31"
@@ -21,7 +21,7 @@
     "jev_role": "optional bounded SystemOne advisory layer; shadow-first; no promotion or execution authority",
     "jev_default_influence": "none; failure_influence=false by default",
     "policy_interface": "one AdaptiveReplayPolicy shared by replay and live adapters",
-    "qualification": "immutable replay splits + worst-world gate + repeated paired real canary",
+    "qualification": "persistent development/validation sets + one-shot qualification shards + HMAC-attested results + provenance-gated real canary",
     "execution": "strict fail-closed Bubblewrap or Docker/Podman OCI sandbox; insecure process mode only by explicit opt-in",
     "integrity": "append-only SHA-256 content-addressed replay objects",
     "parallelism": "effective live parallelism 1; replay parallel bonus 0"
@@ -44,28 +44,30 @@
     "docs/PAPER_MAPPING.md",
     "docs/REPLAY_SEMANTICS.md",
     "docs/THREAT_MODEL.md",
+    "docs/MIGRATION_v1.3.0_to_v1.3.1.md",
     "docs/MIGRATION_v1.1_to_v1.2.md",
     "docs/MIGRATION_v1.2_to_v1.3.md",
-    "VALIDATION_REPORT.md"
+    "VALIDATION_REPORT.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.0.md"
   ],
   "validation": {
-    "rsi_pytest": "43 passed",
-    "local_jev_fabric_pytest": "57 passed",
-    "compileall": "passed",
-    "replay_cli_smoke": "passed",
-    "jev_report_smoke": "passed",
-    "package_version": "1.3.0",
-    "original_full_pytest": "not collectable in build environment because inherited AIDE runtime dependencies humanize, backoff, and dataclasses_json are not installed",
-    "llm2jev_full_pytest": "not collectable in build environment because optional dependency openai is not installed",
-    "strict_backend_execution": "not executed in build container; command construction/fail-closed behavior covered by inherited RSI tests",
-    "live_jev_backend": "not executed; adapter validated against typed mocks and bundled fabric unit tests"
+    "full_project_pytest": "125 passed, 1 skipped; declared dependencies installed into temporary target",
+    "rsi_pytest": "74 passed, 1 skipped",
+    "ruff": "0.7.1 passed for aide/",
+    "black": "24.3.0 passed for aide/",
+    "compileall": "passed for aide and tests",
+    "package_version": "1.3.1",
+    "strict_backend_execution": "Bubblewrap/OCI not run on macOS; command construction and OCI timeout cleanup covered by focused tests",
+    "macos_seatbelt": "local backend checks run on macOS; see validation report for scope",
+    "trusted_evaluator": "not integrated; promotion, canary authority, and best-solution publication fail closed",
+    "live_jev_backend": "not executed; adapter validated against typed mocks in earlier v1.3.0 validation"
   },
   "known_limitations": [
+    "task-specific hidden-data evaluator and data/split contract are not included; automatic promotion and best-solution publication remain disabled",
+    "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
     "reference live executor remains serial",
     "replay cannot generate unseen branch outcomes",
     "JEV is advisory/shadow by default",
-    "failure influence is explicit opt-in and depends on backend calibration quality",
-    "bundled LocalJevFabric does not contain TypeSafe Jev weights",
-    "strict sandbox execution must be integration-tested on the deployment host"
+    "strict Bubblewrap/OCI execution must be integration-tested on the deployment host"
   ]
 }

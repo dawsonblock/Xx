@@ -14,7 +14,7 @@ from .canary import RealCanaryGate
 from .artifacts import load_candidate, store_candidate
 from .evaluator import ReplayEvaluator
 from .evolution import PolicyEvolutionEngine
-from .evidence import has_trusted_evaluation
+from .evidence import has_trusted_evaluation, has_trusted_world_evidence
 from .live import LiveExplorationController
 from .jev import JevAdvisor
 from .memory import summarize_worlds
@@ -79,7 +79,7 @@ def _publish_best_from_worlds(
                 # Legacy worlds lack source-to-score binding and cannot publish
                 # an artifact as if its source had been verified.
                 continue
-            if not has_trusted_evaluation(node):
+            if not has_trusted_evaluation(node, maximize=world.maximize):
                 # Candidate output interpreted by a feedback model is useful for
                 # exploration, but cannot authorize a published best artifact.
                 continue
@@ -429,6 +429,9 @@ def run_rsi() -> None:
     state = _recover_canary_transaction(
         state=state_store.load(), state_store=state_store, rsi_dir=rsi_dir
     )
+    retired_worlds = state.get("retired_qualification_worlds", [])
+    if retired_worlds:
+        split_manager.retire_qualification(list(retired_worlds))
     incumbent = (
         PolicyGenome.load(incumbent_path) if incumbent_path.exists() else PolicyGenome()
     )
@@ -466,15 +469,17 @@ def run_rsi() -> None:
         score_scale_floor=cfg.rsi.canary.score_scale_floor,
     )
 
-    prior_worlds = pool.load_all()
-    cycle_summaries = [live_cycle_summary(w) for w in prior_worlds]
+    all_worlds = pool.load_all()
+    current_split = split_manager.split(all_worlds)
+    live_prior_worlds = current_split.development
+    cycle_summaries = [live_cycle_summary(w) for w in live_prior_worlds]
     global_best_score, global_best_meta = _publish_best_from_worlds(
-        prior_worlds, base_log
+        live_prior_worlds, base_log
     )
     if state.get("phase") == "COMPLETED":
         print(f"AIDE-RSI already completed. Logs: {base_log}")
         return
-    start_round = int(state.get("next_round", len(prior_worlds)))
+    start_round = int(state.get("next_round", len(all_worlds)))
 
     state_store.write(
         phase=state.get("phase", "IDLE"),
@@ -533,7 +538,7 @@ def run_rsi() -> None:
                         task_desc=task_desc,
                         task_metric=task_metric,
                         policy=pending,
-                        prior_worlds=prior_worlds,
+                        prior_worlds=live_prior_worlds,
                         grid=canary_grid,
                         budget=canary_budget,
                         log_dir=rep_root / "challenger",
@@ -551,7 +556,7 @@ def run_rsi() -> None:
                         task_desc=task_desc,
                         task_metric=task_metric,
                         policy=incumbent,
-                        prior_worlds=prior_worlds,
+                        prior_worlds=live_prior_worlds,
                         grid=canary_grid,
                         budget=canary_budget,
                         log_dir=rep_root / "incumbent",
@@ -570,7 +575,7 @@ def run_rsi() -> None:
                         task_desc=task_desc,
                         task_metric=task_metric,
                         policy=incumbent,
-                        prior_worlds=prior_worlds,
+                        prior_worlds=live_prior_worlds,
                         grid=canary_grid,
                         budget=canary_budget,
                         log_dir=rep_root / "incumbent",
@@ -588,7 +593,7 @@ def run_rsi() -> None:
                         task_desc=task_desc,
                         task_metric=task_metric,
                         policy=pending,
-                        prior_worlds=prior_worlds,
+                        prior_worlds=live_prior_worlds,
                         grid=canary_grid,
                         budget=canary_budget,
                         log_dir=rep_root / "challenger",
@@ -664,7 +669,7 @@ def run_rsi() -> None:
                 task_desc=task_desc,
                 task_metric=task_metric,
                 policy=incumbent,
-                prior_worlds=prior_worlds,
+                prior_worlds=live_prior_worlds,
                 grid=grid,
                 budget=int(cfg.rsi.steps_per_round),
                 log_dir=round_log,
@@ -699,8 +704,8 @@ def run_rsi() -> None:
                 },
             )
             world.metadata["replay_support"] = (
-                ReplaySupportIndex(list(prior_worlds)).support(world)
-                if prior_worlds
+                ReplaySupportIndex(list(live_prior_worlds)).support(world)
+                if live_prior_worlds
                 else 0.0
             )
             pool.add(world)
@@ -714,18 +719,20 @@ def run_rsi() -> None:
 
         # WORLD_COMMITTED and later phases can resume here without the live
         # journal in memory. Publish from the immutable pool on every pass.
+        all_worlds = pool.load_all()
+        current_split = split_manager.split(all_worlds)
+        live_prior_worlds = current_split.development
+        cycle_summaries = [live_cycle_summary(w) for w in live_prior_worlds]
         global_best_score, global_best_meta = _publish_best_from_worlds(
-            pool.load_all(), base_log
+            live_prior_worlds, base_log
         )
 
         # Policy improvement can be deterministically rerun after a crash because it
         # consumes only the immutable replay pool and split manifest.
-        prior_worlds = pool.load_all()
-        cycle_summaries = [live_cycle_summary(w) for w in prior_worlds]
         state_store.write(
             phase="POLICY_EVALUATING", current_round=outer, next_round=outer
         )
-        split = split_manager.split(prior_worlds)
+        split = current_split
         round_rsi_dir = base_log / f"round-{outer:03d}" / "rsi"
 
         seed_candidates = []
@@ -800,6 +807,13 @@ def run_rsi() -> None:
             if pending_path.exists():
                 pending_path.unlink()
 
+        retire_qualification_ids = []
+        if len(split.qualification) >= int(ecfg.min_qualification_worlds) and all(
+            has_trusted_world_evidence(world)
+            for world in (split.development + split.validation + split.qualification)
+        ):
+            retire_qualification_ids = [world.world_id for world in split.qualification]
+
         incumbent.save(incumbent_path)
         state_store.write(
             phase="IDLE" if outer + 1 < int(cfg.rsi.outer_rounds) else "COMPLETED",
@@ -809,6 +823,10 @@ def run_rsi() -> None:
             world_pool=pool.manifest(),
             incumbent_digest=_policy_digest(incumbent),
             pending_digest=_policy_digest(pending),
+            retired_qualification_worlds=sorted(
+                set(state.get("retired_qualification_worlds", []))
+                | set(retire_qualification_ids)
+            ),
             global_best=global_best_meta,
             last_grid={
                 "width": grid.branch_count,
@@ -816,6 +834,11 @@ def run_rsi() -> None:
                 "reason": grid.reason,
             },
         )
+        if retire_qualification_ids:
+            split_manager.retire_qualification(retire_qualification_ids)
+            current_split = split_manager.split(all_worlds)
+            live_prior_worlds = current_split.development
+            cycle_summaries = [live_cycle_summary(w) for w in live_prior_worlds]
 
     print(f"AIDE-RSI completed. Logs: {base_log}")
     if global_best_score is not None:

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from aide.rsi.artifacts import candidate_digest, store_candidate
-from aide.rsi.evidence import evaluation_result_digest
+from aide.rsi.evidence import attest_evaluation
 from aide.rsi.runner import (
     _policy_digest,
     _publish_best_from_worlds,
@@ -15,18 +15,29 @@ from aide.rsi.state import RSIStateStore
 from aide.rsi.types import ROOT_ID, PolicyGenome, ReplayNode, ReplayWorld
 from aide.utils import atomic
 
+_TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
+
+
+@pytest.fixture(autouse=True)
+def trusted_evaluator_key(monkeypatch):
+    monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", _TEST_ATTESTATION_KEY)
+
 
 def trusted_provenance(candidate_hash: str, score: float) -> dict:
     provenance = {
         "candidate_sha256": candidate_hash,
         "evaluation_authority": "trusted_external",
         "evaluator_sha256": "b" * 64,
+        "evaluator_config_sha256": "f" * 64,
+        "task_sha256": "9" * 64,
         "dataset_sha256": "c" * 64,
         "split_sha256": "d" * 64,
+        "predictions_sha256": "8" * 64,
+        "environment_sha256": "7" * 64,
+        "metric_id": "test.metric",
         "metric_maximize": True,
     }
-    provenance["result_sha256"] = evaluation_result_digest(provenance, score)
-    return provenance
+    return attest_evaluation(provenance, score, key=_TEST_ATTESTATION_KEY)
 
 
 def test_interrupted_journal_replacement_preserves_last_good_copy(

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from aide.rsi.canary import RealCanaryGate
+from aide.rsi.evidence import attest_evaluation
 from aide.rsi.evolution import mutate_genome
 from aide.rsi.policy import AdaptiveReplayPolicy
 from aide.rsi.qualification import QualificationGate
@@ -11,6 +12,13 @@ from aide.rsi.sandbox import SandboxLimits, SecureInterpreter
 from aide.rsi.split import WorldSplit
 from aide.rsi.support import ReplaySupportIndex
 from aide.rsi.types import Observation, PolicyGenome, ReplayNode, ReplayWorld, ROOT_ID
+
+_TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
+
+
+@pytest.fixture(autouse=True)
+def trusted_evaluator_key(monkeypatch):
+    monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", _TEST_ATTESTATION_KEY)
 
 
 def test_policy_dsl_rejects_unknown_operators():
@@ -83,6 +91,22 @@ class Node:
     def __init__(self, score):
         self.metric = Metric(score)
         self.is_buggy = False
+        self.rsi_provenance = attest_evaluation(
+            {
+                "candidate_sha256": "a" * 64,
+                "evaluator_sha256": "b" * 64,
+                "evaluator_config_sha256": "f" * 64,
+                "task_sha256": "9" * 64,
+                "dataset_sha256": "c" * 64,
+                "split_sha256": "d" * 64,
+                "predictions_sha256": "8" * 64,
+                "environment_sha256": "7" * 64,
+                "metric_id": "test.metric",
+                "metric_maximize": True,
+            },
+            score,
+            key=_TEST_ATTESTATION_KEY,
+        )
 
 
 class Journal:

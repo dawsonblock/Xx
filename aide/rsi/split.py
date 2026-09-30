@@ -31,7 +31,12 @@ class PersistentSplitManager:
 
     def _load(self) -> dict:
         if not self.path.exists():
-            return {"schema_version": 1, "epoch": self.epoch, "assignments": {}}
+            return {
+                "schema_version": 1,
+                "epoch": self.epoch,
+                "assignments": {},
+                "retired_qualification": [],
+            }
         raw = json.loads(self.path.read_text())
         if int(raw.get("schema_version", 0)) != 1:
             raise ValueError("unsupported split manifest schema")
@@ -47,6 +52,13 @@ class PersistentSplitManager:
             for v in assignments.values()
         ):
             raise ValueError("invalid split manifest bucket")
+        retired = raw.setdefault("retired_qualification", [])
+        if not isinstance(retired, list) or any(
+            not isinstance(world_id, str) for world_id in retired
+        ):
+            raise ValueError("invalid retired qualification list")
+        if any(assignments.get(world_id) != "qualification" for world_id in retired):
+            raise ValueError("only qualification worlds can be retired")
         return raw
 
     def _save(self, raw: dict) -> None:
@@ -86,9 +98,9 @@ class PersistentSplitManager:
     def split(self, worlds: list[ReplayWorld]) -> WorldSplit:
         raw = self._load()
         assignments: dict[str, str] = dict(raw.get("assignments", {}))
-        # Bootstrap the first four worlds so recursive improvement can affect a
-        # default five-round run: two development worlds, one validation world,
-        # and one immutable qualification world. After that use stable hash buckets.
+        # Bootstrap two development, one validation, and three qualification
+        # worlds before allowing a policy decision. With the default seven rounds,
+        # six discovery worlds are available before one canary opportunity.
         # Preserve replay-pool insertion order. This matters after round 9 (plain
         # lexical world-id order would place round 10 before round 2).
         ordered_new = [w for w in worlds if w.world_id not in assignments]
@@ -101,7 +113,7 @@ class PersistentSplitManager:
                 bucket = "development"
             elif counts["validation"] < 1:
                 bucket = "validation"
-            elif counts["qualification"] < 1:
+            elif counts["qualification"] < 3:
                 bucket = "qualification"
             else:
                 bucket = self._bucket(world.world_id)
@@ -111,16 +123,30 @@ class PersistentSplitManager:
         self._save(raw)
 
         groups = {"development": [], "validation": [], "qualification": []}
+        retired = set(raw.get("retired_qualification", []))
         for world in worlds:
             bucket = assignments.get(world.world_id)
             if bucket not in groups:
                 raise ValueError(
                     f"invalid or missing split assignment for {world.world_id}: {bucket}"
                 )
-            groups[bucket].append(world)
+            if bucket != "qualification" or world.world_id not in retired:
+                groups[bucket].append(world)
         return WorldSplit(
             groups["development"], groups["validation"], groups["qualification"]
         )
+
+    def retire_qualification(self, world_ids: list[str]) -> None:
+        """Consume a qualification shard so later candidates cannot tune to it."""
+        raw = self._load()
+        assignments = raw["assignments"]
+        retired = set(raw.get("retired_qualification", []))
+        for world_id in world_ids:
+            if assignments.get(world_id) != "qualification":
+                raise ValueError(f"world is not assigned to qualification: {world_id}")
+            retired.add(world_id)
+        raw["retired_qualification"] = sorted(retired)
+        self._save(raw)
 
 
 def split_worlds(worlds: list[ReplayWorld]) -> WorldSplit:

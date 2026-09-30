@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from aide.rsi.canary import RealCanaryGate
+from aide.rsi.evidence import attest_evaluation
 from aide.rsi.live import LiveExplorationController
 from aide.rsi.pool import ReplayWorldPool
 from aide.rsi.replay import ReplaySimulator
@@ -11,6 +12,13 @@ from aide.rsi.split import PersistentSplitManager
 from aide.rsi.state import RSIStateStore
 from aide.rsi.types import PolicyGenome, ReplayNode, ReplayWorld, ROOT_ID
 from aide.rsi.world import world_from_journal_json
+
+_TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
+
+
+@pytest.fixture(autouse=True)
+def trusted_evaluator_key(monkeypatch):
+    monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", _TEST_ATTESTATION_KEY)
 
 
 @dataclass
@@ -33,6 +41,26 @@ class Node:
         self.exc_type = None
         self.exec_time = 0.1
         self.step = 0
+        self.rsi_provenance = (
+            attest_evaluation(
+                {
+                    "candidate_sha256": "a" * 64,
+                    "evaluator_sha256": "b" * 64,
+                    "evaluator_config_sha256": "f" * 64,
+                    "task_sha256": "9" * 64,
+                    "dataset_sha256": "c" * 64,
+                    "split_sha256": "d" * 64,
+                    "predictions_sha256": "8" * 64,
+                    "environment_sha256": "7" * 64,
+                    "metric_id": "test.metric",
+                    "metric_maximize": True,
+                },
+                score,
+                key=_TEST_ATTESTATION_KEY,
+            )
+            if score is not None
+            else {}
+        )
 
     @property
     def is_leaf(self):
@@ -140,6 +168,20 @@ def test_paired_canary_uses_incumbent_not_history():
     assert result.passed
     assert result.candidate_best == 1.2
     assert result.incumbent_best == 1.0
+
+
+def test_canary_rejects_unattested_feedback_model_metrics():
+    candidate_node = Node("c", 1.2)
+    incumbent_node = Node("i", 1.0)
+    candidate_node.rsi_provenance = {
+        "evaluation_authority": "feedback_model_interpreted_candidate_output"
+    }
+    incumbent_node.rsi_provenance = candidate_node.rsi_provenance
+    result = RealCanaryGate().evaluate_pair(
+        Journal([candidate_node]), Journal([incumbent_node])
+    )
+    assert not result.passed
+    assert "HMAC-attested" in result.reason
 
 
 def test_canary_regression_normalization_does_not_saturate_on_candidate_delta():
@@ -321,3 +363,15 @@ def test_default_four_world_bootstrap_has_all_three_split_roles(tmp_path: Path):
     assert len(split.development) == 2
     assert len(split.validation) == 1
     assert len(split.qualification) == 1
+
+
+def test_default_bootstrap_reaches_three_qualification_worlds_in_six(tmp_path: Path):
+    manager = PersistentSplitManager(tmp_path / "splits.json")
+    split = manager.split([mk_world(i) for i in range(6)])
+    assert len(split.development) == 2
+    assert len(split.validation) == 1
+    assert len(split.qualification) == 3
+    manager.retire_qualification([world.world_id for world in split.qualification])
+    after_retirement = manager.split([mk_world(i) for i in range(6)])
+    assert not after_retirement.qualification
+    assert len(after_retirement.development) == 2
