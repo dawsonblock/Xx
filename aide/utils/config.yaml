@@ -84,10 +84,10 @@ rsi:
   resume_log_dir: null
   sandbox:
     # strict fails closed. `auto` prefers Linux bubblewrap and otherwise uses an
-    # explicitly configured Docker/Podman image. This enables the same authority
-    # boundary on macOS/Windows through a local OCI runtime.
+    # explicitly configured Docker/Podman image. On macOS, auto falls back to
+    # native Seatbelt after its live confinement check.
     mode: strict
-    backend: auto            # auto | bubblewrap | container
+    backend: auto            # auto | bubblewrap | container | seatbelt (macOS)
     container_runtime: auto  # auto | docker | podman
     # Build with `make sandbox-image`, then set this to aideml-rsi-sandbox:1.3.0
     # when bubblewrap is unavailable. Null means container fallback is disabled.

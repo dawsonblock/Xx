@@ -15,6 +15,25 @@ class SandboxUnavailable(RuntimeError):
     pass
 
 
+# Seatbelt profiles are evaluated by the macOS kernel. Keep path values in
+# sandbox-exec parameters rather than interpolating filesystem names into SBPL.
+_SEATBELT_PROFILE = """(version 1)
+(deny default)
+(allow process-exec)
+(allow file-read-metadata (subpath "/"))
+(allow file-read-data
+    (literal "/")
+    (subpath (param "PY_PREFIX"))
+    (subpath (param "PY_BASE"))
+    (subpath (param "BREW_CELLAR"))
+    (subpath (param "BREW_OPT"))
+    (subpath (param "WORK"))
+    (subpath (param "INPUT")))
+(allow file-write* (subpath (param "WORK")))
+(allow sysctl-read)
+"""
+
+
 @dataclass(frozen=True)
 class SandboxLimits:
     """Resource envelope for strict candidate execution."""
@@ -30,15 +49,19 @@ class SandboxLimits:
 class SecureInterpreter:
     """Fail-closed candidate executor.
 
-    Strict mode supports two authority boundaries:
+    Strict mode supports three authority boundaries:
 
     * ``bubblewrap`` on Linux: user/pid/network/mount namespaces with read-only
       runtime/input and a disposable writable workspace.
     * ``container`` on any host with Docker/Podman: no network, read-only rootfs,
       dropped capabilities, no-new-privileges, bounded pids/memory, read-only task
       input, and one disposable writable workspace.
+    * ``seatbelt`` on macOS: a deny-by-default local kernel profile, with only
+      the Python runtime, task input, and disposable workspace readable.
 
-    ``auto`` prefers bubblewrap on Linux, then an explicitly configured OCI image.
+    ``auto`` prefers bubblewrap on Linux, then an explicitly configured OCI
+    image, then Seatbelt on macOS. Seatbelt availability is checked with live
+    confinement probes before candidate execution.
     The process backend remains a trusted-code compatibility mode only.
     """
 
@@ -63,12 +86,19 @@ class SecureInterpreter:
         self.container_runtime_request = str(container_runtime).lower()
         self.container_image = str(container_image).strip() if container_image else None
         self.agent_file_name = str(agent_file_name)
+        if (
+            self.agent_file_name in {"", ".", ".."}
+            or Path(self.agent_file_name).name != self.agent_file_name
+        ):
+            raise ValueError("agent_file_name must be a single file name")
         self.format_tb_ipython = bool(format_tb_ipython)
         self.allow_insecure_process = bool(allow_insecure_process)
         self.limits = limits or SandboxLimits(cpu_seconds=self.timeout)
         self._tmp_root = self.base_workspace / ".rsi_exec"
         self._tmp_root.mkdir(parents=True, exist_ok=True)
         self.backend = self._resolve_backend()
+        if self.backend == "seatbelt":
+            self._seatbelt_preflight()
 
     def _resolve_runtime(self) -> str | None:
         if self.container_runtime_request in {"docker", "podman"}:
@@ -90,7 +120,7 @@ class SecureInterpreter:
             raise SandboxUnavailable(f"unsupported sandbox mode: {self.mode}")
 
         requested = self.backend_request
-        if requested not in {"auto", "bubblewrap", "container"}:
+        if requested not in {"auto", "bubblewrap", "container", "seatbelt"}:
             raise SandboxUnavailable(f"unsupported strict sandbox backend: {requested}")
 
         bwrap_ok = (
@@ -98,6 +128,9 @@ class SecureInterpreter:
         )
         runtime = self._resolve_runtime()
         container_ok = runtime is not None and bool(self.container_image)
+        seatbelt_ok = (
+            sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
+        )
 
         if requested == "bubblewrap":
             if not bwrap_ok:
@@ -111,14 +144,108 @@ class SecureInterpreter:
                     "container backend requires Docker/Podman and rsi.sandbox.container_image"
                 )
             return "container"
+        if requested == "seatbelt":
+            if not seatbelt_ok:
+                raise SandboxUnavailable(
+                    "Seatbelt backend requires macOS and sandbox-exec"
+                )
+            return "seatbelt"
         if bwrap_ok:
             return "bubblewrap"
         if container_ok:
             return "container"
+        if seatbelt_ok:
+            return "seatbelt"
         raise SandboxUnavailable(
             "no strict sandbox backend is available. Install Linux bubblewrap, or configure "
-            "Docker/Podman plus rsi.sandbox.container_image. Process mode requires explicit trusted-code opt-in."
+            "Docker/Podman plus rsi.sandbox.container_image, or use macOS Seatbelt. "
+            "Process mode requires explicit trusted-code opt-in."
         )
+
+    def _seatbelt_command(self, work: Path, script: Path) -> list[str]:
+        binary = shutil.which("sandbox-exec")
+        if sys.platform != "darwin" or binary is None:
+            raise SandboxUnavailable("macOS Seatbelt backend became unavailable")
+        prefix = Path(sys.prefix).resolve()
+        base = Path(sys.base_prefix).resolve()
+        brew_root = next(
+            (
+                root
+                for root in (Path("/opt/homebrew"), Path("/usr/local"))
+                if base.is_relative_to(root / "Cellar")
+            ),
+            None,
+        )
+        input_dir = self.base_workspace / "input"
+        paths = {
+            "PY_PREFIX": prefix,
+            "PY_BASE": base,
+            "BREW_CELLAR": brew_root / "Cellar" if brew_root else base,
+            "BREW_OPT": brew_root / "opt" if brew_root else base,
+            "WORK": work.resolve(),
+            "INPUT": input_dir.resolve() if input_dir.exists() else work.resolve(),
+        }
+        cmd = [binary, "-p", _SEATBELT_PROFILE]
+        for name, path in paths.items():
+            cmd += ["-D", f"{name}={path}"]
+        return cmd + [sys.executable, str(script)]
+
+    @staticmethod
+    def _seatbelt_env(work: Path) -> dict[str, str]:
+        return {
+            "HOME": str(work),
+            "TMPDIR": str(work),
+            "PATH": "/usr/bin:/bin",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+        }
+
+    def _seatbelt_preflight(self) -> None:
+        work = self._new_workspace()
+        sentinel_fd, sentinel_name = tempfile.mkstemp(
+            prefix=".rsi-seatbelt-probe-", dir=self._tmp_root
+        )
+        sentinel = Path(sentinel_name)
+        try:
+            with os.fdopen(sentinel_fd, "w") as stream:
+                stream.write("private")
+            probe = work / "probe.py"
+            probe.write_text(
+                "import errno, socket, subprocess, sys\n"
+                "from pathlib import Path\n"
+                "work, sentinel = map(Path, sys.argv[1:])\n"
+                "(work / 'writable').write_text('ok')\n"
+                "def denied(action):\n"
+                "    try: action()\n"
+                "    except OSError as exc: return exc.errno in (errno.EPERM, errno.EACCES)\n"
+                "    return False\n"
+                "if not denied(lambda: sentinel.read_bytes()): raise SystemExit('host read allowed')\n"
+                "if not denied(lambda: sentinel.write_text('bad')): raise SystemExit('host write allowed')\n"
+                "if not denied(lambda: socket.create_connection(('127.0.0.1', 1), timeout=1)): raise SystemExit('network allowed')\n"
+                "if not denied(lambda: subprocess.run(['/usr/bin/true'], check=True)): raise SystemExit('spawn allowed')\n"
+                "print('seatbelt-ok')\n"
+            )
+            result = subprocess.run(
+                self._seatbelt_command(work, probe) + [str(work), str(sentinel)],
+                cwd=work,
+                env=self._seatbelt_env(work),
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            if result.returncode != 0 or result.stdout.strip() != "seatbelt-ok":
+                raise SandboxUnavailable(
+                    f"macOS Seatbelt confinement check failed (exit {result.returncode}): "
+                    f"{result.stderr[-500:]}"
+                )
+        except subprocess.TimeoutExpired as exc:
+            raise SandboxUnavailable(
+                "macOS Seatbelt confinement check timed out"
+            ) from exc
+        finally:
+            sentinel.unlink(missing_ok=True)
+            shutil.rmtree(work, ignore_errors=True)
 
     def _new_workspace(self) -> Path:
         return Path(tempfile.mkdtemp(prefix="candidate-", dir=self._tmp_root))
@@ -208,6 +335,7 @@ class SecureInterpreter:
         backend: str,
         env: dict[str, str] | None = None,
         preexec_fn=None,
+        cwd: Path | None = None,
     ):
         from aide.interpreter import ExecutionResult
 
@@ -238,6 +366,7 @@ class SecureInterpreter:
             stderr=subprocess.PIPE,
             preexec_fn=preexec_fn,
             env=env,
+            cwd=cwd,
         )
         assert proc.stdout is not None and proc.stderr is not None
         readers = [
@@ -409,6 +538,25 @@ class SecureInterpreter:
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+    def _seatbelt_run(self, code: str):
+        work = self._new_workspace()
+        try:
+            script = work / self.agent_file_name
+            script.write_text(code)
+            input_dir = self.base_workspace / "input"
+            if input_dir.exists():
+                os.symlink(input_dir, work / "input", target_is_directory=True)
+            return self._run_subprocess(
+                self._seatbelt_command(work, script),
+                work,
+                backend="seatbelt",
+                env=self._seatbelt_env(work),
+                preexec_fn=self._limit_preexec(),
+                cwd=work,
+            )
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     def _process_run(self, code: str):
         from aide.interpreter import Interpreter
 
@@ -436,6 +584,8 @@ class SecureInterpreter:
             return self._bubblewrap_run(code)
         if self.backend == "container":
             return self._container_run(code)
+        if self.backend == "seatbelt":
+            return self._seatbelt_run(code)
         return self._process_run(code)
 
     def cleanup_session(self) -> None:

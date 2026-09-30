@@ -73,7 +73,26 @@ JEV outages are fail-open by default for advisory functionality: the determinist
 
 ## Strict candidate execution
 
-Linux can use Bubblewrap. macOS/Windows can use the supplied Docker/Podman strict container backend:
+Linux can use Bubblewrap. On macOS, `auto` uses the local Seatbelt backend when
+no container image is configured. You can select it explicitly without Docker:
+
+```bash
+aide-rsi \
+  data_dir=/path/to/data \
+  goal="Optimize the solution" \
+  rsi.sandbox.mode=strict \
+  rsi.sandbox.backend=seatbelt
+```
+
+Seatbelt runs a live confinement check before candidate execution. It denies
+candidate network access, process spawning, host-file contents outside the
+Python runtime and task input, and writes outside the disposable workspace.
+Apple has deprecated the `sandbox-exec` interface. It exposes host file
+metadata and the local Python runtime to candidates, and it does not provide
+the container backend's process/memory isolation. Use a dedicated runtime
+without secrets in its installation directory.
+
+macOS/Windows can also use the supplied Docker/Podman strict container backend:
 
 ```bash
 make sandbox-image

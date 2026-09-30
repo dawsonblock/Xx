@@ -2,6 +2,21 @@
 
 Build date: 2026-09-29
 
+## Local macOS Seatbelt follow-up (2026-09-29)
+
+- Added an explicit native `seatbelt` backend and macOS `auto` selection when
+  no OCI image is configured. It performs a live confinement probe before
+  candidate execution and fails closed if the probe fails.
+- On macOS 26.2, a real candidate using the isolated Python 3.10 environment
+  read permitted task input. Host-file reads and writes, input mutation,
+  loopback network connection, and subprocess creation were denied by the
+  kernel profile. A deliberately permissive profile was rejected by preflight.
+- Seatbelt is a deprecated macOS interface and lacks the OCI backend's
+  process/memory isolation. These local checks do not establish security
+  qualification across macOS or Python runtime versions.
+- The full project suite now passes **103 tests**. Ruff and Black pass for
+  `aide/`, and the updated wheel and source distribution build successfully.
+
 ## Post-review local hardening (2026-09-29)
 
 - In an isolated Python 3.10 environment with test/runtime imports installed, `PYTHONPATH=. python -m pytest -q` — **100 passed**.

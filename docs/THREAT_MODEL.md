@@ -54,6 +54,25 @@ On Docker/Podman hosts, the strict container backend runs candidate code with:
 
 The container image must already contain all runtime dependencies. Build the provided image with `make sandbox-image` or supply another audited image.
 
+### macOS Seatbelt backend
+
+On macOS, `rsi.sandbox.backend=seatbelt` uses the local `sandbox-exec` kernel
+profile. It denies all operations by default, permits reads of the Python
+runtime and task input, and permits writes only in a disposable workspace.
+Network access and process spawning are denied. The child receives a minimal
+environment without controller credentials. Before candidate execution, a
+live probe checks that Python runs, the workspace is writable, and host reads,
+host writes, network access, and process spawning are denied. Failure refuses
+strict execution.
+
+The interface is deprecated by Apple and can change in a macOS update. The
+profile permits host file metadata lookup and reads of the selected Python
+installation, including Homebrew Cellar/opt directories when applicable.
+There is no per-workspace disk quota or container-style process/memory
+isolation. Candidate dependencies may fail to import if they require files
+outside the allowed runtime roots. This backend must be requalified on each
+target macOS/runtime combination before unattended use.
+
 ### Compatibility process mode
 
 `rsi.sandbox.mode=process` is not hostile-code containment. It requires `allow_insecure_process=true` and should be used only for trusted code or inside a stronger external isolation boundary.
