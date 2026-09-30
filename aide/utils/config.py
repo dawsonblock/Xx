@@ -136,8 +136,10 @@ class RSITrustedEvaluatorConfig:
     environment_manifest_sha256: str | None = None
     metric_id: str | None = None
     metric_maximize: bool | None = None
+    sandbox_backend: str = "auto"
     timeout_s: float = 600.0
     max_output_mb: int = 64
+    max_memory_mb: int = 4096
 
 
 @dataclass

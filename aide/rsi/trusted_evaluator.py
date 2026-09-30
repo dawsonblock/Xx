@@ -13,6 +13,7 @@ import json
 import math
 import os
 import platform
+import shutil
 import signal
 import stat
 import subprocess
@@ -122,6 +123,51 @@ def _required_path(config: Any, name: str, *, directory: bool = False) -> Path:
     return path
 
 
+_EVALUATOR_SEATBELT_PROFILE = """(version 1)
+(deny default)
+(allow process-exec)
+(allow process-fork)
+(allow file-read-metadata (subpath "/"))
+(allow file-read*
+    (literal "/")
+    (subpath (param "PY_PREFIX"))
+    (subpath (param "PY_BASE"))
+    (subpath "/usr/bin")
+    (subpath "/bin")
+    (subpath "/usr/lib")
+    (subpath "/System/Library")
+    (subpath "/usr/share/zoneinfo")
+    (subpath "/opt/homebrew/opt")
+    (subpath "/opt/homebrew/Cellar")
+    (subpath "/usr/local/opt")
+    (subpath "/usr/local/Cellar")
+    (literal "/etc/localtime")
+    (literal "/dev/null")
+    (literal "/dev/urandom")
+    (subpath (param "BUNDLE"))
+    (subpath (param "DATASET"))
+    (subpath (param "CONFIG"))
+    (subpath (param "SPLIT"))
+    (subpath (param "CANDIDATE"))
+    (subpath (param "SCRATCH")))
+(allow file-write* (subpath (param "SCRATCH")))
+(allow sysctl-read)
+"""
+
+
+_EVALUATOR_WRAPPER = """import resource, runpy, sys
+file_limit, cpu_limit, memory_limit = map(int, sys.argv[1:4])
+resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
+resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+if sys.platform.startswith("linux"):
+    resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+bundle, entry, *args = sys.argv[4:]
+sys.path.insert(0, bundle)
+sys.argv = [entry, *args]
+runpy.run_path(entry, run_name="__main__")
+"""
+
+
 @dataclass(frozen=True)
 class TrustedEvaluation:
     score: float
@@ -151,6 +197,13 @@ class TrustedEvaluator:
         self.metric_maximize = getattr(config, "metric_maximize", None)
         self.timeout_s = float(getattr(config, "timeout_s", 0) or 0)
         self.max_output_bytes = int(getattr(config, "max_output_mb", 64) or 0) * 1024**2
+        self.max_memory_bytes = (
+            int(getattr(config, "max_memory_mb", 4096) or 0) * 1024**2
+        )
+        self.sandbox_backend = self._resolve_sandbox_backend(
+            str(getattr(config, "sandbox_backend", "auto") or "auto").lower()
+        )
+        self.evaluator_path = f"{Path(sys.executable).parent}:/usr/bin:/bin"
         self.artifact_root = Path(artifact_root).resolve()
         self.task_sha256 = _stable_digest(task_description)
 
@@ -193,6 +246,10 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "trusted evaluator max_output_mb must be in [1, 4096]"
             )
+        if not 128 <= self.max_memory_bytes <= 65536 * 1024**2:
+            raise TrustedEvaluatorError(
+                "trusted evaluator max_memory_mb must be in [128, 65536]"
+            )
         if (
             not os.environ.get("AIDE_RSI_EVALUATION_HMAC_KEY")
             or len(os.environ["AIDE_RSI_EVALUATION_HMAC_KEY"].encode("utf-8")) < 32
@@ -212,10 +269,13 @@ class TrustedEvaluator:
                 "python_executable_sha256": file_sha256(python_path),
                 "python_version": sys.version,
                 "platform": platform.platform(),
-                "path": os.environ.get("PATH", ""),
+                "path": self.evaluator_path,
+                "sandbox_backend": self.sandbox_backend,
+                "evaluator_path": self.evaluator_path,
                 "evaluation_limits": {
                     "timeout_s": self.timeout_s,
                     "max_output_bytes": self.max_output_bytes,
+                    "max_memory_bytes": self.max_memory_bytes,
                 },
                 "installed_distributions": sorted(
                     (
@@ -227,6 +287,174 @@ class TrustedEvaluator:
             }
         )
         self.identity = _stable_digest(self._identity_fields())
+
+    @staticmethod
+    def _resolve_sandbox_backend(requested: str) -> str:
+        if requested == "auto":
+            if sys.platform == "darwin" and shutil.which("sandbox-exec"):
+                return "seatbelt"
+            if sys.platform.startswith("linux") and shutil.which("bwrap"):
+                return "bubblewrap"
+            raise TrustedEvaluatorError(
+                "strict evaluator sandbox unavailable; install macOS sandbox-exec "
+                "or Linux bubblewrap"
+            )
+        if requested == "seatbelt":
+            if sys.platform != "darwin" or not shutil.which("sandbox-exec"):
+                raise TrustedEvaluatorError(
+                    "Seatbelt evaluator backend requires macOS sandbox-exec"
+                )
+            return requested
+        if requested == "bubblewrap":
+            if not sys.platform.startswith("linux") or not shutil.which("bwrap"):
+                raise TrustedEvaluatorError(
+                    "Bubblewrap evaluator backend requires Linux and bwrap"
+                )
+            return requested
+        raise TrustedEvaluatorError(
+            "trusted evaluator sandbox_backend must be auto, seatbelt, or bubblewrap"
+        )
+
+    def _evaluator_process(
+        self,
+        *,
+        temp_dir: Path,
+        candidate_path: Path,
+        request: dict[str, Any],
+    ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
+        """Build a fail-closed Seatbelt or Bubblewrap evaluator invocation."""
+        if self.sandbox_backend == "seatbelt":
+            request_paths = {
+                "candidate_path": str(candidate_path),
+                "evaluator_config_path": str(self.config_path),
+                "dataset_dir": str(self.dataset_dir),
+                "split_manifest_path": str(self.split_path),
+                "output_dir": str(temp_dir / "predictions"),
+            }
+            bundle_path = str(self.bundle_dir)
+            entrypoint = str(self.entrypoint)
+            request_path = str(temp_dir / "request.json")
+            response_path = str(temp_dir / "response.json")
+            scratch_path = str(temp_dir)
+            prefix = [shutil.which("sandbox-exec") or "sandbox-exec"]
+            for name, value in (
+                ("PY_PREFIX", sys.prefix),
+                ("PY_BASE", sys.base_prefix),
+                ("BUNDLE", self.bundle_dir),
+                ("DATASET", self.dataset_dir),
+                ("CONFIG", self.config_path),
+                ("SPLIT", self.split_path),
+                ("CANDIDATE", candidate_path.resolve()),
+                ("SCRATCH", temp_dir.resolve()),
+            ):
+                prefix.extend(("-D", f"{name}={value}"))
+            prefix.extend(("-p", _EVALUATOR_SEATBELT_PROFILE))
+            home_path = scratch_path
+        else:
+            request_paths = {
+                "candidate_path": "/candidate.py",
+                "evaluator_config_path": "/task-config.json",
+                "dataset_dir": "/hidden-data",
+                "split_manifest_path": "/split-manifest.json",
+                "output_dir": "/scratch/predictions",
+            }
+            bundle_path = "/evaluator"
+            entrypoint = (
+                Path(bundle_path) / self.entrypoint.relative_to(self.bundle_dir)
+            ).as_posix()
+            request_path = "/scratch/request.json"
+            response_path = "/scratch/response.json"
+            scratch_path = "/scratch"
+            prefix = [
+                shutil.which("bwrap") or "bwrap",
+                "--die-with-parent",
+                "--new-session",
+                "--unshare-all",
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--tmpfs",
+                "/tmp",
+            ]
+            bound: set[str] = set()
+            for root in ("/usr", "/bin", "/lib", "/lib64", "/etc"):
+                if Path(root).exists():
+                    prefix.extend(("--ro-bind", root, root))
+                    bound.add(str(Path(root).resolve()))
+            for runtime_path in {
+                Path(sys.prefix).resolve(),
+                Path(sys.base_prefix).resolve(),
+            }:
+                if runtime_path.exists() and not any(
+                    str(runtime_path) == root
+                    or str(runtime_path).startswith(root + os.sep)
+                    for root in bound
+                ):
+                    prefix.extend(("--ro-bind", str(runtime_path), str(runtime_path)))
+                    bound.add(str(runtime_path))
+            prefix.extend(
+                (
+                    "--ro-bind",
+                    str(self.bundle_dir),
+                    "/evaluator",
+                    "--ro-bind",
+                    str(self.dataset_dir),
+                    "/hidden-data",
+                    "--ro-bind",
+                    str(self.config_path),
+                    "/task-config.json",
+                    "--ro-bind",
+                    str(self.split_path),
+                    "/split-manifest.json",
+                    "--ro-bind",
+                    str(candidate_path),
+                    "/candidate.py",
+                    "--bind",
+                    str(temp_dir),
+                    "/scratch",
+                    "--chdir",
+                    "/scratch",
+                    "--clearenv",
+                    "--setenv",
+                    "HOME",
+                    "/tmp",
+                    "--setenv",
+                    "TMPDIR",
+                    "/tmp",
+                    "--setenv",
+                    "PATH",
+                    self.evaluator_path,
+                )
+            )
+            home_path = "/tmp"
+
+        child_request = {**request, **request_paths}
+        command = [
+            *prefix,
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            _EVALUATOR_WRAPPER,
+            str(self.max_output_bytes),
+            str(max(1, math.ceil(self.timeout_s))),
+            str(self.max_memory_bytes),
+            bundle_path,
+            entrypoint,
+            "--request",
+            request_path,
+            "--response",
+            response_path,
+        ]
+        environment = {
+            "PATH": self.evaluator_path,
+            "HOME": home_path,
+            "TMPDIR": home_path,
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        return command, environment, child_request
 
     def _verify_inputs(
         self, expected_environment_manifest: str, *, verify_dataset: bool = True
@@ -288,11 +516,14 @@ class TrustedEvaluator:
         ):
             raise TrustedEvaluatorError("candidate source digest changed")
 
-        with tempfile.TemporaryDirectory(prefix="aide-rsi-eval-") as temp:
+        with (
+            tempfile.TemporaryDirectory(prefix="aide-rsi-eval-") as temp,
+            tempfile.TemporaryDirectory(prefix="aide-rsi-candidate-") as source_temp,
+        ):
             temp_dir = Path(temp)
             request_path = temp_dir / "request.json"
             response_path = temp_dir / "response.json"
-            candidate_path = temp_dir / "candidate.py"
+            candidate_path = Path(source_temp) / "candidate.py"
             candidate_bytes = candidate_source.encode("utf-8")
             candidate_path.write_bytes(candidate_bytes)
             candidate_path.chmod(0o444)
@@ -315,40 +546,22 @@ class TrustedEvaluator:
                 "metric_maximize": self.metric_maximize,
                 "output_dir": str(output_dir),
             }
-            request_path.write_text(json.dumps(request, sort_keys=True) + "\n")
-            environment = {
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                "HOME": str(temp_dir),
-                "TMPDIR": str(temp_dir),
-                "PYTHONNOUSERSITE": "1",
-                # Evaluator-local imports otherwise create __pycache__ files and
-                # invalidate the bundle's content pin on the first invocation.
-                "PYTHONDONTWRITEBYTECODE": "1",
-            }
+            command, environment, child_request = self._evaluator_process(
+                temp_dir=temp_dir,
+                candidate_path=candidate_path,
+                request=request,
+            )
+            request_path.write_text(json.dumps(child_request, sort_keys=True) + "\n")
+            resident_reader = None
+            if self.sandbox_backend == "seatbelt":
+                from .sandbox import SecureInterpreter
+
+                resident_reader = SecureInterpreter._macos_resident_bytes
+            missing_memory_samples = 0
             try:
                 process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-I",
-                        "-B",
-                        "-c",
-                        (
-                            "import resource,runpy,sys; "
-                            "limit=int(sys.argv[1]); "
-                            "resource.setrlimit(resource.RLIMIT_FSIZE,(limit,limit)); "
-                            "bundle,entry,*args=sys.argv[2:]; "
-                            "sys.path.insert(0,bundle); sys.argv=[entry,*args]; "
-                            "runpy.run_path(entry,run_name='__main__')"
-                        ),
-                        str(self.max_output_bytes),
-                        str(self.bundle_dir),
-                        str(self.entrypoint),
-                        "--request",
-                        str(request_path),
-                        "--response",
-                        str(response_path),
-                    ],
-                    cwd=temp_dir,
+                    command,
+                    cwd=(temp_dir if self.sandbox_backend == "seatbelt" else "/"),
                     env=environment,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
@@ -363,6 +576,22 @@ class TrustedEvaluator:
                         raise TrustedEvaluatorError(
                             "pinned evaluator exceeded its scratch output limit"
                         )
+                    if resident_reader is not None:
+                        resident_bytes = resident_reader(process.pid)
+                        if resident_bytes is None:
+                            missing_memory_samples += 1
+                            if missing_memory_samples >= 3:
+                                _kill_process_group(process)
+                                raise TrustedEvaluatorError(
+                                    "macOS evaluator memory monitoring failed"
+                                )
+                        elif resident_bytes > self.max_memory_bytes:
+                            _kill_process_group(process)
+                            raise TrustedEvaluatorError(
+                                "pinned evaluator exceeded its memory limit"
+                            )
+                        else:
+                            missing_memory_samples = 0
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         _kill_process_group(process)

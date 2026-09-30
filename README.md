@@ -1,4 +1,4 @@
-# AIDE-DREAM-RSI v1.3.4
+# AIDE-DREAM-RSI v1.3.5
 
 This repository retains the owner's MIT license in `LICENSE`. The included AIDE ML code retains its Weco AI MIT notice in `LICENSE-AIDE`; bundled component licenses remain under `vendor/LocalJevFabric-v1.5.0/components/`.
 
@@ -18,7 +18,7 @@ Qualifier   -> promotion gate (fails closed without trusted metrics)
 
 JEV cannot create legal search actions, execute tools, rewrite replay history, alter the evaluator, bypass the sandbox, or promote a policy. In v1.3, branch ranking, model routing, verification depth, and failure classification are **shadow/advisory by default**. After reviewing evidence, an operator may explicitly set `rsi.jev.failure_influence=true`; only then may a high-confidence failure-repairability classification refine recovery priority. JEV still cannot add legal actions or gain promotion authority.
 
-The default live AIDE feedback path asks a model to interpret candidate output and report a metric. Those values remain useful for exploration, but are not trusted evaluation evidence. Replay qualification and best-solution publication require HMAC-attested records binding candidate, task, evaluator and configuration, dataset, split, predictions, environment, metric identity/direction, and result. Live canary promotion additionally requires a separate `rsi.canary_evaluator` with a different pinned dataset or split and the same metric. The pinned evaluator protocol supports local imports without mutating its bundle, bounds scratch output, and retains prediction and signed-record artifacts by content hash. The operator supplied bundle must rerun the content-addressed candidate against its fixed task configuration and hidden dataset/split, then return its measured score and prediction digest. The host checks the bundle/config/data pins and signs the result. Child environment filtering and read-only permission bits do not form an OS security boundary. Replay validation and qualification reuse discovery scores, so they do not establish untouched data generalization.
+The default live AIDE feedback path asks a model to interpret candidate output and report a metric. Those values remain useful for exploration, but are not trusted evaluation evidence. Replay qualification and best-solution publication require HMAC-attested records binding candidate, task, evaluator and configuration, dataset, split, predictions, environment, metric identity/direction, and result. Live canary promotion additionally requires a separate `rsi.canary_evaluator` with a different pinned dataset or split and the same metric. Evaluator subprocesses run inside macOS Seatbelt or Linux Bubblewrap with network denied and bounded scratch/resource use. The operator supplied bundle must rerun the content-addressed candidate against its fixed task configuration and hidden dataset/split, then return its measured score and prediction digest. The host checks the bundle/config/data pins and signs the result. The evaluator still must run candidate code in a separate sandbox that hides labels. Replay validation and qualification reuse discovery scores, so they do not establish untouched data generalization.
 
 No task-specific evaluator bundle is included because data formats and hidden-label rules vary by task. The default remains disabled and promotion remains fail-closed until an operator supplies and pins reviewed search and canary evaluator bundles. Configure them under `rsi.trusted_evaluator` and `rsi.canary_evaluator`; see [docs/TRUSTED_EVALUATOR.md](docs/TRUSTED_EVALUATOR.md). Do not reuse an RSI run or split manifest after changing evaluator, task, dataset, metric, or environment identity.
 
@@ -114,7 +114,7 @@ aide-rsi \
   goal="Optimize the solution" \
   rsi.sandbox.mode=strict \
   rsi.sandbox.backend=container \
-  rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.4
+  rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.5
 ```
 
 The reference live executor remains intentionally serial (`rsi.max_parallelism=1`); replay parallel reward stays zero until real isolated concurrency exists.

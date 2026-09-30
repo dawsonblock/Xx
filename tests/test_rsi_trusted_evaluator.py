@@ -36,9 +36,13 @@ def _write_evaluator_bundle(
     spawn_grandchild: bool = False,
     grandchild_marker: Path | None = None,
     tamper_candidate: bool = False,
+    probe_outside_path: Path | None = None,
+    probe_network_port: int | None = None,
 ) -> None:
     bundle.mkdir()
     grandchild_path = json.dumps(str(grandchild_marker or ""))
+    probe_path = json.dumps(str(probe_outside_path or ""))
+    network_port = probe_network_port or 0
     script = f"""import argparse
 import hashlib
 import json
@@ -62,6 +66,21 @@ if Path(request["candidate_path"]).read_text() == "":
 if {tamper_candidate}:
     Path(request["candidate_path"]).chmod(0o644)
     Path(request["candidate_path"]).write_text("tampered candidate\\n")
+score = VALUE
+if {probe_path}:
+    try:
+        Path({probe_path}).read_text()
+    except OSError:
+        pass
+    else:
+        score = 0.0
+if {network_port}:
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", {network_port}), timeout=0.25):
+            score = 0.0
+    except OSError:
+        pass
 if {flood_output}:
     import time
     with (Path(request["output_dir"]) / "flood.bin").open("wb") as flood:
@@ -83,7 +102,7 @@ predictions_sha256 = (
     "a" * 64 if {forge_predictions} else
     hashlib.sha256(predictions_path.read_bytes()).hexdigest()
 )
-result.update(schema_version=1, score=VALUE, predictions_sha256=predictions_sha256)
+result.update(schema_version=1, score=score, predictions_sha256=predictions_sha256)
 Path(args.response).write_text(json.dumps(result))
 raise SystemExit({exit_code})
 """
@@ -100,6 +119,8 @@ def _make_evaluator(
     flood_output: bool = False,
     spawn_grandchild: bool = False,
     tamper_candidate: bool = False,
+    probe_outside_path: Path | None = None,
+    probe_network_port: int | None = None,
 ):
     monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", TEST_KEY)
     bundle = tmp_path / "evaluator"
@@ -111,6 +132,8 @@ def _make_evaluator(
         spawn_grandchild=spawn_grandchild,
         grandchild_marker=tmp_path / "grandchild-survived",
         tamper_candidate=tamper_candidate,
+        probe_outside_path=probe_outside_path,
+        probe_network_port=probe_network_port,
     )
     for path in bundle.iterdir():
         path.chmod(0o444)
@@ -255,7 +278,7 @@ def test_evaluator_grandchildren_are_terminated(tmp_path: Path, monkeypatch):
     assert not marker.exists()
 
 
-def test_candidate_snapshot_mutation_is_rejected_without_touching_artifact(
+def test_candidate_snapshot_cannot_be_changed_and_artifact_is_preserved(
     tmp_path: Path, monkeypatch
 ):
     evaluator, candidate_sha256, _ = _make_evaluator(
@@ -263,8 +286,7 @@ def test_candidate_snapshot_mutation_is_rejected_without_touching_artifact(
     )
 
     with pytest.raises(
-        TrustedEvaluatorError,
-        match="candidate snapshot changed during trusted evaluation",
+        TrustedEvaluatorError, match="pinned evaluator returned nonzero"
     ):
         evaluator.evaluate(candidate_sha256)
 
@@ -274,6 +296,66 @@ def test_candidate_snapshot_mutation_is_rejected_without_touching_artifact(
         / candidate_sha256[:2]
         / f"{candidate_sha256}.py"
     ).read_text() == "print('candidate')\n"
+
+
+def test_evaluator_cannot_read_unmounted_host_files(tmp_path: Path, monkeypatch):
+    secret = tmp_path.parent / "host-only-secret.txt"
+    secret.write_text("host secret sentinel")
+    evaluator, candidate_sha256, _ = _make_evaluator(
+        tmp_path, monkeypatch, probe_outside_path=secret
+    )
+
+    result = evaluator.evaluate(candidate_sha256)
+
+    assert result.score == pytest.approx(0.875)
+
+
+def test_evaluator_cannot_connect_to_host_loopback(tmp_path: Path, monkeypatch):
+    import socket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    evaluator, candidate_sha256, _ = _make_evaluator(
+        tmp_path, monkeypatch, probe_network_port=listener.getsockname()[1]
+    )
+
+    try:
+        result = evaluator.evaluate(candidate_sha256)
+    finally:
+        listener.close()
+
+    assert result.score == pytest.approx(0.875)
+
+
+def test_bubblewrap_invocation_uses_private_namespaces_and_read_only_inputs(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, candidate_sha256, _ = _make_evaluator(tmp_path, monkeypatch)
+    evaluator.sandbox_backend = "bubblewrap"
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator.shutil.which", lambda name: "/usr/bin/bwrap"
+    )
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    candidate = tmp_path / "candidate.py"
+    candidate.write_text("print('candidate')\n")
+
+    command, environment, child_request = evaluator._evaluator_process(
+        temp_dir=scratch,
+        candidate_path=candidate,
+        request={"candidate_sha256": candidate_sha256},
+    )
+
+    assert command[0] == "/usr/bin/bwrap"
+    assert "--unshare-all" in command
+    assert "--new-session" in command
+    assert "--ro-bind" in command
+    assert "--bind" in command
+    assert "--clearenv" in command
+    assert environment["PATH"] == evaluator.evaluator_path
+    assert child_request["dataset_dir"] == "/hidden-data"
+    assert child_request["output_dir"] == "/scratch/predictions"
 
 
 def test_trusted_evaluator_requires_read_only_hidden_data(tmp_path: Path, monkeypatch):

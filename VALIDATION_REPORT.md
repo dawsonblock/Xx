@@ -1,68 +1,66 @@
-# Validation Report — AIDE-DREAM-RSI v1.3.4
+# Validation Report — AIDE-DREAM-RSI v1.3.5
 
-Build identity: `VERSION=1.3.4`, distribution `aideml-rsi==1.3.4`.
+Build identity: `VERSION=1.3.5`, distribution `aideml-rsi==1.3.5`.
 Validation date: 2026-09-30.
 
 ## Local validation
 
-- Full project pytest suite: **138 passed, 1 skipped**.
-- RSI suite: **87 passed, 1 skipped**.
-- Trusted-evaluator module: **13 passed**.
-- Black 26.3.1: passed for the modified Python files.
-- Ruff 0.16.9: passed for changed runner and trusted-evaluator test files.
+- Full project pytest suite: **141 passed, 1 skipped**.
+- RSI suite: **90 passed, 1 skipped**.
+- Trusted-evaluator module: **16 passed**.
+- Black 25.1.0: passed for the changed Python files.
+- Ruff 0.16.0: passed for `aide/rsi/trusted_evaluator.py` and
+  `tests/test_rsi_trusted_evaluator.py`. The whole-repository check reports 96
+  existing findings; `aide/utils/config.py` has five pre-existing findings.
 - `python -m compileall -q aide tests`: passed.
-- `python setup.py --version`: `1.3.4`.
-- Shipped YAML parses with the new canary evaluator defaults disabled.
-- `BUILD_MANIFEST.json` parses and its version matches the package.
+- `python setup.py --version`: `1.3.5`.
+- Shipped YAML and `BUILD_MANIFEST.json` parse successfully.
 - `git diff --check`: passed.
 
-The trusted-evaluator tests exercise a multi-file bundle with a local helper
-import, assert that importing it does not create `__pycache__`, check read-only
-bundle and dataset permissions, enforce a bounded scratch directory, terminate
-an evaluator grandchild, persist content-addressed prediction and signed-record
-artifacts, reject a forged prediction digest, verify fail-closed metric
-handling, and enforce distinct search/canary data identities and metric parity.
-It also verifies migration of prior single-evaluator run identities and rejects
-candidate snapshot mutation without changing the canonical artifact. The test
-evaluator is deterministic and contains no hidden task data.
+The trusted-evaluator tests exercise multi-file local imports, bytecode
+immutability, read-only inputs, scratch output limits, child cleanup,
+resource-identity binding, persisted prediction and signed-record artifacts,
+independent canary split enforcement, prior-state identity migration,
+candidate snapshot mutation rejection, host-file denial, loopback network
+denial, and Bubblewrap command construction. The deterministic test evaluator
+contains no hidden task data.
 
-Bubblewrap, OCI candidate execution, a task-specific evaluator bundle, and a
-live model backend were not run for this build. This report does not establish
-deployment readiness or candidate isolation inside an operator-supplied
-evaluator.
+The macOS Seatbelt backend was exercised locally, including filesystem,
+network, candidate-mutation, scratch-limit, and child-cleanup checks. Linux
+Bubblewrap execution and OCI candidate execution were not run on macOS; its
+command construction was unit tested. No task-specific hidden-data evaluator
+or live model backend was exercised. This report does not establish deployment
+readiness or candidate isolation inside an operator-supplied evaluator.
 
 ## Evaluator security and evidence limits
 
-The host launches evaluator Python with `-I -B` and sets
-`PYTHONDONTWRITEBYTECODE=1`. It requires the evaluator bundle to have no write
-permission bits, applies a per-file limit and samples aggregate scratch use in
-the temporary directory against `max_output_mb`, kills the evaluator process
-group, and stores verified predictions and attested records by content hash.
-This does not constrain writes outside that directory or stop a deliberate new
-session. Read-only mode bits do not stop hostile same-UID code from changing
-permissions; deployment should mount the bundle read-only.
+Trusted evaluator processes run in a deny-by-default macOS Seatbelt or Linux
+Bubblewrap sandbox. The sandbox permits reads of the pinned runtime, evaluator
+bundle, configuration, split, dataset, and candidate snapshot; writes are
+limited to temporary scratch space; network access is denied. Bubblewrap uses
+private namespaces and a private `/proc`. The host also enforces a timeout,
+CPU limit, per-file output limit, and aggregate scratch limit. Linux applies a
+per-process address-space limit. macOS samples the evaluator process RSS; this
+does not aggregate memory used by evaluator grandchildren.
 
-The evaluator receives no HMAC key through inherited environment variables.
-That does not provide OS-level key isolation: a same-UID child may inspect its
-parent environment through `/proc` on common Linux configurations. HMAC remains
-a symmetric record-integrity mechanism under a trusted host process. A
-restricted signer process or service is not included.
+The sandbox intentionally gives the evaluator access to task data so it can
+compute the metric. It does not isolate candidate code that the evaluator runs
+in-process. The task bundle must execute candidates in a separately qualified
+sandbox that hides labels and credentials. The HMAC key is withheld from the
+evaluator child, but the signer is not a dedicated UID or signing service and
+there is no hardware-backed key boundary.
 
-The replay split separates historical worlds, not task data. Replay validation
-and qualification reuse discovery scores and are not untouched generalization
-evidence. A separate pinned canary evaluator is now required for trusted live
-promotion, but task-specific candidate confinement remains the operator's
-responsibility. Separate validation and one-shot qualification data authorities
-are not implemented.
-
-The host trusts the task evaluator's metric implementation and does not
-independently recompute it from labels and predictions. Environment identity
-records platform and `PATH` values along with the Python executable and package
-inventory; it does not bind a container image or the contents of external
-executables and system libraries.
+Replay splits separate historical worlds, not task data. Replay validation and
+qualification reuse discovery scores and are not untouched generalization
+evidence. Separate validation and one-shot qualification data authorities are
+not implemented. The host trusts the pinned task evaluator's metric
+implementation and does not independently recompute it from labels and
+predictions. Environment identity records the Python runtime, installed
+packages, restricted `PATH`, sandbox backend, platform, and limits, but does
+not bind a container image or every external executable and system library.
 
 ## Historical validation
 
-The v1.3.3 report is preserved in
-`docs/archive/VALIDATION_REPORT_v1.3.3.md`; its test counts do not apply to this
+The v1.3.4 report is preserved in
+`docs/archive/VALIDATION_REPORT_v1.3.4.md`; its test counts do not apply to this
 build. Earlier reports remain in the archive directory.
