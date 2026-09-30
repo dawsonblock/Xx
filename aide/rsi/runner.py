@@ -223,6 +223,7 @@ def _run_live_episode(
     state_store: RSIStateStore | None = None,
     resume: bool = False,
     provenance: dict[str, Any] | None = None,
+    trusted_evaluator=None,
 ):
     """Run one real online episode under exactly one exploration policy."""
     from omegaconf import OmegaConf
@@ -302,6 +303,9 @@ def _run_live_episode(
         "feedback_model": str(cfg.agent.feedback.model),
         "task_digest": _stable_digest(task_desc),
         "sandbox_mode": str(cfg.rsi.sandbox.mode),
+        "trusted_evaluator_identity": (
+            trusted_evaluator.identity if trusted_evaluator is not None else None
+        ),
         "agent_config_digest": _stable_digest(OmegaConf.to_container(cfg.agent)),
         "exec_config_digest": _stable_digest(OmegaConf.to_container(cfg.exec)),
         "episode_log": str(log_dir),
@@ -357,7 +361,12 @@ def _run_live_episode(
                     "candidate_sha256": candidate_sha256,
                     "evaluation_authority": "feedback_model_interpreted_candidate_output",
                 }
-                agent.evaluate_generated_node(node, interpreter.run)
+                agent.evaluate_generated_node(
+                    node,
+                    interpreter.run,
+                    trusted_evaluator=trusted_evaluator,
+                    candidate_sha256=candidate_sha256,
+                )
                 if advisor is not None and bool(getattr(node, "is_buggy", False)):
                     fail_class = controller._failure_class(node)
                     fail_error = (
@@ -397,8 +406,9 @@ def _run_live_episode(
 def run_rsi() -> None:
     """Run AIDE under replay-improved, qualified exploration control."""
     from omegaconf import OmegaConf
-    from aide.agent import add_task_metric, determine_task_metric
+    from aide.agent import TaskMetric, add_task_metric, determine_task_metric
     from aide.utils.config import load_cfg, load_task_desc
+    from .trusted_evaluator import create_trusted_evaluator
 
     cfg = load_cfg()
     if not cfg.rsi.enabled:
@@ -412,7 +422,20 @@ def run_rsi() -> None:
         )
 
     task_desc = load_task_desc(cfg)
-    task_metric = determine_task_metric(task_desc, cfg.agent)
+    trusted_cfg = cfg.rsi.trusted_evaluator
+    if bool(trusted_cfg.enabled):
+        if not isinstance(trusted_cfg.metric_maximize, bool):
+            raise ValueError(
+                "trusted evaluator requires a fixed metric_maximize boolean"
+            )
+        task_metric = TaskMetric(
+            name=str(trusted_cfg.metric_id or "").strip() or None,
+            maximize=trusted_cfg.metric_maximize,
+        )
+        if task_metric.name is None:
+            raise ValueError("trusted evaluator requires a nonempty metric_id")
+    else:
+        task_metric = determine_task_metric(task_desc, cfg.agent)
     task_desc = add_task_metric(task_desc, task_metric)
 
     base_log = Path(cfg.log_dir)
@@ -420,14 +443,35 @@ def run_rsi() -> None:
     rsi_dir = base_log / "rsi"
     pool = ReplayWorldPool(rsi_dir / "worlds")
     state_store = RSIStateStore(rsi_dir / "state.json")
+    trusted_evaluator = create_trusted_evaluator(
+        trusted_cfg,
+        task_description=task_desc,
+        artifact_root=rsi_dir / "artifacts",
+    )
     incumbent_path = rsi_dir / "incumbent_policy.json"
     pending_path = rsi_dir / "pending_policy.json"
     split_manager = PersistentSplitManager(
         rsi_dir / "split_manifest.json", epoch=str(cfg.rsi.split_epoch)
     )
 
+    state_file_exists = state_store.path.exists()
+    state = state_store.load()
+    configured_evaluator_identity = (
+        trusted_evaluator.identity if trusted_evaluator is not None else None
+    )
+    stored_evaluator_identity = state.get("trusted_evaluator_identity")
+    existing_worlds = pool.load_all()
+    if configured_evaluator_identity != stored_evaluator_identity:
+        if state_file_exists or existing_worlds:
+            raise ValueError(
+                "trusted evaluator identity changed for an existing RSI run; "
+                "start a fresh experiment and split epoch"
+            )
+        state = state_store.write(
+            trusted_evaluator_identity=configured_evaluator_identity
+        )
     state = _recover_canary_transaction(
-        state=state_store.load(), state_store=state_store, rsi_dir=rsi_dir
+        state=state, state_store=state_store, rsi_dir=rsi_dir
     )
     retired_worlds = state.get("retired_qualification_worlds", [])
     if retired_worlds:
@@ -469,7 +513,7 @@ def run_rsi() -> None:
         score_scale_floor=cfg.rsi.canary.score_scale_floor,
     )
 
-    all_worlds = pool.load_all()
+    all_worlds = existing_worlds
     current_split = split_manager.split(all_worlds)
     live_prior_worlds = current_split.development
     cycle_summaries = [live_cycle_summary(w) for w in live_prior_worlds]
@@ -550,6 +594,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_challenger",
                             "canary_rep": rep,
                         },
+                        trusted_evaluator=trusted_evaluator,
                     )
                     incumbent_journal, _ = _run_live_episode(
                         cfg=cfg,
@@ -568,6 +613,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_incumbent",
                             "canary_rep": rep,
                         },
+                        trusted_evaluator=trusted_evaluator,
                     )
                 else:
                     incumbent_journal, _ = _run_live_episode(
@@ -587,6 +633,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_incumbent",
                             "canary_rep": rep,
                         },
+                        trusted_evaluator=trusted_evaluator,
                     )
                     challenger_journal, _ = _run_live_episode(
                         cfg=cfg,
@@ -605,6 +652,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_challenger",
                             "canary_rep": rep,
                         },
+                        trusted_evaluator=trusted_evaluator,
                     )
                 paired_journals.append((challenger_journal, incumbent_journal))
 
@@ -678,6 +726,7 @@ def run_rsi() -> None:
                 state_store=state_store,
                 resume=resume_live,
                 provenance={"round": outer, "episode_role": "discovery"},
+                trusted_evaluator=trusted_evaluator,
             )
 
             world = world_from_journal(
@@ -695,6 +744,11 @@ def run_rsi() -> None:
                     "generation_model": str(cfg.agent.code.model),
                     "feedback_model": str(cfg.agent.feedback.model),
                     "task_digest": _stable_digest(task_desc),
+                    "trusted_evaluator_identity": (
+                        trusted_evaluator.identity
+                        if trusted_evaluator is not None
+                        else None
+                    ),
                     "agent_config_digest": _stable_digest(
                         OmegaConf.to_container(cfg.agent)
                     ),

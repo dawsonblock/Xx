@@ -119,6 +119,27 @@ class RSICanaryConfig:
 
 
 @dataclass
+class RSITrustedEvaluatorConfig:
+    # The operator supplied evaluator bundle owns candidate reruns and hidden
+    # labels. It remains disabled until every identity is explicitly pinned.
+    enabled: bool = False
+    bundle_dir: str | None = None
+    bundle_sha256: str | None = None
+    entrypoint: str = "evaluate.py"
+    config_path: str | None = None
+    config_sha256: str | None = None
+    dataset_dir: str | None = None
+    dataset_sha256: str | None = None
+    split_manifest: str | None = None
+    split_sha256: str | None = None
+    environment_manifest: str | None = None
+    environment_manifest_sha256: str | None = None
+    metric_id: str | None = None
+    metric_maximize: bool | None = None
+    timeout_s: float = 600.0
+
+
+@dataclass
 class RSIConfig:
     enabled: bool = False
     outer_rounds: int = 7
@@ -132,6 +153,9 @@ class RSIConfig:
     memory_mode: str = "none"
     resume_log_dir: str | None = None
     sandbox: RSISandboxConfig = field(default_factory=RSISandboxConfig)
+    trusted_evaluator: RSITrustedEvaluatorConfig = field(
+        default_factory=RSITrustedEvaluatorConfig
+    )
     canary: RSICanaryConfig = field(default_factory=RSICanaryConfig)
     jev: RSIJevConfig = field(default_factory=RSIJevConfig)
     evolution: RSIEvolutionConfig = field(default_factory=RSIEvolutionConfig)

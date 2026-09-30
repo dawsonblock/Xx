@@ -432,12 +432,52 @@ class Agent:
         return self._improve(parent_node)
 
     def evaluate_generated_node(
-        self, node: Node, exec_callback: ExecCallbackType
+        self,
+        node: Node,
+        exec_callback: ExecCallbackType,
+        *,
+        trusted_evaluator=None,
+        candidate_sha256: str | None = None,
     ) -> Node:
-        self.parse_exec_result(
-            node=node,
-            exec_result=exec_callback(node.code, True),
+        exec_result = exec_callback(node.code, True)
+        if trusted_evaluator is None:
+            self.parse_exec_result(node=node, exec_result=exec_result)
+            return node
+
+        from .rsi.trusted_evaluator import TrustedEvaluatorError
+
+        node.absorb_exec_result(exec_result)
+        if node.exc_type is not None:
+            node.is_buggy = True
+            node.metric = WorstMetricValue()
+            node.analysis = "Candidate execution failed before trusted evaluation."
+            node.rsi_provenance["evaluation_authority"] = "trusted_evaluator_not_run"
+            return node
+
+        try:
+            if not candidate_sha256:
+                raise TrustedEvaluatorError("candidate source digest is missing")
+            evaluation = trusted_evaluator.evaluate(candidate_sha256)
+        except TrustedEvaluatorError:
+            # Never fall back to the feedback model after an enabled trusted
+            # evaluator fails. Such a fallback could turn an infrastructure or
+            # protocol failure into promotion evidence.
+            node.is_buggy = True
+            node.metric = WorstMetricValue()
+            node.analysis = "Trusted evaluator failed; the outcome is unscored."
+            node.rsi_provenance["evaluation_authority"] = "trusted_evaluator_failed"
+            return node
+
+        node.metric = MetricValue(
+            evaluation.score,
+            maximize=evaluation.provenance["metric_maximize"],
         )
+        node.is_buggy = False
+        node.analysis = (
+            "Score produced by the configured trusted evaluator: "
+            f"{evaluation.provenance['metric_id']}={evaluation.score}"
+        )
+        node.rsi_provenance.update(evaluation.provenance)
         return node
 
     def step_from_parent(
