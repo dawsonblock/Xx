@@ -11,6 +11,10 @@ from aide.journal import Node
 from aide.rsi.artifacts import store_candidate
 from aide.rsi.canary import RealCanaryGate
 from aide.rsi.evidence import has_trusted_evaluation
+from aide.rsi.runner import (
+    _stored_evaluator_identity,
+    _validate_trusted_evaluator_roles,
+)
 from aide.rsi.trusted_evaluator import (
     TrustedEvaluator,
     TrustedEvaluatorError,
@@ -31,6 +35,7 @@ def _write_evaluator_bundle(
     flood_output: bool = False,
     spawn_grandchild: bool = False,
     grandchild_marker: Path | None = None,
+    tamper_candidate: bool = False,
 ) -> None:
     bundle.mkdir()
     grandchild_path = json.dumps(str(grandchild_marker or ""))
@@ -54,6 +59,9 @@ if not sys.dont_write_bytecode or os.environ.get("PYTHONDONTWRITEBYTECODE") != "
 request = json.loads(Path(args.request).read_text())
 if Path(request["candidate_path"]).read_text() == "":
     raise SystemExit(10)
+if {tamper_candidate}:
+    Path(request["candidate_path"]).chmod(0o644)
+    Path(request["candidate_path"]).write_text("tampered candidate\\n")
 if {flood_output}:
     import time
     with (Path(request["output_dir"]) / "flood.bin").open("wb") as flood:
@@ -91,6 +99,7 @@ def _make_evaluator(
     forge_predictions: bool = False,
     flood_output: bool = False,
     spawn_grandchild: bool = False,
+    tamper_candidate: bool = False,
 ):
     monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", TEST_KEY)
     bundle = tmp_path / "evaluator"
@@ -101,6 +110,7 @@ def _make_evaluator(
         flood_output=flood_output,
         spawn_grandchild=spawn_grandchild,
         grandchild_marker=tmp_path / "grandchild-survived",
+        tamper_candidate=tamper_candidate,
     )
     for path in bundle.iterdir():
         path.chmod(0o444)
@@ -245,6 +255,27 @@ def test_evaluator_grandchildren_are_terminated(tmp_path: Path, monkeypatch):
     assert not marker.exists()
 
 
+def test_candidate_snapshot_mutation_is_rejected_without_touching_artifact(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, candidate_sha256, _ = _make_evaluator(
+        tmp_path, monkeypatch, tamper_candidate=True
+    )
+
+    with pytest.raises(
+        TrustedEvaluatorError,
+        match="candidate snapshot changed during trusted evaluation",
+    ):
+        evaluator.evaluate(candidate_sha256)
+
+    assert (
+        evaluator.artifact_root
+        / "sha256"
+        / candidate_sha256[:2]
+        / f"{candidate_sha256}.py"
+    ).read_text() == "print('candidate')\n"
+
+
 def test_trusted_evaluator_requires_read_only_hidden_data(tmp_path: Path, monkeypatch):
     evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
     dataset = Path(config.dataset_dir)
@@ -276,6 +307,65 @@ def test_trusted_evaluator_requires_read_only_bundle(tmp_path: Path, monkeypatch
             task_description={"Task goal": "test"},
             artifact_root=evaluator.artifact_root,
         )
+
+
+def test_canary_evaluator_requires_an_independent_data_split():
+    metric = SimpleNamespace(name="accuracy", maximize=True)
+    search = SimpleNamespace(
+        dataset_sha256="a" * 64,
+        split_sha256="b" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+    )
+    canary = SimpleNamespace(
+        dataset_sha256="a" * 64,
+        split_sha256="b" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+    )
+
+    with pytest.raises(ValueError, match="different pinned dataset or split"):
+        _validate_trusted_evaluator_roles(search, canary, metric)
+
+    canary.split_sha256 = "c" * 64
+    _validate_trusted_evaluator_roles(search, canary, metric)
+
+
+def test_canary_evaluator_must_use_the_same_metric():
+    metric = SimpleNamespace(name="accuracy", maximize=True)
+    canary = SimpleNamespace(
+        dataset_sha256="a" * 64,
+        split_sha256="c" * 64,
+        metric_id="loss",
+        metric_maximize=False,
+    )
+
+    with pytest.raises(ValueError, match="canary evaluator metric"):
+        _validate_trusted_evaluator_roles(
+            SimpleNamespace(
+                dataset_sha256="b" * 64,
+                split_sha256="d" * 64,
+                metric_id="accuracy",
+                metric_maximize=True,
+            ),
+            canary,
+            metric,
+        )
+
+    with pytest.raises(ValueError, match="requires the trusted search evaluator"):
+        _validate_trusted_evaluator_roles(None, canary, metric)
+
+
+def test_prior_run_evaluator_identities_migrate_by_role():
+    assert _stored_evaluator_identity({"trusted_evaluator_identity": "search"}) == {
+        "search": "search",
+        "canary": None,
+    }
+    assert _stored_evaluator_identity({"trusted_evaluator_identity": None}) == {
+        "search": None,
+        "canary": None,
+    }
+    assert _stored_evaluator_identity({}) is None
 
 
 def test_evaluator_identity_binds_task_description_and_pinned_inputs(

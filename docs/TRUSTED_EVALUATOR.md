@@ -1,6 +1,7 @@
 # Trusted evaluator integration
 
-v1.3.3 adds a host-owned protocol for task-specific external evaluators. The
+v1.3.3 added a host-owned protocol for task-specific external evaluators. This
+version adds a separate pinned canary evaluator. The
 repository does not ship a hidden-label evaluator because the data format,
 prediction interface, split, and metric belong to each task. With the default
 configuration, feedback-model scores remain advisory and policy promotion stays
@@ -13,11 +14,13 @@ each candidate, the runner invokes the pinned evaluator bundle in a fresh Python
 subprocess. The evaluator must load the exact content-addressed candidate and
 run it on its own task data and split. It must compute the metric from its own
 predictions and labels; it must never accept a metric printed by the candidate
-or copied from the AIDE journal. Candidate execution inside the evaluator is
-untrusted and must receive no hidden labels, credentials, or unrestricted host
-access. AIDE does not enforce this second execution boundary; an evaluator that
-uses `exec(candidate)` or launches Python directly can expose hidden labels and
-the host account to candidate code. The evaluator subprocess itself is not an
+or copied from the AIDE journal. The host supplies a per-evaluation candidate
+snapshot and verifies its digest after the evaluator exits. Candidate execution
+inside the evaluator is untrusted and must receive no hidden labels,
+credentials, or unrestricted host access. AIDE does not enforce this second
+execution boundary; an evaluator that uses `exec(candidate)` or launches Python
+directly can expose hidden labels and the host account to candidate code. The
+evaluator subprocess itself is not an
 OS sandbox: it runs as the user and can read files available to that account.
 The evaluator bundle must invoke the candidate through `SecureInterpreter` or
 an equivalent separately qualified confinement layer. AIDE enforces a timeout
@@ -97,12 +100,14 @@ record integrity check under a trusted host process, not a process security
 boundary. Strong signer isolation needs a separate restricted UID or signing
 service, which this implementation does not provide.
 
-The replay split separates worlds, not the underlying task data. One configured
-evaluator identity is queried during discovery and canary. Those scores are
-adaptive search feedback and do not establish untouched generalization. Strong
-generalization claims require separate pinned search, validation, qualification,
-and canary data authorities with query limits; that multi-authority workflow is
-not implemented here.
+The replay split separates worlds, not the underlying task data. Discovery
+scores are adaptive search feedback; replay validation and qualification reuse
+those scores and do not establish untouched data generalization. A configured
+`rsi.canary_evaluator` is used for both sides of every live canary and must match
+the task metric while pinning a different dataset or split from
+`rsi.trusted_evaluator`. If it is omitted, canary runs have no trusted scores
+and cannot promote a policy. Separate validation and one-shot qualification
+data authorities with query limits are still not implemented.
 
 The host does not independently recompute the task metric from labels and
 predictions. It trusts the pinned evaluator to calculate the score correctly
@@ -144,6 +149,13 @@ installed distribution names/versions. The operator still needs to ensure that
 manifest describes the installed evaluator environment. Start a fresh
 experiment when changing any evaluator identity;
 the runner rejects identity changes when resuming an existing run.
+
+To permit trusted policy promotion, configure `rsi.canary_evaluator` with an
+independently pinned evaluator and dataset or split. It must use the same metric
+name and direction as the search evaluator. Reusing the same dataset and split
+digests for both roles is rejected. Separate pins do not replace the evaluator's
+candidate sandbox: the evaluator must still prevent candidate code from reading
+hidden labels or host credentials.
 
 ## Example response implementation
 

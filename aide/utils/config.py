@@ -157,6 +157,12 @@ class RSIConfig:
     trusted_evaluator: RSITrustedEvaluatorConfig = field(
         default_factory=RSITrustedEvaluatorConfig
     )
+    # A separate, independently pinned dataset/split for live incumbent versus
+    # challenger canaries. Without this, trusted promotion cannot use search
+    # scores as canary evidence.
+    canary_evaluator: RSITrustedEvaluatorConfig = field(
+        default_factory=RSITrustedEvaluatorConfig
+    )
     canary: RSICanaryConfig = field(default_factory=RSICanaryConfig)
     jev: RSIJevConfig = field(default_factory=RSIJevConfig)
     evolution: RSIEvolutionConfig = field(default_factory=RSIEvolutionConfig)

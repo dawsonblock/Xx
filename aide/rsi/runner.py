@@ -10,13 +10,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .canary import RealCanaryGate
 from .artifacts import load_candidate, store_candidate
+from .canary import RealCanaryGate
 from .evaluator import ReplayEvaluator
-from .evolution import PolicyEvolutionEngine
 from .evidence import has_trusted_evaluation, has_trusted_world_evidence
-from .live import LiveExplorationController
+from .evolution import PolicyEvolutionEngine
 from .jev import JevAdvisor
+from .live import LiveExplorationController
 from .memory import summarize_worlds
 from .metrics import live_cycle_summary
 from .policy import AdaptiveReplayPolicy
@@ -176,6 +176,41 @@ def _node_score(node: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _validate_trusted_evaluator_roles(search, canary, task_metric) -> None:
+    """Require canary evidence to use an independent split of the same metric."""
+    if canary is not None and search is None:
+        raise ValueError(
+            "a canary evaluator requires the trusted search evaluator to be enabled"
+        )
+    for role, evaluator_instance in (("search", search), ("canary", canary)):
+        if evaluator_instance is not None and (
+            evaluator_instance.metric_id != task_metric.name
+            or evaluator_instance.metric_maximize is not task_metric.maximize
+        ):
+            raise ValueError(
+                f"trusted {role} evaluator metric must match the task metric"
+            )
+    if (
+        search is not None
+        and canary is not None
+        and search.dataset_sha256 == canary.dataset_sha256
+        and search.split_sha256 == canary.split_sha256
+    ):
+        raise ValueError(
+            "trusted canary evaluator must use a different pinned dataset or split"
+        )
+
+
+def _stored_evaluator_identity(state: dict[str, Any]) -> Any:
+    """Normalize single-evaluator state saved by v1.3.3 and earlier."""
+    identity = state.get("trusted_evaluator_identity")
+    if isinstance(identity, str):
+        return {"search": identity, "canary": None}
+    if identity is None and "trusted_evaluator_identity" in state:
+        return {"search": None, "canary": None}
+    return identity
+
+
 def _external_memory(worlds, mode: str) -> str:
     mode = str(mode or "none").lower()
     if mode == "none":
@@ -227,6 +262,7 @@ def _run_live_episode(
 ):
     """Run one real online episode under exactly one exploration policy."""
     from omegaconf import OmegaConf
+
     from aide.agent import Agent
     from aide.journal import Journal
     from aide.utils import serialize
@@ -406,8 +442,10 @@ def _run_live_episode(
 def run_rsi() -> None:
     """Run AIDE under replay-improved, qualified exploration control."""
     from omegaconf import OmegaConf
+
     from aide.agent import TaskMetric, add_task_metric, determine_task_metric
     from aide.utils.config import load_cfg, load_task_desc
+
     from .trusted_evaluator import create_trusted_evaluator
 
     cfg = load_cfg()
@@ -448,6 +486,12 @@ def run_rsi() -> None:
         task_description=task_desc,
         artifact_root=rsi_dir / "artifacts",
     )
+    canary_evaluator = create_trusted_evaluator(
+        cfg.rsi.canary_evaluator,
+        task_description=task_desc,
+        artifact_root=rsi_dir / "artifacts",
+    )
+    _validate_trusted_evaluator_roles(trusted_evaluator, canary_evaluator, task_metric)
     incumbent_path = rsi_dir / "incumbent_policy.json"
     pending_path = rsi_dir / "pending_policy.json"
     split_manager = PersistentSplitManager(
@@ -456,13 +500,24 @@ def run_rsi() -> None:
 
     state_file_exists = state_store.path.exists()
     state = state_store.load()
-    configured_evaluator_identity = (
-        trusted_evaluator.identity if trusted_evaluator is not None else None
-    )
-    stored_evaluator_identity = state.get("trusted_evaluator_identity")
+    configured_evaluator_identity = {
+        "search": trusted_evaluator.identity if trusted_evaluator is not None else None,
+        "canary": canary_evaluator.identity if canary_evaluator is not None else None,
+    }
+    stored_evaluator_identity = _stored_evaluator_identity(state)
     existing_worlds = pool.load_all()
     if configured_evaluator_identity != stored_evaluator_identity:
-        if state_file_exists or existing_worlds:
+        legacy_canary_upgrade = (
+            state_file_exists
+            and existing_worlds
+            and stored_evaluator_identity
+            == {
+                "search": configured_evaluator_identity["search"],
+                "canary": None,
+            }
+            and configured_evaluator_identity["canary"] is not None
+        )
+        if (state_file_exists or existing_worlds) and not legacy_canary_upgrade:
             raise ValueError(
                 "trusted evaluator identity changed for an existing RSI run; "
                 "start a fresh experiment and split epoch"
@@ -594,7 +649,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_challenger",
                             "canary_rep": rep,
                         },
-                        trusted_evaluator=trusted_evaluator,
+                        trusted_evaluator=canary_evaluator,
                     )
                     incumbent_journal, _ = _run_live_episode(
                         cfg=cfg,
@@ -613,7 +668,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_incumbent",
                             "canary_rep": rep,
                         },
-                        trusted_evaluator=trusted_evaluator,
+                        trusted_evaluator=canary_evaluator,
                     )
                 else:
                     incumbent_journal, _ = _run_live_episode(
@@ -633,7 +688,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_incumbent",
                             "canary_rep": rep,
                         },
-                        trusted_evaluator=trusted_evaluator,
+                        trusted_evaluator=canary_evaluator,
                     )
                     challenger_journal, _ = _run_live_episode(
                         cfg=cfg,
@@ -652,7 +707,7 @@ def run_rsi() -> None:
                             "episode_role": "canary_challenger",
                             "canary_rep": rep,
                         },
-                        trusted_evaluator=trusted_evaluator,
+                        trusted_evaluator=canary_evaluator,
                     )
                 paired_journals.append((challenger_journal, incumbent_journal))
 
@@ -712,7 +767,7 @@ def run_rsi() -> None:
                 attempts=int(state.get("attempts", 0)) if resume_live else 0,
                 incumbent_digest=_policy_digest(incumbent),
             )
-            journal, round_cfg = _run_live_episode(
+            journal, _round_cfg = _run_live_episode(
                 cfg=cfg,
                 task_desc=task_desc,
                 task_metric=task_metric,
@@ -801,7 +856,7 @@ def run_rsi() -> None:
                 seed_candidates = developer.propose(
                     incumbent, split.development, evaluator, count=ecfg.llm_candidates
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - optional proposer is best-effort
                 _write_json(
                     round_rsi_dir / "llm_policy_developer_error.json",
                     {"error": repr(exc)},

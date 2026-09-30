@@ -8,7 +8,7 @@ with open("requirements.txt", "r") as f:
 
 setup(
     name="aideml-rsi",
-    version="1.3.3",
+    version="1.3.4",
     author="Weco AI",
     author_email="contact@weco.ai",
     description="AIDE with replay-based recursive self-improvement of exploration",

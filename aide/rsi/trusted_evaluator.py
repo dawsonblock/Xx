@@ -292,17 +292,16 @@ class TrustedEvaluator:
             temp_dir = Path(temp)
             request_path = temp_dir / "request.json"
             response_path = temp_dir / "response.json"
+            candidate_path = temp_dir / "candidate.py"
+            candidate_bytes = candidate_source.encode("utf-8")
+            candidate_path.write_bytes(candidate_bytes)
+            candidate_path.chmod(0o444)
             output_dir = temp_dir / "predictions"
             output_dir.mkdir()
             request = {
                 "schema_version": 1,
                 "candidate_sha256": candidate_sha256,
-                "candidate_path": str(
-                    self.artifact_root
-                    / "sha256"
-                    / candidate_sha256[:2]
-                    / f"{candidate_sha256}.py"
-                ),
+                "candidate_path": str(candidate_path),
                 "task_sha256": self.task_sha256,
                 "evaluator_sha256": self.evaluator_sha256,
                 "evaluator_config_sha256": self.config_sha256,
@@ -392,6 +391,27 @@ class TrustedEvaluator:
                 raise TrustedEvaluatorError(
                     "pinned evaluator execution failed"
                 ) from exc
+
+            try:
+                candidate_mode = candidate_path.lstat().st_mode
+            except OSError as exc:
+                raise TrustedEvaluatorError(
+                    "candidate snapshot changed during trusted evaluation"
+                ) from exc
+            if not stat.S_ISREG(candidate_mode):
+                raise TrustedEvaluatorError(
+                    "candidate snapshot changed during trusted evaluation"
+                )
+            try:
+                candidate_snapshot_digest = file_sha256(candidate_path)
+            except OSError as exc:
+                raise TrustedEvaluatorError(
+                    "candidate snapshot changed during trusted evaluation"
+                ) from exc
+            if candidate_snapshot_digest != candidate_sha256:
+                raise TrustedEvaluatorError(
+                    "candidate snapshot changed during trusted evaluation"
+                )
 
             if response_path.is_symlink() or not response_path.is_file():
                 raise TrustedEvaluatorError(
