@@ -117,3 +117,21 @@ def test_seatbelt_refuses_unenforceable_resource_limits(tmp_path: Path):
     )
     with pytest.raises(SandboxUnavailable, match="resource limits"):
         sandbox.run("print('must not execute')")
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
+    reason="macOS Seatbelt is unavailable",
+)
+def test_seatbelt_timeout_stops_candidate_and_cleans_workspace(tmp_path: Path):
+    sandbox = SecureInterpreter(
+        tmp_path,
+        mode="strict",
+        backend="seatbelt",
+        timeout=1,
+        limits=SandboxLimits(cpu_seconds=5),
+    )
+    result = sandbox.run("import time\nprint('started', flush=True)\ntime.sleep(5)")
+    assert result.exc_type == "TimeoutError"
+    assert "started" in "".join(result.term_out)
+    assert list((tmp_path / ".rsi_exec").iterdir()) == []
