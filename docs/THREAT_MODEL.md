@@ -70,11 +70,15 @@ configured by `rsi.sandbox.workspace_mb`. The controller monitors the
 candidate's resident memory via macOS `proc_pidinfo` and kills sustained use
 above the smaller of `memory_mb` and `seatbelt_memory_mb`. Monitoring is
 sampled, so it cannot prevent a short memory spike or guarantee a hard
-physical-memory ceiling.
+physical-memory ceiling. Host-owned stdout and stderr capture files are stored
+outside the candidate's writable mount so candidate-created symlinks cannot
+redirect the controller's result reader to host files.
 
 The interface is deprecated by Apple and can change in a macOS update. The
 profile permits host file metadata lookup and reads of the selected Python
-installation, including Homebrew Cellar/opt directories when applicable.
+installation, including available Homebrew Cellar/opt directories when
+applicable. This also covers Python runtimes installed by pyenv or uv that load
+shared libraries from Homebrew.
 There is no container-style process/memory isolation. CPU, per-file size, and
 open-file limits are enforced where the kernel supports them; Darwin rejected
 the address-space limit in local tests.

@@ -84,6 +84,31 @@ def test_seatbelt_refuses_a_profile_that_allows_host_access(
     sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
     reason="macOS Seatbelt is unavailable",
 )
+def test_seatbelt_allows_homebrew_runtime_libraries_for_pyenv_python(
+    tmp_path: Path, monkeypatch
+):
+    from aide.rsi import sandbox as module
+
+    # Model the common case where Python itself is installed by pyenv while its
+    # linked libraries come from Homebrew.
+    monkeypatch.setattr(module.sys, "prefix", str(tmp_path / "pyenv"))
+    monkeypatch.setattr(module.sys, "base_prefix", str(tmp_path / "pyenv"))
+    sandbox = object.__new__(SecureInterpreter)
+    sandbox.base_workspace = tmp_path
+    command = sandbox._seatbelt_command(tmp_path, tmp_path / "runfile.py")
+
+    if Path("/opt/homebrew/opt").is_dir():
+        assert "BREW_OPT=/opt/homebrew/opt" in command
+    elif Path("/usr/local/opt").is_dir():
+        assert "BREW_OPT=/usr/local/opt" in command
+    else:
+        pytest.skip("Homebrew is not installed on this macOS host")
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
+    reason="macOS Seatbelt is unavailable",
+)
 def test_seatbelt_enforces_supported_resource_limits(tmp_path: Path):
     sandbox = SecureInterpreter(
         tmp_path,

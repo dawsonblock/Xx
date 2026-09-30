@@ -68,8 +68,8 @@ def test_sandbox_caps_output_while_subprocess_is_running(tmp_path: Path, monkeyp
         [sys.executable, "-c", "import sys; sys.stdout.write('a' * 1500000); sys.stderr.write('b' * 1500000)"],
         work, backend="test",
     )
-    assert (work / ".stdout").stat().st_size == 1024 * 1024
-    assert (work / ".stderr").stat().st_size == 1024 * 1024
+    assert not (work / ".stdout").exists()
+    assert not (work / ".stderr").exists()
     assert result.exc_info["stdout_truncated"] is True
     assert result.exc_info["stderr_truncated"] is True
     assert "truncated" in "".join(result.term_out)

@@ -2,6 +2,22 @@
 
 Build date: 2026-09-29
 
+## Security review follow-up (2026-09-29)
+
+- Host-owned stdout/stderr capture now uses a private temporary directory outside
+  the candidate's writable mount. A regression test has the child replace its
+  former `.stdout` path with a host-file symlink and verifies that the host
+  secret is not returned or modified.
+- Seatbelt now allows available Homebrew `opt` and `Cellar` runtime paths even
+  when Python itself is installed by pyenv or uv. The native sandbox preflight
+  and regression test passed on this macOS host.
+- `PYTHONPATH=/tmp/aide-rsi-review-deps:. python -m pytest -q tests/test_rsi*.py`
+  — **59 passed, 1 skipped**. Focused output-capture, Seatbelt, and recovery
+  tests — **15 passed**. Ruff passed on the changed Python files; Black passed
+  on the changed sandbox and Seatbelt tests.
+- Full-suite collection remains blocked in this local environment by the
+  missing declared dependency `shutup`; the targeted RSI suite is green.
+
 ## Bounded local macOS workspace follow-up (2026-09-29)
 
 - The Seatbelt workspace now mounts a case-sensitive sparse disk image with

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import shutil
 import subprocess
@@ -7,7 +8,6 @@ import sys
 import tempfile
 import threading
 import time
-import ctypes
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -199,11 +199,14 @@ class SecureInterpreter:
             raise SandboxUnavailable("macOS Seatbelt backend became unavailable")
         prefix = Path(sys.prefix).resolve()
         base = Path(sys.base_prefix).resolve()
+        # Python installed by pyenv/uv may still load dylibs from Homebrew. Decide
+        # from the host's available Homebrew roots, not from where Python itself
+        # lives, so Seatbelt can load those linked runtime dependencies.
         brew_root = next(
             (
                 root
                 for root in (Path("/opt/homebrew"), Path("/usr/local"))
-                if base.is_relative_to(root / "Cellar")
+                if (root / "opt").is_dir() or (root / "Cellar").is_dir()
             ),
             None,
         )
@@ -443,13 +446,15 @@ class SecureInterpreter:
         elapsed: float,
         backend: str,
         *,
+        capture_dir: Path | None = None,
         truncated: tuple[bool, bool] = (False, False),
     ):
         from aide.interpreter import ExecutionResult
 
         cap = max(1, int(self.limits.max_output_mb)) * 1024 * 1024
-        stdout, read_trunc_out = self._read_capped(work / ".stdout", cap)
-        stderr, read_trunc_err = self._read_capped(work / ".stderr", cap)
+        output_dir = capture_dir or work
+        stdout, read_trunc_out = self._read_capped(output_dir / "stdout", cap)
+        stderr, read_trunc_err = self._read_capped(output_dir / "stderr", cap)
         trunc_out = truncated[0] or read_trunc_out
         trunc_err = truncated[1] or read_trunc_err
         if trunc_out and not read_trunc_out:
@@ -480,14 +485,66 @@ class SecureInterpreter:
         cwd: Path | None = None,
         memory_limit_bytes: int | None = None,
     ):
-        from aide.interpreter import ExecutionResult
-
-        stdout_path = work / ".stdout"
-        stderr_path = work / ".stderr"
+        # Keep host-owned capture files outside the candidate's writable mount.
+        # Otherwise candidate code can replace a capture path with a symlink and
+        # make the host-side result reader disclose a file the sandbox denied.
+        capture_dir = Path(tempfile.mkdtemp(prefix="rsi-capture-", dir=work.parent))
+        stdout_path = capture_dir / "stdout"
+        stderr_path = capture_dir / "stderr"
         cap = max(1, int(self.limits.max_output_mb)) * 1024 * 1024
         start = time.monotonic()
         truncated = [False, False]
         errors: list[BaseException] = []
+
+        try:
+            return self._run_subprocess_with_capture(
+                cmd,
+                work,
+                backend=backend,
+                env=env,
+                preexec_fn=preexec_fn,
+                cwd=cwd,
+                memory_limit_bytes=memory_limit_bytes,
+                capture_dir=capture_dir,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                cap=cap,
+                start=start,
+                truncated=truncated,
+                errors=errors,
+            )
+        finally:
+            shutil.rmtree(capture_dir, ignore_errors=True)
+
+    def _run_subprocess_with_capture(
+        self,
+        cmd: list[str],
+        work: Path,
+        *,
+        backend: str,
+        env: dict[str, str] | None,
+        preexec_fn,
+        cwd: Path | None,
+        memory_limit_bytes: int | None,
+        capture_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        cap: int,
+        start: float,
+        truncated: list[bool],
+        errors: list[BaseException],
+    ):
+        from aide.interpreter import ExecutionResult
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=preexec_fn,  # noqa: PLW1509 - needed to enforce child rlimits
+            env=env,
+            cwd=cwd,
+        )
+        assert proc.stdout is not None and proc.stderr is not None
 
         def drain(pipe, path: Path, index: int) -> None:
             written = 0
@@ -500,18 +557,9 @@ class SecureInterpreter:
                             written += min(len(chunk), remaining)
                         if len(chunk) > remaining:
                             truncated[index] = True
-            except BaseException as exc:
+            except OSError as exc:
                 errors.append(exc)
 
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            preexec_fn=preexec_fn,
-            env=env,
-            cwd=cwd,
-        )
-        assert proc.stdout is not None and proc.stderr is not None
         readers = [
             threading.Thread(target=drain, args=(proc.stdout, stdout_path, 0)),
             threading.Thread(target=drain, args=(proc.stderr, stderr_path, 1)),
@@ -618,6 +666,7 @@ class SecureInterpreter:
             work,
             time.monotonic() - start,
             backend,
+            capture_dir=capture_dir,
             truncated=(truncated[0], truncated[1]),
         )
 
