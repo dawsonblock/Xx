@@ -2,6 +2,16 @@
 
 Build date: 2026-09-29
 
+## Evaluator authority boundary
+
+- Candidate metrics interpreted by the AIDE feedback model are tagged advisory and cannot authorize replay promotion or best-solution publication. Qualification requires trusted external evaluator provenance with SHA-256 bindings for candidate source, evaluator, dataset, split, and result; the publisher independently enforces those bindings and verifies the content-addressed source.
+- This repository has no task-independent hidden-data evaluator contract. Automatic promotion and publication therefore remain blocked until each task supplies a trusted evaluator, immutable split identity, fixed metric, and evaluator version. The code can record/replay advisory metrics, but they are not empirical ground truth.
+- Replay generation in RSI now receives fixed prior-world memory plus only its selected parent and observed parent failure. A SHA-256 digest of the generation prompt is recorded with each candidate.
+- Canary decision recovery reconciles the durable transaction and winner after a crash. Stored policy digests are checked at startup rather than rewritten over mismatched policy files.
+- Bubblewrap and OCI workspaces now use size-limited temporary filesystems. OCI timeout cleanup records the container ID and explicitly kills/removes it after the CLI exits.
+- Qualification requires at least three immutable held-out worlds by default. This is a minimum evidence gate, not a statistical guarantee.
+- The full project suite passes **121 tests, 1 skipped**. Ruff 0.7.1, Black 24.3.0, compileall, and `git diff --check` pass. Bubblewrap/OCI execution was not available on this macOS host; command construction and container timeout cleanup have focused tests.
+
 ## Security review follow-up (2026-09-29)
 
 - Host-owned stdout/stderr capture now uses a private temporary directory outside

@@ -285,9 +285,11 @@ class JevAdvisor:
                 or abs(sum(probs.values()) - 1.0) > 0.02
             ):
                 raise ValueError("SystemOne probabilities are invalid")
-            confidence = float(answer.get("confidence", max(probs.values())))
-            if not 0.0 <= confidence <= 1.0:
-                raise ValueError("SystemOne confidence is invalid")
+            # Use the probability attached to the selected choice as the only
+            # confidence value that can influence recovery classification. A
+            # backend's separate confidence field may disagree with its own
+            # distribution and is retained nowhere in the authority path.
+            confidence = probs[choice]
             fabric = (
                 body.get("fabric") if isinstance(body.get("fabric"), Mapping) else {}
             )

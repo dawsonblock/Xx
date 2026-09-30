@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from .canary import RealCanaryGate
+from .artifacts import load_candidate, store_candidate
 from .evaluator import ReplayEvaluator
 from .evolution import PolicyEvolutionEngine
+from .evidence import has_trusted_evaluation
 from .live import LiveExplorationController
 from .jev import JevAdvisor
 from .memory import summarize_worlds
@@ -73,6 +75,14 @@ def _publish_best_from_worlds(
         for node in world.nodes.values():
             if not node.valid or node.score is None or not math.isfinite(node.score):
                 continue
+            if not node.provenance.get("candidate_sha256"):
+                # Legacy worlds lack source-to-score binding and cannot publish
+                # an artifact as if its source had been verified.
+                continue
+            if not has_trusted_evaluation(node):
+                # Candidate output interpreted by a feedback model is useful for
+                # exploration, but cannot authorize a published best artifact.
+                continue
             if best is None or (
                 node.score > best[1].score
                 if world.maximize
@@ -84,28 +94,71 @@ def _publish_best_from_worlds(
 
     world, node = best
     round_no = int(world.metadata["round"])
-    journal_path = base_log / f"round-{round_no:03d}" / "journal.json"
-    journal = json.loads(journal_path.read_text())
-    matches = [
-        item for item in journal.get("nodes", []) if str(item.get("id")) == node.id
-    ]
-    if len(matches) != 1 or not isinstance(matches[0].get("code"), str):
-        raise ValueError(
-            f"committed best node is missing from {journal_path}: {node.id}"
-        )
-    code = matches[0]["code"]
+    candidate_sha256 = str(node.provenance["candidate_sha256"])
+    code = load_candidate(candidate_sha256, base_log / "rsi" / "artifacts")
     meta = {
         "round": round_no,
         "node_id": node.id,
         "score": node.score,
         "policy_digest": world.metadata.get("policy_digest"),
         "world_id": world.world_id,
+        "candidate_sha256": candidate_sha256,
     }
     # Either file can be interrupted independently. The next startup rebuilds
     # both from the committed pool, including after a completed run.
     _atomic_write_text(base_log / "best_solution.py", code)
     _write_json(base_log / "best_solution.manifest.json", meta)
     return node.score, meta
+
+
+def _recover_canary_transaction(
+    *, state: dict[str, Any], state_store: RSIStateStore, rsi_dir: Path
+) -> dict[str, Any]:
+    """Finish a durable canary decision interrupted before state commit."""
+    phase = state.get("phase")
+    if phase not in {"CANARY_RUNNING", "IDLE"}:
+        return state
+    round_no = int(state.get("current_round", state.get("next_round", 0)))
+    canary_root = rsi_dir.parent / f"round-{round_no:03d}" / "canary"
+    transaction_path = canary_root / "transaction.json"
+    decision_path = canary_root / "decision.json"
+    if not (transaction_path.exists() and decision_path.exists()):
+        return state
+    transaction = json.loads(transaction_path.read_text())
+    decision = json.loads(decision_path.read_text())
+    incumbent = PolicyGenome.from_dict(transaction["incumbent"])
+    challenger = PolicyGenome.from_dict(transaction["challenger"])
+    if _policy_digest(incumbent) != transaction.get("incumbent_digest"):
+        raise ValueError("canary recovery incumbent digest mismatch")
+    if _policy_digest(challenger) != transaction.get("candidate_digest"):
+        raise ValueError("canary recovery candidate digest mismatch")
+    if decision.get("incumbent_digest") != transaction["incumbent_digest"]:
+        raise ValueError("canary decision does not match its incumbent transaction")
+    if decision.get("candidate_digest") != transaction["candidate_digest"]:
+        raise ValueError("canary decision does not match its challenger transaction")
+    winner = challenger if decision.get("passed") else incumbent
+    if phase == "IDLE":
+        # State is committed before pending_policy.json is removed. Reconcile the
+        # one possible crash window without rolling back next_round.
+        if state.get("pending_digest") is None and state.get("last_canary") == decision:
+            if state.get("incumbent_digest") != _policy_digest(winner):
+                raise ValueError("committed canary state does not match its winner")
+            pending_path = rsi_dir / "pending_policy.json"
+            if pending_path.exists():
+                pending_path.unlink()
+        return state
+    winner.save(rsi_dir / "incumbent_policy.json")
+    pending_path = rsi_dir / "pending_policy.json"
+    if pending_path.exists():
+        pending_path.unlink()
+    return state_store.write(
+        phase="IDLE",
+        current_round=round_no,
+        next_round=round_no,
+        incumbent_digest=_policy_digest(winner),
+        pending_digest=None,
+        last_canary=decision,
+    )
 
 
 def _node_score(node: Any) -> float | None:
@@ -166,6 +219,7 @@ def _run_live_episode(
     budget: int,
     log_dir: Path,
     workspace_dir: Path,
+    candidate_artifact_root: Path | None = None,
     state_store: RSIStateStore | None = None,
     resume: bool = False,
     provenance: dict[str, Any] | None = None,
@@ -292,7 +346,17 @@ def _run_live_episode(
                 batch_nodes.append(node)
 
             for node in batch_nodes:
-                node.rsi_provenance = dict(episode_provenance)
+                candidate_sha256 = store_candidate(
+                    node.code,
+                    candidate_artifact_root
+                    or (Path(log_dir).parent / "rsi" / "artifacts"),
+                )
+                node.rsi_provenance = {
+                    **dict(getattr(node, "rsi_provenance", {}) or {}),
+                    **episode_provenance,
+                    "candidate_sha256": candidate_sha256,
+                    "evaluation_authority": "feedback_model_interpreted_candidate_output",
+                }
                 agent.evaluate_generated_node(node, interpreter.run)
                 if advisor is not None and bool(getattr(node, "is_buggy", False)):
                     fail_class = controller._failure_class(node)
@@ -362,10 +426,19 @@ def run_rsi() -> None:
         rsi_dir / "split_manifest.json", epoch=str(cfg.rsi.split_epoch)
     )
 
+    state = _recover_canary_transaction(
+        state=state_store.load(), state_store=state_store, rsi_dir=rsi_dir
+    )
     incumbent = (
         PolicyGenome.load(incumbent_path) if incumbent_path.exists() else PolicyGenome()
     )
     pending = PolicyGenome.load(pending_path) if pending_path.exists() else None
+    if "incumbent_digest" in state and state["incumbent_digest"] != _policy_digest(
+        incumbent
+    ):
+        raise ValueError("incumbent policy digest does not match durable RSI state")
+    if "pending_digest" in state and state["pending_digest"] != _policy_digest(pending):
+        raise ValueError("pending policy digest does not match durable RSI state")
 
     ecfg = cfg.rsi.evolution
     # No parallel reward until the live executor is actually concurrent.
@@ -390,11 +463,11 @@ def run_rsi() -> None:
         max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
         min_valid=cfg.rsi.canary.min_valid,
         min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+        score_scale_floor=cfg.rsi.canary.score_scale_floor,
     )
 
     prior_worlds = pool.load_all()
     cycle_summaries = [live_cycle_summary(w) for w in prior_worlds]
-    state = state_store.load()
     global_best_score, global_best_meta = _publish_best_from_worlds(
         prior_worlds, base_log
     )
@@ -438,6 +511,16 @@ def run_rsi() -> None:
             )
             canary_repeats = max(1, int(cfg.rsi.canary.repeats))
             canary_root = base_log / f"round-{outer:03d}" / "canary"
+            _write_json(
+                canary_root / "transaction.json",
+                {
+                    "round": outer,
+                    "incumbent": incumbent.to_dict(),
+                    "challenger": pending.to_dict(),
+                    "incumbent_digest": _policy_digest(incumbent),
+                    "candidate_digest": _policy_digest(pending),
+                },
+            )
             paired_journals = []
             for rep in range(canary_repeats):
                 rep_root = canary_root / f"rep-{rep:02d}"
@@ -456,6 +539,7 @@ def run_rsi() -> None:
                         log_dir=rep_root / "challenger",
                         workspace_dir=base_workspace
                         / f"round-{outer:03d}-canary-{rep:02d}-challenger",
+                        candidate_artifact_root=rsi_dir / "artifacts",
                         provenance={
                             "round": outer,
                             "episode_role": "canary_challenger",
@@ -473,6 +557,7 @@ def run_rsi() -> None:
                         log_dir=rep_root / "incumbent",
                         workspace_dir=base_workspace
                         / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
+                        candidate_artifact_root=rsi_dir / "artifacts",
                         provenance={
                             "round": outer,
                             "episode_role": "canary_incumbent",
@@ -491,6 +576,7 @@ def run_rsi() -> None:
                         log_dir=rep_root / "incumbent",
                         workspace_dir=base_workspace
                         / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
+                        candidate_artifact_root=rsi_dir / "artifacts",
                         provenance={
                             "round": outer,
                             "episode_role": "canary_incumbent",
@@ -508,6 +594,7 @@ def run_rsi() -> None:
                         log_dir=rep_root / "challenger",
                         workspace_dir=base_workspace
                         / f"round-{outer:03d}-canary-{rep:02d}-challenger",
+                        candidate_artifact_root=rsi_dir / "artifacts",
                         provenance={
                             "round": outer,
                             "episode_role": "canary_challenger",
@@ -531,10 +618,8 @@ def run_rsi() -> None:
             if result.passed:
                 incumbent = pending
                 incumbent.save(incumbent_path)
-            pending = None
-            if pending_path.exists():
-                pending_path.unlink()
-            phase = "IDLE"
+            # Commit the recovery state before deleting the pending policy. If a
+            # crash lands here, the transaction and decision reconcile the winner.
             state_store.write(
                 phase="IDLE",
                 current_round=outer,
@@ -543,6 +628,10 @@ def run_rsi() -> None:
                 pending_digest=None,
                 last_canary=canary_payload,
             )
+            pending = None
+            if pending_path.exists():
+                pending_path.unlink()
+            phase = "IDLE"
 
         # The qualified incumbent alone controls the real round's width/depth. If a
         # challenger just failed canary, its grid cannot leak into live authority.
@@ -580,6 +669,7 @@ def run_rsi() -> None:
                 budget=int(cfg.rsi.steps_per_round),
                 log_dir=round_log,
                 workspace_dir=round_workspace,
+                candidate_artifact_root=rsi_dir / "artifacts",
                 state_store=state_store,
                 resume=resume_live,
                 provenance={"round": outer, "episode_role": "discovery"},

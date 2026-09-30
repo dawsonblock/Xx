@@ -12,6 +12,12 @@ The recursively improved exploration controller is a typed, bounded DSL. It may 
 - promotion state;
 - controller credentials.
 
+## Evaluation authority
+
+The current AIDE feedback model interprets candidate source and terminal output to produce a metric. That result is tagged `feedback_model_interpreted_candidate_output`; it is advisory evidence and cannot authorize policy promotion or `best_solution.py` publication. The qualification gate and publisher require `evaluation_authority=trusted_external` plus SHA-256 bindings for candidate source, evaluator, dataset, split, and result on every scored replay node. A task-specific trusted evaluator is not bundled because hidden data, split identity, metric, and evaluator version are task-defined. Until one is integrated, automatic policy promotion and best-solution publication remain disabled.
+
+Each evaluated source file is stored by SHA-256 before execution. The immutable replay node carries that digest, and publication loads and re-verifies the content-addressed artifact rather than reading mutable journal source. Generation prompts in RSI use fixed prior-world context and the selected parent or its observed failure; they do not receive the mutable current-round journal summary.
+
 ## JEV/SystemOne boundary
 
 JEV is not an execution or promotion authority inside AIDE-DREAM-RSI. The adapter accepts only typed bounded choice responses and treats LocalJevFabric `direct_authorized` metadata as informational.
@@ -34,7 +40,7 @@ On Linux, Bubblewrap:
 - clears environment variables;
 - exposes task input read-only;
 - exposes required runtime roots read-only;
-- gives the candidate an ephemeral writable `/workspace`;
+- gives the candidate an ephemeral size-limited tmpfs `/workspace` and a small bounded `/tmp`;
 - destroys that workspace after execution;
 - enforces wall timeout plus POSIX resource limits;
 - caps captured output.

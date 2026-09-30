@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .evaluator import ReplayEvaluator
+from .evidence import has_trusted_evaluation
 from .policy import AdaptiveReplayPolicy
 from .split import WorldSplit
 from .types import PolicyGenome, PromotionRecord
@@ -77,6 +78,22 @@ class QualificationGate:
         else:
             promoted = True
             reason = "candidate passed immutable replay qualification; repeated paired online canary still required"
+
+        evidence_nodes = [
+            node
+            for world in (split.development + split.validation + split.qualification)
+            for node in world.nodes.values()
+            if node.valid
+        ]
+        if promoted and (
+            not evidence_nodes
+            or any(not has_trusted_evaluation(node) for node in evidence_nodes)
+        ):
+            promoted = False
+            reason = (
+                "blocked: replay metrics are not from a trusted external evaluator; "
+                "candidate remains shadow-only"
+            )
 
         return PromotionRecord(
             candidate=candidate.to_dict(),

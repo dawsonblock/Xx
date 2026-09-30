@@ -11,11 +11,14 @@ DREAM-RSI   -> long-horizon branch/refine/recover/stop policy
 JEV         -> bounded semantic advice and failure repairability
 AIDE        -> code generation / debugging / improvement
 Sandbox     -> execution boundary
-Evaluator   -> measured truth
-Qualifier   -> promotion authority
+Feedback model -> advisory interpretation of candidate output
+Trusted evaluator -> measured truth (task-specific; must be configured)
+Qualifier   -> promotion gate (fails closed without trusted metrics)
 ```
 
 JEV cannot create legal search actions, execute tools, rewrite replay history, alter the evaluator, bypass the sandbox, or promote a policy. In v1.3, branch ranking, model routing, verification depth, and failure classification are **shadow/advisory by default**. After reviewing evidence, an operator may explicitly set `rsi.jev.failure_influence=true`; only then may a high-confidence failure-repairability classification refine recovery priority. JEV still cannot add legal actions or gain promotion authority.
+
+The bundled live AIDE feedback path currently asks a model to interpret candidate output and report a metric. Those values remain useful for exploration, but are not trusted evaluation evidence: replay qualification blocks promotion and best-solution publication unless every scored node binds SHA-256 digests for candidate source, evaluator, dataset, split, and result. This release does not provide a generic hidden-label evaluator because each task needs an operator-defined dataset, split, metric, and evaluator version.
 
 The full LocalJevFabric v1.5.0 source tree is bundled under `vendor/LocalJevFabric-v1.5.0/`. It does not include TypeSafe Jev weights. Configure an AnyJev specialist, LLM2Jev generalist, or another Jev-compatible SystemOne backend before enabling the integration.
 

@@ -51,10 +51,12 @@ class RealCanaryGate:
         max_normalized_regression: float = 0.05,
         min_valid: int = 1,
         min_pass_fraction: float = 0.66,
+        score_scale_floor: float = 1.0,
     ):
         self.max_normalized_regression = float(max_normalized_regression)
         self.min_valid = max(1, int(min_valid))
         self.min_pass_fraction = min(1.0, max(0.0, float(min_pass_fraction)))
+        self.score_scale_floor = max(1e-9, float(score_scale_floor))
 
     @staticmethod
     def _journal_scores(journal: Any) -> tuple[list[float], bool]:
@@ -107,7 +109,9 @@ class RealCanaryGate:
             )
         cbest = (max if cmax else min)(cvals)
         ibest = (max if imax else min)(ivals)
-        scale = max(1e-9, abs(ibest) * 0.05, abs(cbest - ibest))
+        # The comparison's outcome must not set its own normalization scale.
+        # Use a fixed task-configurable floor and incumbent-relative scale only.
+        scale = max(self.score_scale_floor, abs(ibest) * 0.05)
         delta = ((cbest - ibest) if cmax else (ibest - cbest)) / scale
         passed = delta >= -self.max_normalized_regression
         return CanaryResult(

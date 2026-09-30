@@ -111,6 +111,8 @@ rsi:
     min_pass_fraction: 0.66
     max_normalized_regression: 0.05
     min_valid: 1
+    # Absolute score scale used when incumbent scores are close to zero.
+    score_scale_floor: 1.0
   # Optional LocalJevFabric/SystemOne advisory layer.  JEV never receives
   # promotion authority, cannot add legal actions, and cannot bypass the sandbox.
   # High-confidence failure repairability may influence recovery classification;
@@ -143,7 +145,7 @@ rsi:
     max_qualification_regression: 0.01
     # Aggregate qualification can hide a catastrophic regression on one world.
     max_single_world_regression: 0.05
-    min_qualification_worlds: 1
+    min_qualification_worlds: 3
     use_llm_developer: false
     llm_candidates: 4
     llm_model: null

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -449,7 +450,7 @@ class SecureInterpreter:
         capture_dir: Path | None = None,
         truncated: tuple[bool, bool] = (False, False),
     ):
-        from aide.interpreter import ExecutionResult
+        from aide.execution_types import ExecutionResult
 
         cap = max(1, int(self.limits.max_output_mb)) * 1024 * 1024
         output_dir = capture_dir or work
@@ -534,7 +535,7 @@ class SecureInterpreter:
         truncated: list[bool],
         errors: list[BaseException],
     ):
-        from aide.interpreter import ExecutionResult
+        from aide.execution_types import ExecutionResult
 
         proc = subprocess.Popen(
             cmd,
@@ -684,9 +685,17 @@ class SecureInterpreter:
                 "/proc",
                 "--dev",
                 "/dev",
+                "--size",
+                str(min(128, max(16, int(self.limits.workspace_mb))) * 1024 * 1024),
                 "--tmpfs",
                 "/tmp",
             ]
+            if self.limits.workspace_mb > 0:
+                cmd += [
+                    "--size",
+                    str(int(self.limits.workspace_mb) * 1024 * 1024),
+                ]
+            cmd += ["--tmpfs", "/workspace"]
             bound: set[str] = set()
             for root in ("/usr", "/bin", "/lib", "/lib64", "/etc", "/opt", "/sys"):
                 if Path(root).exists():
@@ -698,7 +707,11 @@ class SecureInterpreter:
                     for x in bound
                 ):
                     cmd += ["--ro-bind", str(prefix), str(prefix)]
-            cmd += ["--bind", str(work), "/workspace"]
+            cmd += [
+                "--ro-bind",
+                str(work / self.agent_file_name),
+                "/candidate.py",
+            ]
             input_dir = self.base_workspace / "input"
             if input_dir.exists():
                 cmd += ["--ro-bind", str(input_dir), "/workspace/input"]
@@ -716,7 +729,7 @@ class SecureInterpreter:
                 "PATH",
                 os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
                 sys.executable,
-                f"/workspace/{self.agent_file_name}",
+                "/candidate.py",
             ]
             return self._run_subprocess(
                 cmd,
@@ -728,7 +741,9 @@ class SecureInterpreter:
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _container_command(self, work: Path) -> list[str]:
+    def _container_command(
+        self, work: Path, *, cidfile: Path | None = None
+    ) -> list[str]:
         runtime = self._resolve_runtime()
         if runtime is None or not self.container_image:
             raise SandboxUnavailable("container sandbox backend became unavailable")
@@ -746,9 +761,11 @@ class SecureInterpreter:
             "--pids-limit",
             str(max(1, int(self.limits.nproc))),
             "--tmpfs",
-            "/tmp:rw,noexec,nosuid,size=512m",
+            "/tmp:rw,noexec,nosuid,size=128m",
+            "--tmpfs",
+            f"/workspace:rw,noexec,nosuid,size={max(1, int(self.limits.workspace_mb))}m",
             "--mount",
-            f"type=bind,src={work},dst=/workspace,rw",
+            f"type=bind,src={work},dst=/candidate_src,ro",
             "--workdir",
             "/workspace",
             "--env",
@@ -756,6 +773,8 @@ class SecureInterpreter:
             "--env",
             "TMPDIR=/tmp",
         ]
+        if cidfile is not None:
+            cmd[2:2] = ["--cidfile", str(cidfile)]
         if self.limits.memory_mb > 0:
             cmd += ["--memory", f"{int(self.limits.memory_mb)}m"]
         if self.limits.nofile > 0:
@@ -780,18 +799,50 @@ class SecureInterpreter:
             "--entrypoint",
             "python",
             self.container_image,
-            f"/workspace/{self.agent_file_name}",
+            f"/candidate_src/{self.agent_file_name}",
         ]
         return cmd
 
     def _container_run(self, code: str):
         work = self._new_workspace()
+        cidfile = self._tmp_root / f"container-{uuid.uuid4().hex}.cid"
         try:
             (work / self.agent_file_name).write_text(code)
-            cmd = self._container_command(work)
-            return self._run_subprocess(
-                cmd, work, backend="container", env={"PATH": os.environ.get("PATH", "")}
-            )
+            cmd = self._container_command(work, cidfile=cidfile)
+            try:
+                return self._run_subprocess(
+                    cmd,
+                    work,
+                    backend="container",
+                    env={"PATH": os.environ.get("PATH", "")},
+                )
+            finally:
+                runtime = self._resolve_runtime()
+                try:
+                    container_id = cidfile.read_text().strip()
+                except OSError:
+                    container_id = ""
+                if runtime and container_id:
+                    # --rm normally removes the container. These idempotent calls
+                    # also reap it if the CLI was killed while the daemon kept it.
+                    for action in ("kill", "rm"):
+                        args = [runtime, action]
+                        if action == "rm":
+                            args.append("-f")
+                        args.append(container_id)
+                        try:
+                            subprocess.run(
+                                args,
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=10,
+                                check=False,
+                                env={"PATH": os.environ.get("PATH", "")},
+                            )
+                        except (OSError, subprocess.SubprocessError):
+                            pass
+                cidfile.unlink(missing_ok=True)
         finally:
             shutil.rmtree(work, ignore_errors=True)
 

@@ -13,28 +13,14 @@ import signal
 import sys
 import time
 import traceback
-from dataclasses import dataclass
 from multiprocessing import Process, Queue
 from pathlib import Path
 
 import humanize
-from dataclasses_json import DataClassJsonMixin
+
+from .execution_types import ExecutionResult
 
 logger = logging.getLogger("aide")
-
-
-@dataclass
-class ExecutionResult(DataClassJsonMixin):
-    """
-    Result of executing a code snippet in the interpreter.
-    Contains the output, execution time, and exception information.
-    """
-
-    term_out: list[str]
-    exec_time: float
-    exc_type: str | None
-    exc_info: dict | None = None
-    exc_stack: list[tuple] | None = None
 
 
 def exception_summary(e, working_dir, exec_file_name, format_tb_ipython):

@@ -44,13 +44,23 @@ def test_jev_high_confidence_failure_can_mark_repairable():
     probs["repairable_implementation"] = 0.96
     # normalize exactly
     leftover = (1.0 - probs["repairable_implementation"]) / (len(criteria) - 1)
-    probs = {k: (0.96 if k == "repairable_implementation" else leftover) for k in criteria}
+    probs = {
+        k: (0.96 if k == "repairable_implementation" else leftover) for k in criteria
+    }
 
     def post(*args, **kwargs):
-        return FakeResponse(_choice_body("dream.failure_class.v1", "repairable_implementation", probs, 0.96))
+        return FakeResponse(
+            _choice_body(
+                "dream.failure_class.v1", "repairable_implementation", probs, 0.96
+            )
+        )
 
-    advisor = JevAdvisor(enabled=True, confidence_threshold=0.72, failure_influence=True, post_fn=post)
-    repairability, advice = advisor.repairability(fail_class="runtime", error="shape mismatch")
+    advisor = JevAdvisor(
+        enabled=True, confidence_threshold=0.72, failure_influence=True, post_fn=post
+    )
+    repairability, advice = advisor.repairability(
+        fail_class="runtime", error="shape mismatch"
+    )
     assert repairability == "repairable"
     assert advice is not None
     assert advice.backend == "anyjev"
@@ -62,13 +72,44 @@ def test_jev_low_confidence_does_not_override_fallback():
     probs = {k: 1.0 / len(criteria) for k in criteria}
 
     def post(*args, **kwargs):
-        return FakeResponse(_choice_body("dream.failure_class.v1", "structural_algorithm", probs, 0.40))
+        return FakeResponse(
+            _choice_body("dream.failure_class.v1", "structural_algorithm", probs, 0.40)
+        )
 
-    advisor = JevAdvisor(enabled=True, confidence_threshold=0.72, failure_influence=True, post_fn=post)
-    repairability, advice = advisor.repairability(fail_class="compile", error="syntax error")
+    advisor = JevAdvisor(
+        enabled=True, confidence_threshold=0.72, failure_influence=True, post_fn=post
+    )
+    repairability, advice = advisor.repairability(
+        fail_class="compile", error="syntax error"
+    )
     assert repairability is None
     assert advice is not None
-    assert advice.confidence == 0.40
+    assert advice.confidence == max(probs.values())
+
+
+def test_jev_effective_confidence_comes_from_selected_choice_probability():
+    criteria = JevAdvisor.FAILURE_CRITERIA
+    probs = {key: 0.01 for key in criteria}
+    probs["structural_algorithm"] = 0.96
+    leftover = (1.0 - probs["structural_algorithm"]) / (len(criteria) - 1)
+    probs = {
+        key: (0.96 if key == "structural_algorithm" else leftover) for key in criteria
+    }
+
+    def post(*args, **kwargs):
+        return FakeResponse(
+            _choice_body(
+                "dream.failure_class.v1",
+                "structural_algorithm",
+                probs,
+                0.01,
+            )
+        )
+
+    advisor = JevAdvisor(enabled=True, post_fn=post)
+    advice = advisor.classify_failure(fail_class="runtime", error="failure")
+    assert advice is not None
+    assert advice.confidence == probs["structural_algorithm"]
 
 
 def test_failure_request_excludes_raw_credentials_and_keeps_fixed_signals():
@@ -78,7 +119,9 @@ def test_failure_request_excludes_raw_credentials_and_keeps_fixed_signals():
 
     def post(*args, **kwargs):
         captured.append(kwargs["json"])
-        return FakeResponse(_choice_body("dream.failure_class.v1", "uncertain", probs, 0.2))
+        return FakeResponse(
+            _choice_body("dream.failure_class.v1", "uncertain", probs, 0.2)
+        )
 
     advisor = JevAdvisor(enabled=True, post_fn=post)
     advisor.classify_failure(
@@ -97,7 +140,9 @@ def test_jev_fail_open_preserves_search_when_fabric_is_down():
         raise OSError("connection refused")
 
     advisor = JevAdvisor(enabled=True, fail_open=True, post_fn=post)
-    repairability, advice = advisor.repairability(fail_class="compile", error="bad syntax")
+    repairability, advice = advisor.repairability(
+        fail_class="compile", error="bad syntax"
+    )
     assert repairability is None
     assert advice is not None
     assert advice.error
@@ -185,7 +230,9 @@ def test_shadow_action_advisor_cannot_change_live_selected_batch():
 
     plain = LiveExplorationController(genome, width_cap=1, depth_cap=4)
     with_shadow_advisor = ShadowOnlyAdvisor()
-    shadow = LiveExplorationController(genome, width_cap=1, depth_cap=4, advisor=with_shadow_advisor)
+    shadow = LiveExplorationController(
+        genome, width_cap=1, depth_cap=4, advisor=with_shadow_advisor
+    )
 
     a = plain.select_parents(journal)
     b = shadow.select_parents(journal)
@@ -199,19 +246,34 @@ def test_policy_uses_recorded_jev_repairability_for_recovery_role():
         maximize=True,
         nodes={
             "a": ReplayNode(
-                id="a", parent_id=ROOT_ID, step=0, depth=1, branch_id="a",
-                score=None, valid=False, is_buggy=True,
-                fail_class="dependency", error="missing module",
+                id="a",
+                parent_id=ROOT_ID,
+                step=0,
+                depth=1,
+                branch_id="a",
+                score=None,
+                valid=False,
+                is_buggy=True,
+                fail_class="dependency",
+                error="missing module",
                 repairability="repairable",
             ),
             "a2": ReplayNode(
-                id="a2", parent_id="a", step=1, depth=2, branch_id="a",
-                score=1.0, valid=True, is_buggy=False,
+                id="a2",
+                parent_id="a",
+                step=1,
+                depth=2,
+                branch_id="a",
+                score=1.0,
+                valid=True,
+                is_buggy=False,
             ),
         },
     )
     sim = ReplaySimulator(obs_world)
     sim.probe_batch(["root:0"])
-    policy = AdaptiveReplayPolicy(PolicyGenome(recovery_weight=4.0, failure_penalty=4.0, beta=0.5))
+    policy = AdaptiveReplayPolicy(
+        PolicyGenome(recovery_weight=4.0, failure_penalty=4.0, beta=0.5)
+    )
     batch = policy.select_batch(sim.snapshot())
     assert batch == ["refine:a"]

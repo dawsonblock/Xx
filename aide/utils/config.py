@@ -63,7 +63,7 @@ class RSIEvolutionConfig:
     min_validation_margin: float = 0.0
     max_qualification_regression: float = 0.01
     max_single_world_regression: float = 0.05
-    min_qualification_worlds: int = 1
+    min_qualification_worlds: int = 3
     use_llm_developer: bool = False
     llm_candidates: int = 4
     llm_model: str | None = None
@@ -115,6 +115,7 @@ class RSICanaryConfig:
     min_pass_fraction: float = 0.66
     max_normalized_regression: float = 0.05
     min_valid: int = 1
+    score_scale_floor: float = 1.0
 
 
 @dataclass

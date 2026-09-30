@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import math
 import random
@@ -160,8 +162,14 @@ class Agent:
         self.journal = journal
         self.external_memory = external_memory or ""
         self.data_preview: str | None = None
+        self._generation_context_digest: str | None = None
 
     def memory_summary(self) -> str:
+        # A replayed action must not contain information from same-round
+        # siblings or future attempts. Prior-world context is fixed before this
+        # episode and is safe to reuse as public context.
+        if bool(getattr(getattr(self.cfg, "rsi", None), "enabled", False)):
+            return self.external_memory
         local = self.journal.generate_summary()
         if not self.external_memory:
             return local
@@ -263,6 +271,11 @@ class Agent:
 
     def plan_and_code_query(self, prompt, retries=3) -> tuple[str, str]:
         """Generate a natural language plan + code in the same LLM call and split them apart."""
+        self._generation_context_digest = hashlib.sha256(
+            json.dumps(
+                prompt, sort_keys=True, separators=(",", ":"), default=str
+            ).encode("utf-8")
+        ).hexdigest()
         completion_text = None
         for _ in range(retries):
             completion_text = query(
@@ -313,7 +326,14 @@ class Agent:
             prompt["Data Overview"] = self.data_preview
 
         plan, code = self.plan_and_code_query(prompt)
-        return Node(plan=plan, code=code)
+        return Node(
+            plan=plan,
+            code=code,
+            rsi_provenance={
+                "generation_context_sha256": self._generation_context_digest,
+                "generation_context_mode": "fixed_prior_worlds_no_current_round_summary",
+            },
+        )
 
     def _improve(self, parent_node: Node) -> Node:
         prompt: Any = {
@@ -349,6 +369,10 @@ class Agent:
             plan=plan,
             code=code,
             parent=parent_node,
+            rsi_provenance={
+                "generation_context_sha256": self._generation_context_digest,
+                "generation_context_mode": "fixed_prior_worlds_and_parent_only",
+            },
         )
 
     def _debug(self, parent_node: Node) -> Node:
@@ -377,7 +401,15 @@ class Agent:
             prompt["Data Overview"] = self.data_preview
 
         plan, code = self.plan_and_code_query(prompt)
-        return Node(plan=plan, code=code, parent=parent_node)
+        return Node(
+            plan=plan,
+            code=code,
+            parent=parent_node,
+            rsi_provenance={
+                "generation_context_sha256": self._generation_context_digest,
+                "generation_context_mode": "parent_and_observed_failure_only",
+            },
+        )
 
     def update_data_preview(
         self,
