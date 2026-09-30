@@ -11,12 +11,12 @@ Build date: 2026-09-29
 - Seatbelt now allows available Homebrew `opt` and `Cellar` runtime paths even
   when Python itself is installed by pyenv or uv. The native sandbox preflight
   and regression test passed on this macOS host.
-- `PYTHONPATH=/tmp/aide-rsi-review-deps:. python -m pytest -q tests/test_rsi*.py`
-  — **59 passed, 1 skipped**. Focused output-capture, Seatbelt, and recovery
-  tests — **15 passed**. Ruff passed on the changed Python files; Black passed
-  on the changed sandbox and Seatbelt tests.
-- Full-suite collection remains blocked in this local environment by the
-  missing declared dependency `shutup`; the targeted RSI suite is green.
+- With missing declared test dependencies installed into a temporary target,
+  `python -m pytest -q` — **110 passed, 1 skipped**. The RSI suite separately
+  passed **59 tests, 1 skipped**; focused output-capture, Seatbelt, and recovery
+  tests passed **15 tests**.
+- Ruff passed on the changed Python files; Black passed on the changed sandbox
+  and Seatbelt tests.
 
 ## Bounded local macOS workspace follow-up (2026-09-29)
 
