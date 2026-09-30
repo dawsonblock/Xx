@@ -12,16 +12,18 @@ import importlib.metadata
 import json
 import math
 import os
+import platform
 import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .artifacts import load_candidate
+from .artifacts import load_candidate, store_evaluation_artifact
 from .evidence import attest_evaluation
 
 
@@ -74,12 +76,33 @@ def tree_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def _require_read_only_tree(path: Path) -> None:
+def _require_read_only_tree(path: Path, *, description: str) -> None:
     for item in [path, *path.rglob("*")]:
         if item.is_symlink() or stat.S_IMODE(item.stat().st_mode) & 0o222:
-            raise TrustedEvaluatorError(
-                "trusted evaluator dataset must be a read-only tree"
-            )
+            raise TrustedEvaluatorError(f"{description} must be a read-only tree")
+
+
+def _scratch_size(path: Path) -> int:
+    """Return regular-file bytes in evaluator scratch space, rejecting links."""
+    total = 0
+    for item in path.rglob("*"):
+        try:
+            mode = item.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(mode) or not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+            return 1 << 63
+        if stat.S_ISREG(mode):
+            total += item.stat().st_size
+    return total
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
 
 
 def _stable_digest(value: Any) -> str:
@@ -127,6 +150,7 @@ class TrustedEvaluator:
         self.metric_id = str(getattr(config, "metric_id", "") or "").strip()
         self.metric_maximize = getattr(config, "metric_maximize", None)
         self.timeout_s = float(getattr(config, "timeout_s", 0) or 0)
+        self.max_output_bytes = int(getattr(config, "max_output_mb", 64) or 0) * 1024**2
         self.artifact_root = Path(artifact_root).resolve()
         self.task_sha256 = _stable_digest(task_description)
 
@@ -165,6 +189,10 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "trusted evaluator timeout_s must be in (0, 86400]"
             )
+        if not 1 <= self.max_output_bytes <= 4096 * 1024**2:
+            raise TrustedEvaluatorError(
+                "trusted evaluator max_output_mb must be in [1, 4096]"
+            )
         if (
             not os.environ.get("AIDE_RSI_EVALUATION_HMAC_KEY")
             or len(os.environ["AIDE_RSI_EVALUATION_HMAC_KEY"].encode("utf-8")) < 32
@@ -174,13 +202,21 @@ class TrustedEvaluator:
             )
 
         self._verify_inputs(expected_environment_manifest)
-        _require_read_only_tree(self.dataset_dir)
+        _require_read_only_tree(
+            self.dataset_dir, description="trusted evaluator dataset"
+        )
         python_path = Path(sys.executable).resolve(strict=True)
         self.environment_sha256 = _stable_digest(
             {
                 "manifest_sha256": expected_environment_manifest,
                 "python_executable_sha256": file_sha256(python_path),
                 "python_version": sys.version,
+                "platform": platform.platform(),
+                "path": os.environ.get("PATH", ""),
+                "evaluation_limits": {
+                    "timeout_s": self.timeout_s,
+                    "max_output_bytes": self.max_output_bytes,
+                },
                 "installed_distributions": sorted(
                     (
                         (dist.metadata.get("Name", "").lower(), dist.version)
@@ -195,6 +231,7 @@ class TrustedEvaluator:
     def _verify_inputs(
         self, expected_environment_manifest: str, *, verify_dataset: bool = True
     ) -> None:
+        _require_read_only_tree(self.bundle_dir, description="trusted evaluator bundle")
         try:
             actuals = {
                 "bundle_sha256": tree_sha256(self.bundle_dir),
@@ -285,16 +322,26 @@ class TrustedEvaluator:
                 "HOME": str(temp_dir),
                 "TMPDIR": str(temp_dir),
                 "PYTHONNOUSERSITE": "1",
+                # Evaluator-local imports otherwise create __pycache__ files and
+                # invalidate the bundle's content pin on the first invocation.
+                "PYTHONDONTWRITEBYTECODE": "1",
             }
             try:
                 process = subprocess.Popen(
                     [
                         sys.executable,
                         "-I",
+                        "-B",
                         "-c",
-                        "import runpy,sys; bundle,entry,*args=sys.argv[1:]; "
-                        "sys.path.insert(0,bundle); sys.argv=[entry,*args]; "
-                        "runpy.run_path(entry,run_name='__main__')",
+                        (
+                            "import resource,runpy,sys; "
+                            "limit=int(sys.argv[1]); "
+                            "resource.setrlimit(resource.RLIMIT_FSIZE,(limit,limit)); "
+                            "bundle,entry,*args=sys.argv[2:]; "
+                            "sys.path.insert(0,bundle); sys.argv=[entry,*args]; "
+                            "runpy.run_path(entry,run_name='__main__')"
+                        ),
+                        str(self.max_output_bytes),
                         str(self.bundle_dir),
                         str(self.entrypoint),
                         "--request",
@@ -310,18 +357,36 @@ class TrustedEvaluator:
                     close_fds=True,
                     start_new_session=True,
                 )
-                try:
-                    return_code = process.wait(timeout=self.timeout_s)
-                except subprocess.TimeoutExpired as exc:
+                deadline = time.monotonic() + self.timeout_s
+                while process.poll() is None:
+                    if _scratch_size(temp_dir) > self.max_output_bytes:
+                        _kill_process_group(process)
+                        raise TrustedEvaluatorError(
+                            "pinned evaluator exceeded its scratch output limit"
+                        )
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        _kill_process_group(process)
+                        raise TrustedEvaluatorError(
+                            "pinned evaluator exceeded its timeout"
+                        )
                     try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    process.wait()
-                    raise TrustedEvaluatorError(
-                        "pinned evaluator exceeded its timeout"
-                    ) from exc
+                        process.wait(timeout=min(0.05, remaining))
+                    except subprocess.TimeoutExpired:
+                        continue
+                return_code = process.returncode
+                # A bundle may exit successfully while a child it created keeps
+                # writing into the scratch directory. The evaluator owns one
+                # process group, so end that group before validating its outputs.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 if return_code != 0:
+                    if _scratch_size(temp_dir) >= self.max_output_bytes:
+                        raise TrustedEvaluatorError(
+                            "pinned evaluator exceeded its scratch output limit"
+                        )
                     raise TrustedEvaluatorError("pinned evaluator returned nonzero")
             except OSError as exc:
                 raise TrustedEvaluatorError(
@@ -398,10 +463,22 @@ class TrustedEvaluator:
                 raise TrustedEvaluatorError(
                     "pinned evaluator did not write predictions.jsonl"
                 )
-            if file_sha256(predictions_path) != predictions_sha256:
+            predictions_bytes = predictions_path.read_bytes()
+            if hashlib.sha256(predictions_bytes).hexdigest() != predictions_sha256:
                 raise TrustedEvaluatorError(
                     "pinned evaluator prediction digest does not match output"
                 )
+            try:
+                stored_predictions_sha256 = store_evaluation_artifact(
+                    predictions_bytes,
+                    self.artifact_root,
+                    kind="predictions",
+                    suffix=".jsonl",
+                )
+            except (OSError, ValueError) as exc:
+                raise TrustedEvaluatorError(
+                    "predictions artifact could not be stored"
+                ) from exc
 
             try:
                 self._verify_inputs(
@@ -429,6 +506,28 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "host evaluation attestation could not be created"
             ) from exc
+        attested["predictions_artifact_sha256"] = stored_predictions_sha256
+        record_bytes = (
+            json.dumps(
+                {"score": score, "provenance": attested},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+        try:
+            record_digest = store_evaluation_artifact(
+                record_bytes,
+                self.artifact_root,
+                kind="evaluations",
+                suffix=".json",
+            )
+        except (OSError, ValueError) as exc:
+            raise TrustedEvaluatorError(
+                "evaluation record could not be stored"
+            ) from exc
+        attested["evaluation_record_sha256"] = record_digest
         return TrustedEvaluation(score=score, provenance=attested)
 
 

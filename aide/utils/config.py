@@ -137,6 +137,7 @@ class RSITrustedEvaluatorConfig:
     metric_id: str | None = None
     metric_maximize: bool | None = None
     timeout_s: float = 600.0
+    max_output_mb: int = 64
 
 
 @dataclass

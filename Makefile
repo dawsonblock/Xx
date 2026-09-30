@@ -57,9 +57,9 @@ clean:
 
 # Build the same dependency-complete image for strict OCI candidate execution.
 # Then configure: rsi.sandbox.backend=container
-#                 rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.2
+#                 rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.3
 sandbox-image:
-	docker build -t aideml-rsi-sandbox:1.3.2 .
+	docker build -t aideml-rsi-sandbox:1.3.3 .
 
 
 # Install the bundled LocalJevFabric control-plane dependency.

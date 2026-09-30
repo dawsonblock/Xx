@@ -1,66 +1,63 @@
-# Validation Report — AIDE-DREAM-RSI v1.3.2
+# Validation Report — AIDE-DREAM-RSI v1.3.3
 
-Build identity: `VERSION=1.3.2`, distribution `aideml-rsi==1.3.2`.
+Build identity: `VERSION=1.3.3`, distribution `aideml-rsi==1.3.3`.
 Validation date: 2026-09-30.
 
 ## Local validation
 
-- Full project suite: **130 passed, 1 skipped**.
-- RSI suite: **79 passed, 1 skipped**.
-- Ruff 0.7.1: passed for `aide/`.
-- Black 24.3.0: passed for `aide/` and the trusted-evaluator integration test.
+- RSI suite: **83 passed, 1 skipped**.
+- Trusted-evaluator module: **9 passed**.
+- Black 26.3.1: passed for the modified Python files.
+- Ruff 0.16.0: passed for changed evaluator modules and tests. `config.py` passed
+  with five pre-existing findings ignored; the same five findings reproduce on
+  the v1.3.2 version of that file.
 - `python -m compileall -q aide tests`: passed.
-- `python setup.py --version`: `1.3.2`.
+- `python setup.py --version`: `1.3.3`.
 - `git diff --check`: passed.
-- Build manifest JSON validation: passed.
+- `BUILD_MANIFEST.json`: JSON parsing passed.
+- Full project suite: not run for this build.
 
-The trusted-evaluator subprocess protocol was exercised end-to-end with a
-deterministic fixture bundle. Tests cover host signing-key isolation, signed
-metric propagation into the live node and canary gate, fail-closed evaluator
-errors, read-only dataset enforcement, and identity binding. No task-specific
-hidden-data evaluator bundle or live model backend was run.
+The trusted-evaluator tests exercise a multi-file bundle with a local helper
+import, assert that importing it does not create `__pycache__`, check read-only
+bundle and dataset permissions, enforce a bounded scratch directory, terminate
+an evaluator grandchild, persist content-addressed prediction and signed-record
+artifacts, reject a forged prediction digest, and verify fail-closed metric
+handling. The test evaluator is deterministic and contains no hidden task data.
 
-Bubblewrap and OCI candidate execution were not run on this macOS host. Native
-Seatbelt behavior remains covered by the repository's macOS tests and CI; this
-report does not claim deployment qualification for the operator's evaluator
-bundle or its internal candidate sandbox.
+Bubblewrap, OCI candidate execution, a task-specific evaluator bundle, and a
+live model backend were not run for this build. This report does not establish
+deployment readiness or candidate isolation inside an operator-supplied
+evaluator.
 
-## Evaluator authority
+## Evaluator security and evidence limits
 
-When configured, the runner executes an operator-pinned evaluator bundle in a
-separate Python process after candidate sandbox execution. The evaluator must
-independently run the content-addressed candidate against its pinned task
-configuration and hidden data/split, then calculate predictions and a fixed
-metric. The host checks the returned identity fields, rechecks the evaluator and
-control-file pins, and creates the HMAC attestation. The signing key is excluded
-from the evaluator subprocess environment. If evaluation fails, the candidate
-is unscored and feedback-model metrics are not used as fallback.
+The host launches evaluator Python with `-I -B` and sets
+`PYTHONDONTWRITEBYTECODE=1`. It requires the evaluator bundle to have no write
+permission bits, applies a per-file limit and samples aggregate scratch use in
+the temporary directory against `max_output_mb`, kills the evaluator process
+group, and stores verified predictions and attested records by content hash.
+This does not constrain writes outside that directory or stop a deliberate new
+session. Read-only mode bits do not stop hostile same-UID code
+from changing permissions; deployment should mount the bundle read-only.
 
-No task-specific evaluator bundle is included. Trusted evaluation is disabled
-by default, so automatic policy promotion and best-solution publication remain
-fail-closed until an operator supplies and qualifies a reviewed bundle. See
-[docs/TRUSTED_EVALUATOR.md](docs/TRUSTED_EVALUATOR.md) for the protocol and
-configuration contract.
+The evaluator receives no HMAC key through inherited environment variables.
+That does not provide OS-level key isolation: a same-UID child may inspect its
+parent environment through `/proc` on common Linux configurations. HMAC remains
+a symmetric record-integrity mechanism under a trusted host process. A
+restricted signer process or service is not included.
 
-## Holdout and recovery controls
+The replay split separates historical worlds, not task data. The same configured
+evaluator can be queried during discovery and canary, so those scores are
+adaptive search feedback rather than untouched generalization evidence. Separate
+search, validation, qualification, and canary evaluator authorities remain a
+task-specific follow-up.
 
-- Development worlds alone feed live memory, replay support, grid planning, and
-  best-solution selection.
-- Validation worlds are used for candidate tuning; qualification worlds are
-  only used for promotion decisions and are retired after an attested shard.
-- The split bootstrap assigns 2 development, 1 validation, and 3 qualification
-  worlds by the sixth discovery round. Seven default rounds provide a following
-  paired-canary opportunity.
-- Candidate artifacts are content-addressed and source hashes are checked
-  before publication.
-- Canary decisions recover from durable policy transactions; persisted policy
-  digests and trusted-evaluator identity are checked when resuming.
-- OCI and Bubblewrap writable workspaces use size-limited temporary filesystems;
-  OCI containers are explicitly killed and removed after CLI failure or timeout.
+The environment identity records platform and `PATH` values along with the
+Python executable and package inventory; it does not bind a container image or
+the contents of external executables and system libraries.
 
 ## Historical validation
 
-The v1.3.0 and v1.3.1 reports are preserved in
-`docs/archive/VALIDATION_REPORT_v1.3.0.md` and
-`docs/archive/VALIDATION_REPORT_v1.3.1.md`. Those results do not apply to this
-build.
+The v1.3.2 report is preserved in
+`docs/archive/VALIDATION_REPORT_v1.3.2.md`; its test counts do not apply to this
+build. Earlier reports remain in the archive directory.

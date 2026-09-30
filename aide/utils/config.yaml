@@ -89,7 +89,7 @@ rsi:
     mode: strict
     backend: auto            # auto | bubblewrap | container | seatbelt (macOS)
     container_runtime: auto  # auto | docker | podman
-    # Build with `make sandbox-image`, then set this to aideml-rsi-sandbox:1.3.2
+    # Build with `make sandbox-image`, then set this to aideml-rsi-sandbox:1.3.3
     # when bubblewrap is unavailable. Null means container fallback is disabled.
     container_image: null
     allow_insecure_process: false
@@ -123,6 +123,8 @@ rsi:
     metric_id: null
     metric_maximize: null
     timeout_s: 600
+    # Aggregate evaluator scratch data, including predictions and response.
+    max_output_mb: 64
   canary:
     attempts: 4
     # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to

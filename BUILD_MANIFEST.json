@@ -1,7 +1,7 @@
 {
-  "build": "AIDE-DREAM-RSI-v1.3.2",
+  "build": "AIDE-DREAM-RSI-v1.3.3",
   "distribution_name": "aideml-rsi",
-  "distribution_version": "1.3.2",
+  "distribution_version": "1.3.3",
   "base_artifact": {
     "name": "AIDE-DREAM-RSI-v1.2.0.zip",
     "sha256": "88a9fc88a3253b24e31cc4b64b4bd3ffffd8ef7bacd7ddb9b24ac326a683ee31"
@@ -22,7 +22,7 @@
     "jev_default_influence": "none; failure_influence=false by default",
     "policy_interface": "one AdaptiveReplayPolicy shared by replay and live adapters",
     "qualification": "persistent development/validation sets + one-shot qualification shards + HMAC-attested results + provenance-gated real canary",
-    "trusted_evaluation": "host invokes a content-pinned task evaluator subprocess; host signs only identity-checked responses; disabled by default",
+    "trusted_evaluation": "host invokes a content-pinned task evaluator subprocess with bytecode disabled, read-only bundle checks, bounded scratch monitoring, process-group cleanup, and content-addressed prediction/record artifacts; disabled by default",
     "execution": "strict fail-closed Bubblewrap or Docker/Podman OCI sandbox; insecure process mode only by explicit opt-in",
     "integrity": "append-only SHA-256 content-addressed replay objects",
     "parallelism": "effective live parallelism 1; replay parallel bonus 0"
@@ -47,28 +47,35 @@
     "docs/THREAT_MODEL.md",
     "docs/TRUSTED_EVALUATOR.md",
     "docs/MIGRATION_v1.3.1_to_v1.3.2.md",
+    "docs/MIGRATION_v1.3.2_to_v1.3.3.md",
     "docs/MIGRATION_v1.3.0_to_v1.3.1.md",
     "docs/MIGRATION_v1.1_to_v1.2.md",
     "docs/MIGRATION_v1.2_to_v1.3.md",
     "VALIDATION_REPORT.md",
     "docs/archive/VALIDATION_REPORT_v1.3.0.md",
-    "docs/archive/VALIDATION_REPORT_v1.3.1.md"
+    "docs/archive/VALIDATION_REPORT_v1.3.1.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.2.md"
   ],
   "validation": {
-    "full_project_pytest": "130 passed, 1 skipped",
-    "rsi_pytest": "79 passed, 1 skipped",
-    "ruff": "0.7.1 passed for aide/",
-    "black": "24.3.0 passed for aide/",
+    "full_project_pytest": "not run for v1.3.3",
+    "rsi_pytest": "83 passed, 1 skipped",
+    "ruff": "0.16.0 passed for evaluator modules and tests; five pre-existing config.py findings verified unchanged from v1.3.2",
+    "black": "26.3.1 passed for modified Python files",
     "compileall": "passed for aide and tests",
-    "package_version": "1.3.2",
+    "package_version": "1.3.3",
     "strict_backend_execution": "Bubblewrap/OCI not run on macOS; command construction and OCI timeout cleanup covered by focused tests",
     "macos_seatbelt": "local backend checks run on macOS; see validation report for scope",
-    "trusted_evaluator": "pinned subprocess protocol integration tested end-to-end with deterministic fixture; no task-specific hidden-data bundle exercised",
+    "trusted_evaluator": "9 focused tests passed, including multi-file local imports, no bytecode mutation, read-only bundle checks, output bounds, grandchild cleanup, resource-identity binding, and persisted prediction/evaluation artifacts; no task-specific hidden-data bundle exercised",
     "live_jev_backend": "not executed; adapter validated against typed mocks in earlier v1.3.0 validation"
   },
   "known_limitations": [
     "task-specific hidden-data evaluator and data/split contract are not included; trusted evaluation remains disabled until an operator supplies and pins a reviewed bundle",
     "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
+    "same-UID evaluator children may inspect the host process environment on common Linux configurations; stripped child variables are not OS-level key isolation",
+    "one evaluator dataset is reused for search and canary; replay-world splitting is not a holdout-data boundary or untouched generalization evidence",
+    "candidate isolation inside the operator-supplied evaluator and separation of search, validation, qualification, and canary datasets require task-specific adapters not implemented here",
+    "the host trusts the task evaluator's metric implementation and does not independently recompute it from labels and predictions",
+    "environment identity records platform and PATH values but does not bind a container image, system libraries, GPU driver, or the contents of every executable reachable through PATH",
     "reference live executor remains serial",
     "replay cannot generate unseen branch outcomes",
     "JEV is advisory/shadow by default",
