@@ -16,9 +16,12 @@ from aide.rsi.runner import (
     _validate_trusted_evaluator_roles,
 )
 from aide.rsi.trusted_evaluator import (
+    REFERENCE_EVALUATOR_ENTRYPOINT,
     TrustedEvaluator,
     TrustedEvaluatorError,
     _stable_digest,
+    canonical_evaluation_sample_ids,
+    evaluation_sample_overlap,
     file_sha256,
     tree_sha256,
 )
@@ -221,8 +224,21 @@ def test_pinned_evaluator_runs_without_host_attestation_key_and_signs_record(
     )
     assert prediction_artifact.read_text() == "{}\n"
     record = json.loads(record_artifact.read_text())
-    assert record["score"] == pytest.approx(0.875)
-    assert record["provenance"]["attestation_hmac_sha256"]
+    assert record["metric_value"] == pytest.approx(0.875)
+    assert record["candidate_sha256"] == candidate_sha256
+    assert has_trusted_evaluation(
+        node,
+        maximize=True,
+        artifact_root=evaluator.artifact_root,
+        require_artifacts=True,
+    )
+    record_artifact.unlink()
+    assert not has_trusted_evaluation(
+        node,
+        maximize=True,
+        artifact_root=evaluator.artifact_root,
+        require_artifacts=True,
+    )
     journal = SimpleNamespace(metric_maximize=True, nodes=[node])
     assert RealCanaryGate().evaluate_pair(journal, journal).passed
 
@@ -256,6 +272,90 @@ def test_forged_prediction_digest_cannot_be_attested(tmp_path: Path, monkeypatch
         match="prediction digest does not match output",
     ):
         evaluator.evaluate(candidate_sha256)
+
+
+def test_dataset_is_rehashed_before_each_authoritative_evaluation(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, candidate_sha256, _ = _make_evaluator(tmp_path, monkeypatch)
+    labels = evaluator.dataset_dir / "labels.csv"
+    labels.chmod(0o644)
+    labels.write_text("label\n1\n0\nchanged\n")
+    labels.chmod(0o444)
+    with pytest.raises(TrustedEvaluatorError, match="dataset_sha256"):
+        evaluator.evaluate(candidate_sha256)
+
+
+def test_first_party_reference_evaluator_is_wired_through_trusted_runner(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
+    dataset = Path(config.dataset_dir)
+    dataset.chmod(0o755)
+    (dataset / "labels.csv").chmod(0o644)
+    (dataset / "labels.csv").write_text("id,label\na,1\nb,0\n")
+    features = dataset / "features.csv"
+    features.write_text("id,x\na,1\nb,0\n")
+    features.chmod(0o444)
+    (dataset / "labels.csv").chmod(0o444)
+    dataset.chmod(0o555)
+    split = Path(config.split_manifest)
+    split.write_text('{"evaluation_sample_ids":["a","b"]}\n')
+    config_path = Path(config.config_path)
+    config_path.write_text(
+        json.dumps(
+            {
+                "labels_file": "labels.csv",
+                "public_files": ["features.csv"],
+                "scoring": {"id_column": "id", "label_column": "label"},
+            }
+        )
+        + "\n"
+    )
+    config.entrypoint = REFERENCE_EVALUATOR_ENTRYPOINT
+    config.dataset_sha256 = tree_sha256(dataset)
+    config.split_sha256 = file_sha256(split)
+    config.config_sha256 = file_sha256(config_path)
+    evaluator = TrustedEvaluator(
+        config,
+        task_description={"Task goal": "read public features and emit predictions"},
+        artifact_root=Path(config.dataset_dir).parent / "artifacts",
+    )
+    candidate_sha256 = store_candidate(
+        "import csv, json\n"
+        "for row in csv.DictReader(open('input/features.csv')):\n"
+        "    print(json.dumps({'id': row['id'], 'prediction': int(row['x'])}))\n",
+        evaluator.artifact_root,
+    )
+    try:
+        result = evaluator.evaluate(candidate_sha256)
+    except TrustedEvaluatorError as exc:
+        if "candidate sandbox" in str(exc) or "strict" in str(exc):
+            pytest.skip(f"strict nested candidate sandbox unavailable: {exc}")
+        raise
+    assert result.score == pytest.approx(1.0)
+
+
+def test_canonical_evaluation_sample_ids_detect_semantic_overlap(tmp_path: Path):
+    compact = tmp_path / "compact.json"
+    formatted = tmp_path / "formatted.json"
+    compact.write_text('{"evaluation_sample_ids":["a","b"]}')
+    formatted.write_text('{\n  "evaluation_sample_ids": ["b", "a"]\n}')
+    left = canonical_evaluation_sample_ids(compact)
+    right = canonical_evaluation_sample_ids(formatted)
+    assert left == right == ("a", "b")
+    assert evaluation_sample_overlap(left, right) == ("a", "b")
+
+
+def test_memory_floor_is_megabytes_not_bytes(tmp_path: Path, monkeypatch):
+    _, _, config = _make_evaluator(tmp_path, monkeypatch)
+    config.max_memory_mb = 1
+    with pytest.raises(TrustedEvaluatorError, match="max_memory_mb"):
+        TrustedEvaluator(
+            config,
+            task_description={"Task goal": "test"},
+            artifact_root=tmp_path / "artifacts",
+        )
 
 
 def test_evaluator_scratch_output_is_bounded(tmp_path: Path, monkeypatch):

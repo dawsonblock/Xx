@@ -128,6 +128,8 @@ rsi:
     # Aggregate evaluator scratch data, including predictions and response.
     max_output_mb: 64
     max_memory_mb: 4096
+    max_processes: 2048
+    max_open_files: 256
   # Optional independent evaluator for live incumbent/challenger canaries.
   # A trusted search evaluator alone cannot authorize promotion: canary scores
   # must come from a different pinned split or dataset.
@@ -150,6 +152,8 @@ rsi:
     timeout_s: 600
     max_output_mb: 64
     max_memory_mb: 4096
+    max_processes: 2048
+    max_open_files: 256
   canary:
     attempts: 4
     # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to

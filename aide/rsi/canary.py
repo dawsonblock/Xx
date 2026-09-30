@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from statistics import median
-from typing import Any, Iterable
+from typing import Any
 
 from .evidence import has_trusted_evaluation
 
@@ -54,14 +56,28 @@ class RealCanaryGate:
         min_valid: int = 1,
         min_pass_fraction: float = 0.66,
         score_scale_floor: float = 1.0,
+        artifact_root: str | Path | None = None,
+        require_artifacts: bool = False,
+        expected_evaluation_identity: dict[str, Any] | None = None,
+        promotion_block_reason: str | None = None,
     ):
         self.max_normalized_regression = float(max_normalized_regression)
         self.min_valid = max(1, int(min_valid))
         self.min_pass_fraction = min(1.0, max(0.0, float(min_pass_fraction)))
         self.score_scale_floor = max(1e-9, float(score_scale_floor))
+        self.artifact_root = Path(artifact_root) if artifact_root is not None else None
+        self.require_artifacts = bool(require_artifacts)
+        self.expected_evaluation_identity = dict(expected_evaluation_identity or {})
+        self.promotion_block_reason = promotion_block_reason
 
     @staticmethod
-    def _journal_scores(journal: Any) -> tuple[list[float], bool, bool]:
+    def _journal_scores(
+        journal: Any,
+        *,
+        artifact_root: Path | None = None,
+        require_artifacts: bool = False,
+        expected_identity: dict[str, Any] | None = None,
+    ) -> tuple[list[float], bool, bool]:
         maximize = (
             True
             if getattr(journal, "metric_maximize", None) is None
@@ -83,16 +99,45 @@ class RealCanaryGate:
                 continue
             if math.isfinite(v):
                 all_trusted = all_trusted and has_trusted_evaluation(
-                    node, maximize=maximize
+                    node,
+                    maximize=maximize,
+                    artifact_root=artifact_root,
+                    require_artifacts=require_artifacts,
                 )
+                if expected_identity:
+                    outer_provenance = getattr(node, "rsi_provenance", {}) or {}
+                    attested_provenance = getattr(node, "provenance", {}) or {}
+                    all_trusted = all_trusted and all(
+                        (
+                            attested_provenance.get(key)
+                            if key in attested_provenance
+                            else outer_provenance.get(key)
+                        )
+                        == value
+                        for key, value in expected_identity.items()
+                    )
                 values.append(v)
         return values, maximize, all_trusted
 
     def evaluate_pair(
         self, candidate_journal: Any, incumbent_journal: Any
     ) -> CanaryResult:
-        cvals, cmax, ctrusted = self._journal_scores(candidate_journal)
-        ivals, imax, itrusted = self._journal_scores(incumbent_journal)
+        if self.promotion_block_reason:
+            return CanaryResult(
+                False, None, None, -math.inf, self.promotion_block_reason
+            )
+        cvals, cmax, ctrusted = self._journal_scores(
+            candidate_journal,
+            artifact_root=self.artifact_root,
+            require_artifacts=self.require_artifacts,
+            expected_identity=self.expected_evaluation_identity,
+        )
+        ivals, imax, itrusted = self._journal_scores(
+            incumbent_journal,
+            artifact_root=self.artifact_root,
+            require_artifacts=self.require_artifacts,
+            expected_identity=self.expected_evaluation_identity,
+        )
         if not ctrusted or not itrusted:
             return CanaryResult(
                 False,

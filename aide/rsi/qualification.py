@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from .evaluator import ReplayEvaluator
 from .evidence import has_trusted_world_evidence
 from .policy import AdaptiveReplayPolicy
@@ -24,6 +26,8 @@ class QualificationGate:
         max_single_world_regression: float = 0.05,
         min_qualification_worlds: int = 1,
         beta_grid=(0.2, 0.4, 0.6, 0.8, 1.0),
+        artifact_root: str | Path | None = None,
+        require_artifacts: bool = False,
     ):
         self.evaluator = evaluator
         self.min_validation_margin = float(min_validation_margin)
@@ -31,6 +35,8 @@ class QualificationGate:
         self.max_single_world_regression = float(max_single_world_regression)
         self.min_qualification_worlds = max(1, int(min_qualification_worlds))
         self.beta_grid = tuple(float(x) for x in beta_grid)
+        self.artifact_root = Path(artifact_root) if artifact_root is not None else None
+        self.require_artifacts = bool(require_artifacts)
 
     def _score(self, genome: PolicyGenome, worlds) -> float:
         return self.evaluator.pareto_fitness(
@@ -82,7 +88,14 @@ class QualificationGate:
         evaluation_worlds = split.development + split.validation + split.qualification
         if promoted and (
             not evaluation_worlds
-            or any(not has_trusted_world_evidence(w) for w in evaluation_worlds)
+            or any(
+                not has_trusted_world_evidence(
+                    w,
+                    artifact_root=self.artifact_root,
+                    require_artifacts=self.require_artifacts,
+                )
+                for w in evaluation_worlds
+            )
         ):
             promoted = False
             reason = (

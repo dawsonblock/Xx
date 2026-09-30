@@ -1,136 +1,75 @@
 # Trusted evaluator integration
 
-v1.3.3 added the host-owned protocol for task-specific external evaluators.
-v1.3.4 added separate canary data. This version runs evaluator subprocesses
-inside an OS sandbox. The
-repository does not ship a hidden-label evaluator because the data format,
-prediction interface, split, and metric belong to each task. With the default
-configuration, feedback-model scores remain advisory and policy promotion stays
-disabled.
+RSI keeps feedback-model scores advisory. A content-pinned trusted evaluator is
+required for publishing measured candidates or promoting a search policy. The
+search evaluator and canary evaluator have separate identities and pinned data.
+Promotion remains disabled unless both are enabled and the canary split lists
+canonical `evaluation_sample_ids` disjoint from search and every previously used
+canary shard.
 
-## Trust boundary
+## Candidate and label boundary
 
-The operator must review the evaluator implementation and its environment. Set
-`sandbox_backend` to `auto`, `seatbelt`, or `bubblewrap`; `auto` chooses the
-supported native backend and never falls back to an unrestricted process. For
-each candidate, the runner invokes the pinned evaluator bundle inside macOS
-Seatbelt or Linux Bubblewrap. `auto` selects the native local backend and fails
-closed if it is unavailable. The process receives read access to its Python
-runtime, pinned bundle and task inputs, and read/write access to a temporary
-scratch directory. Network access is denied. Linux uses private namespaces and
-a private `/proc`; macOS uses a deny-by-default Seatbelt profile. The evaluator
-receives a per-evaluation candidate snapshot, and the host checks its digest
-afterward.
+The operator-supplied evaluator bundle is trusted code. It can read the hidden
+dataset and must not execute candidate code in its own process. For task formats
+supported by the first-party tabular adapter, configure
+`entrypoint: __aide_reference__`. The adapter copies only configured public
+feature files into a strict candidate sandbox, accepts predictions keyed by
+sample ID, and scores them in a separate fixed-metric process that receives no
+candidate source. On macOS the adapter process is content-pinned and resource
+bounded; it runs outside an outer Seatbelt profile so it can launch the nested
+candidate Seatbelt sandbox. Candidate code itself runs under a deny-by-default
+Seatbelt profile. Linux uses Bubblewrap namespaces for candidate execution.
 
-The evaluator must load that exact candidate and run it on its task data and
-split. It must compute the metric from its own predictions and labels; it must
-never accept a metric printed by the candidate or copied from the AIDE journal.
-The OS sandbox limits the evaluator's access to the host, but the task dataset
-is intentionally readable by the evaluator. Candidate execution inside it is
-still untrusted and must not receive hidden labels. A task evaluator that uses
-`exec(candidate)` or launches Python directly can expose its mounted labels to
-candidate code. It must invoke the candidate through `SecureInterpreter` or an
-equivalent separately qualified confinement layer.
+The reference adapter supports CSV feature and label files, JSON split manifests,
+and the fixed metrics `accuracy`, `mean_squared_error`,
+`root_mean_squared_error`, `mean_absolute_error`, and `r2`. The task config names
+`labels_file`, `public_files`, optional `id_column` and `label_column`, and
+resource limits under `candidate_sandbox` and `scoring`. Candidate stdout must
+contain exactly one `{"id": ..., "prediction": ...}` JSON object per pinned
+sample. The adapter rejects missing or duplicate sample IDs. Other data formats
+can use an operator-reviewed evaluator bundle, which remains responsible for
+isolating candidate execution from labels.
 
-The host applies a wall timeout, CPU limit, and per-file output limit. Linux
-also applies a per-process address-space limit. macOS samples evaluator resident
-memory and kills the process if it exceeds `max_memory_mb`; this sample does not
-sum memory used by evaluator grandchildren. The aggregate scratch monitor
-limits files under the temporary directory. Keep pinned inputs read-only and
-unchanged while the run is active.
+## Evidence and recovery authority
 
-The evaluator returns predictions' digest and a numeric score. The host checks
-all pinned identities and creates the HMAC attestation after the process
-returns. Python is launched with `-B` and `PYTHONDONTWRITEBYTECODE=1`; `-B` is
-needed because isolated mode (`-I`) ignores `PYTHON*` environment variables.
-The host requires the bundle to have no write permission bits as an additional
-integrity check. The sandbox also mounts or exposes it read-only.
+Before evaluation, candidate source is stored by SHA-256. Predictions and a
+canonical evaluation record are stored in the artifact CAS. The host HMAC binds
+the candidate, evaluator, task, dataset, split, environment, prediction digest,
+metric, result, and evaluation-record digest. Qualification, publication, and
+canary gates require the candidate, prediction, and evaluation objects to exist
+and match their hashes.
 
-The evaluator receives the following JSON request through `--request PATH` and
-writes one JSON response to `--response PATH`:
+Canary reservation records bind both policy digests, round, sample IDs, and
+repeat count under the host HMAC. This reservation is written before execution,
+so a shard remains consumed after a crash. A decision HMAC binds the reservation
+file hash, gate settings, paired journal hashes, and the computed gate result.
+Recovery checks that transaction policies match durable incumbent and pending
+state, verifies every signature and journal hash, and recomputes the gate before
+promotion. A plain `passed: true` record has no promotion authority.
 
-```json
-{
-  "schema_version": 1,
-  "candidate_sha256": "...",
-  "candidate_path": "/.../artifacts/sha256/.../...py",
-  "task_sha256": "...",
-  "evaluator_sha256": "...",
-  "evaluator_config_sha256": "...",
-  "evaluator_config_path": "/.../task-evaluator.json",
-  "dataset_sha256": "...",
-  "dataset_dir": "/.../private-evaluation-data",
-  "split_sha256": "...",
-  "split_manifest_path": "/.../evaluation-split.json",
-  "environment_sha256": "...",
-  "metric_id": "accuracy",
-  "metric_maximize": true,
-  "output_dir": "/.../predictions"
-}
-```
+Dataset trees are rehashed immediately before and after every authoritative
+evaluation. The outer evaluator process has wall-clock, CPU, file-size, process,
+open-file, memory, and aggregate scratch limits. The HMAC key is not placed in
+the evaluator child's environment. It remains a same-user host secret and is
+not protected from compromise of the AIDE process or its account.
 
-The response must contain exactly these keys:
+## Split independence and reuse
 
-```json
-{
-  "schema_version": 1,
-  "candidate_sha256": "...",
-  "task_sha256": "...",
-  "evaluator_sha256": "...",
-  "evaluator_config_sha256": "...",
-  "dataset_sha256": "...",
-  "split_sha256": "...",
-  "environment_sha256": "...",
-  "metric_id": "accuracy",
-  "metric_maximize": true,
-  "score": 0.91,
-  "predictions_sha256": "..."
-}
-```
+When search and canary share a dataset, the evaluator requires canonical sample
+IDs and checks set intersection after Unicode NFC normalization, trimming, and
+duplicate rejection. Different JSON formatting or different split-file hashes
+do not establish sample independence. A signed ledger retires canary sample IDs
+after reservation; an already consumed shard cannot authorize another
+promotion. Rotate to a fresh, disjoint canary shard before further promotion.
 
-Every echoed identity must match the request. Scores must be finite JSON numbers,
-and the prediction digest must be a lowercase SHA-256 hex string equal to the
-host-computed SHA-256 of `output_dir/predictions.jsonl`. The evaluator must write
-the serialized predictions it actually scored to that file. A per-file limit
-and aggregate scratch monitor enforce `max_output_mb` inside the evaluator's
-temporary directory. The OS profile restricts writes to that scratch directory.
-A limit breach, timeout, malformed output, digest mismatch, or evaluator error
-marks the node unscored. The runner
-does not fall back to feedback-model scoring when trusted evaluation is enabled.
-After verification, predictions and the signed evaluation record are persisted
-under `<log_dir>/rsi/artifacts/predictions/sha256/` and
-`<log_dir>/rsi/artifacts/evaluations/sha256/`. Node provenance includes both
-artifact digests.
-
-The HMAC key is removed from the evaluator child's environment. The Linux
-private PID namespace and macOS deny-by-default profile also block ordinary
-inspection of the host process. The key still belongs to the AIDE user account;
-this is not a separate-UID signer service or hardware-backed key boundary.
-
-The replay split separates worlds, not the underlying task data. Discovery
-scores are adaptive search feedback; replay validation and qualification reuse
-those scores and do not establish untouched data generalization. A configured
-`rsi.canary_evaluator` is used for both sides of every live canary and must match
-the task metric while pinning a different dataset or split from
-`rsi.trusted_evaluator`. If it is omitted, canary runs have no trusted scores
-and cannot promote a policy. Separate validation and one-shot qualification
-data authorities with query limits are still not implemented.
-
-The host does not independently recompute the task metric from labels and
-predictions. It trusts the pinned evaluator to calculate the score correctly
-and verifies that the prediction file matches the returned digest. Environment
-identity includes the pinned manifest, Python executable/version, platform
-string, sandbox backend, restricted evaluator `PATH`, evaluation limits, and
-installed Python distributions, but does not bind an OS/container image digest,
-system libraries, GPU driver, or the contents of executables reachable through
-the allowed system runtime paths.
+Replay development, validation, and qualification worlds are trajectory splits,
+not independent data holds. Replay qualification reuses measured scores and
+does not establish untouched generalization. The live canary is the independent
+sample gate, and repeated access is prevented by one-use shard accounting.
 
 ## Configure a task
 
-Prepare an evaluator bundle with an `evaluate.py` entrypoint, a separate task
-configuration file, a read-only hidden dataset directory, an immutable split
-manifest, and a lock/manifest for the evaluator Python environment. Compute the
-content pins with the public helpers:
+Pin the bundle, config, dataset tree, split manifest, and evaluator environment:
 
 ```python
 from aide.rsi.trusted_evaluator import file_sha256, tree_sha256
@@ -142,63 +81,30 @@ print("split_sha256:", file_sha256("/secure/split.json"))
 print("environment_manifest_sha256:", file_sha256("/secure/requirements.lock"))
 ```
 
-Set the resulting paths and digests under `rsi.trusted_evaluator`, along with a
-fixed `metric_id`, `metric_maximize`, an evaluation `timeout_s`, and a
-`max_output_mb` scratch budget. Set
-`AIDE_RSI_EVALUATION_HMAC_KEY` in the AIDE host environment to at least 32
-random bytes. The key is omitted from the evaluator subprocess environment, but
-same-UID process inspection can bypass that filtering on some systems. Mount the
-evaluator bundle read-only and keep the config, dataset, split, and environment
-manifest immutable while a run is active.
+For the first-party adapter, set `entrypoint: __aide_reference__` in both the
+operator's evaluator configuration and the pinned config file. The bundle still
+needs a valid content pin. Its config file should follow this shape:
 
-The recorded environment identity includes the manifest digest, Python
-executable digest/version, platform string, PATH value, evaluation limits, and
-installed distribution names/versions. The operator still needs to ensure that
-manifest describes the installed evaluator environment. Start a fresh
-experiment when changing any evaluator identity;
-the runner rejects identity changes when resuming an existing run.
-
-To permit trusted policy promotion, configure `rsi.canary_evaluator` with an
-independently pinned evaluator and dataset or split. It must use the same metric
-name and direction as the search evaluator. Reusing the same dataset and split
-digests for both roles is rejected. Separate pins do not replace the evaluator's
-candidate sandbox: the evaluator must still prevent candidate code from reading
-hidden labels or host credentials.
-
-`sandbox_backend` defaults to `auto`, which selects Seatbelt on macOS and
-Bubblewrap on Linux. Trusted evaluation fails to initialize if the selected
-strict backend is unavailable. Set `max_memory_mb` for the evaluator process
-along with `timeout_s` and `max_output_mb` for each evaluator role.
-
-## Example response implementation
-
-The evaluator entrypoint should follow this outline. `run_candidate_safely`
-and `score_predictions` are task-specific functions that must be supplied by
-the operator's reviewed bundle.
-
-```python
-import hashlib
-
-request = json.loads(Path(args.request).read_text())
-predictions = run_candidate_safely(
-    Path(request["candidate_path"]),
-    Path(request["dataset_dir"]),
-    Path(request["split_manifest_path"]),
-    Path(request["output_dir"]),
-)
-score = score_predictions(predictions, hidden_labels)
-predictions_path = Path(request["output_dir"]) / "predictions.jsonl"
-predictions_path.write_text(serialize_canonical_jsonl(predictions))
-predictions_sha256 = hashlib.sha256(predictions_path.read_bytes()).hexdigest()
-response = {key: request[key] for key in IDENTITY_KEYS}
-response.update(
-    schema_version=1,
-    score=float(score),
-    predictions_sha256=predictions_sha256,
-)
-Path(args.response).write_text(json.dumps(response))
+```json
+{
+  "labels_file": "labels.csv",
+  "public_files": ["features.csv"],
+  "scoring": {"id_column": "id", "label_column": "label"},
+  "candidate_sandbox": {
+    "timeout_s": 300,
+    "memory_mb": 1024,
+    "max_output_mb": 64
+  }
+}
 ```
 
-This protocol provides an integration point and host-side identity checks. The
-correctness and confidentiality of a task evaluator still depend on its review,
-its candidate sandbox, its data contract, and its environment qualification.
+The split manifest must include a nonempty list such as
+`{"evaluation_sample_ids":["sample-001", "sample-002"]}`. Both evaluator roles
+must use the same task and metric direction, and the canary IDs must be disjoint
+from search IDs. Keep the dataset, config, bundle, split, and environment lock
+read-only. Set `AIDE_RSI_EVALUATION_HMAC_KEY` in the AIDE host environment to at
+least 32 random bytes.
+
+Changes in this hardening branch are unreleased source updates on the existing
+v1.3.5 line. Version and package metadata remain at 1.3.5 until a release is
+prepared and validated.

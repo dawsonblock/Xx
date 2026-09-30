@@ -13,7 +13,14 @@ from typing import Any
 from .artifacts import load_candidate, store_candidate
 from .canary import RealCanaryGate
 from .evaluator import ReplayEvaluator
-from .evidence import has_trusted_evaluation, has_trusted_world_evidence
+from .evidence import (
+    has_trusted_evaluation,
+    has_trusted_world_evidence,
+    has_valid_canary_attestation,
+    has_valid_canary_transaction,
+    sign_canary_decision,
+    sign_canary_transaction,
+)
 from .evolution import PolicyEvolutionEngine
 from .jev import JevAdvisor
 from .live import LiveExplorationController
@@ -42,7 +49,30 @@ def _policy_digest(genome: PolicyGenome | None) -> str | None:
     if genome is None:
         return None
     payload = json.dumps(genome.to_dict(), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _used_canary_sample_ids(base_log: Path) -> set[str]:
+    """Recover consumed canary populations from signed reservation records."""
+    used: set[str] = set()
+    for path in base_log.glob("round-*/canary/transaction.json"):
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("canary transaction must be a regular file")
+        try:
+            transaction = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("canary reservation ledger is corrupt") from exc
+        if not isinstance(transaction, dict) or not has_valid_canary_transaction(
+            transaction
+        ):
+            raise ValueError("canary reservation ledger has no valid host signature")
+        sample_ids = transaction.get("evaluation_sample_ids")
+        if not isinstance(sample_ids, list) or any(
+            not isinstance(sample_id, str) or not sample_id for sample_id in sample_ids
+        ):
+            raise ValueError("canary reservation ledger has invalid sample IDs")
+        used.update(sample_ids)
+    return used
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -79,7 +109,12 @@ def _publish_best_from_worlds(
                 # Legacy worlds lack source-to-score binding and cannot publish
                 # an artifact as if its source had been verified.
                 continue
-            if not has_trusted_evaluation(node, maximize=world.maximize):
+            if not has_trusted_evaluation(
+                node,
+                maximize=world.maximize,
+                artifact_root=base_log / "rsi" / "artifacts",
+                require_artifacts=True,
+            ):
                 # Candidate output interpreted by a feedback model is useful for
                 # exploration, but cannot authorize a published best artifact.
                 continue
@@ -112,9 +147,13 @@ def _publish_best_from_worlds(
 
 
 def _recover_canary_transaction(
-    *, state: dict[str, Any], state_store: RSIStateStore, rsi_dir: Path
+    *,
+    state: dict[str, Any],
+    state_store: RSIStateStore,
+    rsi_dir: Path,
+    canary_gate: RealCanaryGate,
 ) -> dict[str, Any]:
-    """Finish a durable canary decision interrupted before state commit."""
+    """Recompute and authenticate a canary before completing interrupted promotion."""
     phase = state.get("phase")
     if phase not in {"CANARY_RUNNING", "IDLE"}:
         return state
@@ -124,8 +163,14 @@ def _recover_canary_transaction(
     decision_path = canary_root / "decision.json"
     if not (transaction_path.exists() and decision_path.exists()):
         return state
+    if transaction_path.is_symlink() or decision_path.is_symlink():
+        raise ValueError("canary recovery evidence must be regular files")
     transaction = json.loads(transaction_path.read_text())
     decision = json.loads(decision_path.read_text())
+    if not isinstance(transaction, dict) or not isinstance(decision, dict):
+        raise TypeError("invalid canary recovery record")
+    if not has_valid_canary_transaction(transaction):
+        raise ValueError("canary transaction has no valid host attestation")
     incumbent = PolicyGenome.from_dict(transaction["incumbent"])
     challenger = PolicyGenome.from_dict(transaction["challenger"])
     if _policy_digest(incumbent) != transaction.get("incumbent_digest"):
@@ -136,16 +181,113 @@ def _recover_canary_transaction(
         raise ValueError("canary decision does not match its incumbent transaction")
     if decision.get("candidate_digest") != transaction["candidate_digest"]:
         raise ValueError("canary decision does not match its challenger transaction")
-    winner = challenger if decision.get("passed") else incumbent
     if phase == "IDLE":
-        # State is committed before pending_policy.json is removed. Reconcile the
-        # one possible crash window without rolling back next_round.
-        if state.get("pending_digest") is None and state.get("last_canary") == decision:
-            if state.get("incumbent_digest") != _policy_digest(winner):
-                raise ValueError("committed canary state does not match its winner")
-            pending_path = rsi_dir / "pending_policy.json"
-            if pending_path.exists():
-                pending_path.unlink()
+        # Only reconcile the crash window after the durable state commit. Old or
+        # unrelated transaction files must never gain authority from their names.
+        if (
+            state.get("pending_digest") is not None
+            or state.get("last_canary") != decision
+        ):
+            return state
+        winner_digest = (
+            transaction["candidate_digest"]
+            if decision.get("passed")
+            else transaction["incumbent_digest"]
+        )
+        if state.get("incumbent_digest") != winner_digest:
+            raise ValueError("committed canary state does not match its decision")
+    else:
+        if int(transaction.get("round", -1)) != round_no:
+            raise ValueError("canary recovery round does not match durable state")
+        if state.get("incumbent_digest") != transaction["incumbent_digest"]:
+            raise ValueError("canary incumbent is not authorized by durable state")
+        if state.get("pending_digest") != transaction["candidate_digest"]:
+            raise ValueError("canary challenger is not authorized by durable state")
+        incumbent_path = rsi_dir / "incumbent_policy.json"
+        pending_path = rsi_dir / "pending_policy.json"
+        if not incumbent_path.is_file() or not pending_path.is_file():
+            raise ValueError("authorized canary policies are missing during recovery")
+        stored_incumbent_digest = _policy_digest(PolicyGenome.load(incumbent_path))
+        # The live writer saves the winning policy immediately before committing
+        # state. A crash in that narrow window can leave either authorized policy
+        # on disk; the attested journals below decide which one may win.
+        if stored_incumbent_digest not in {
+            transaction["incumbent_digest"],
+            transaction["candidate_digest"],
+        }:
+            raise ValueError(
+                "durable incumbent policy does not match canary transaction"
+            )
+        if (
+            _policy_digest(PolicyGenome.load(pending_path))
+            != transaction["candidate_digest"]
+        ):
+            raise ValueError("durable pending policy does not match canary transaction")
+
+    if not has_valid_canary_attestation(decision):
+        raise ValueError("canary decision has no valid host attestation")
+    if (
+        decision.get("transaction_sha256")
+        != hashlib.sha256(transaction_path.read_bytes()).hexdigest()
+    ):
+        raise ValueError("canary transaction digest does not match attested decision")
+    gate_config = {
+        "max_normalized_regression": canary_gate.max_normalized_regression,
+        "min_valid": canary_gate.min_valid,
+        "min_pass_fraction": canary_gate.min_pass_fraction,
+        "score_scale_floor": canary_gate.score_scale_floor,
+        "require_artifacts": canary_gate.require_artifacts,
+        "expected_evaluation_identity": canary_gate.expected_evaluation_identity,
+        "promotion_block_reason": canary_gate.promotion_block_reason,
+    }
+    gate_config_digest = _stable_digest(gate_config)
+    if decision.get("gate_config_sha256") != gate_config_digest:
+        raise ValueError("canary gate configuration changed since decision")
+
+    evidence = decision.get("journal_evidence")
+    repeats = int(transaction.get("repeats", 0))
+    expected_paths = [
+        f"rep-{rep:02d}/{side}/journal.json"
+        for rep in range(repeats)
+        for side in ("challenger", "incumbent")
+    ]
+    if (
+        not isinstance(evidence, list)
+        or [x.get("path") for x in evidence if isinstance(x, dict)] != expected_paths
+    ):
+        raise ValueError("canary decision does not bind every paired journal")
+    from aide.journal import Journal
+    from aide.utils import serialize
+
+    paired_journals = []
+    for rep in range(repeats):
+        loaded = {}
+        for side in ("challenger", "incumbent"):
+            relative = f"rep-{rep:02d}/{side}/journal.json"
+            journal_path = canary_root / relative
+            if journal_path.is_symlink() or not journal_path.is_file():
+                raise ValueError("canary journal evidence is missing")
+            evidence_item = evidence[expected_paths.index(relative)]
+            if (
+                evidence_item.get("sha256")
+                != hashlib.sha256(journal_path.read_bytes()).hexdigest()
+            ):
+                raise ValueError(
+                    "canary journal digest does not match attested decision"
+                )
+            loaded[side] = serialize.load_json(journal_path, Journal)
+        paired_journals.append((loaded["challenger"], loaded["incumbent"]))
+    recomputed = canary_gate.evaluate_series(paired_journals).to_dict()
+    if decision.get("gate_result") != recomputed or bool(
+        decision.get("passed")
+    ) != bool(recomputed["passed"]):
+        raise ValueError("canary gate result does not recompute from attested journals")
+
+    winner = challenger if recomputed["passed"] else incumbent
+    if phase == "IDLE":
+        pending_path = rsi_dir / "pending_policy.json"
+        if pending_path.exists():
+            pending_path.unlink()
         return state
     winner.save(rsi_dir / "incumbent_policy.json")
     pending_path = rsi_dir / "pending_policy.json"
@@ -525,8 +667,55 @@ def run_rsi() -> None:
         state = state_store.write(
             trusted_evaluator_identity=configured_evaluator_identity
         )
+    canary_block_reason = None
+    if trusted_evaluator is None or canary_evaluator is None:
+        canary_block_reason = "promotion requires separately configured trusted search and canary evaluators"
+    elif (
+        trusted_evaluator.evaluation_sample_ids is None
+        or canary_evaluator.evaluation_sample_ids is None
+    ):
+        canary_block_reason = (
+            "promotion requires canonical evaluation_sample_ids in both split manifests"
+        )
+    elif set(trusted_evaluator.evaluation_sample_ids) & set(
+        canary_evaluator.evaluation_sample_ids
+    ):
+        canary_block_reason = "search and canary evaluation samples overlap"
+    elif (
+        trusted_evaluator.metric_id != canary_evaluator.metric_id
+        or trusted_evaluator.metric_maximize != canary_evaluator.metric_maximize
+        or trusted_evaluator.task_sha256 != canary_evaluator.task_sha256
+    ):
+        canary_block_reason = (
+            "search and canary evaluators do not share task and metric identity"
+        )
+    if canary_evaluator is not None and canary_evaluator.evaluation_sample_ids:
+        used_ids = _used_canary_sample_ids(base_log)
+        active = state.get("phase") == "CANARY_RUNNING"
+        if set(canary_evaluator.evaluation_sample_ids) & used_ids and not active:
+            canary_block_reason = "canary sample shard has already been consumed"
+    canary_gate = RealCanaryGate(
+        max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
+        min_valid=cfg.rsi.canary.min_valid,
+        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+        score_scale_floor=cfg.rsi.canary.score_scale_floor,
+        artifact_root=rsi_dir / "artifacts",
+        require_artifacts=True,
+        expected_evaluation_identity=(
+            {
+                **canary_evaluator._identity_fields(),
+                "trusted_evaluator_identity": canary_evaluator.identity,
+            }
+            if canary_evaluator is not None
+            else {}
+        ),
+        promotion_block_reason=canary_block_reason,
+    )
     state = _recover_canary_transaction(
-        state=state, state_store=state_store, rsi_dir=rsi_dir
+        state=state,
+        state_store=state_store,
+        rsi_dir=rsi_dir,
+        canary_gate=canary_gate,
     )
     retired_worlds = state.get("retired_qualification_worlds", [])
     if retired_worlds:
@@ -560,12 +749,8 @@ def run_rsi() -> None:
         max_single_world_regression=ecfg.max_single_world_regression,
         min_qualification_worlds=ecfg.min_qualification_worlds,
         beta_grid=ecfg.beta_grid,
-    )
-    canary_gate = RealCanaryGate(
-        max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
-        min_valid=cfg.rsi.canary.min_valid,
-        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
-        score_scale_floor=cfg.rsi.canary.score_scale_floor,
+        artifact_root=rsi_dir / "artifacts",
+        require_artifacts=True,
     )
 
     all_worlds = existing_worlds
@@ -594,6 +779,22 @@ def run_rsi() -> None:
         same_round = int(state.get("current_round", outer)) == outer
         phase = state.get("phase", "IDLE") if same_round else "IDLE"
 
+        if pending is not None and phase == "IDLE" and canary_block_reason:
+            skipped = {"reason": canary_block_reason}
+            _write_json(
+                base_log / f"round-{outer:03d}" / "canary" / "skipped.json", skipped
+            )
+            pending = None
+            if pending_path.exists():
+                pending_path.unlink()
+            state_store.write(
+                phase="IDLE",
+                current_round=outer,
+                next_round=outer,
+                pending_digest=None,
+                last_canary=skipped,
+            )
+
         # Replay qualification only grants pending status. Before it can control a
         # discovery world it must beat the incumbent in a paired real canary from
         # fresh, equivalent starting states.
@@ -615,15 +816,25 @@ def run_rsi() -> None:
             )
             canary_repeats = max(1, int(cfg.rsi.canary.repeats))
             canary_root = base_log / f"round-{outer:03d}" / "canary"
+            canary_sample_ids = (
+                sorted(canary_evaluator.evaluation_sample_ids)
+                if canary_evaluator is not None
+                and canary_evaluator.evaluation_sample_ids is not None
+                else []
+            )
             _write_json(
                 canary_root / "transaction.json",
-                {
-                    "round": outer,
-                    "incumbent": incumbent.to_dict(),
-                    "challenger": pending.to_dict(),
-                    "incumbent_digest": _policy_digest(incumbent),
-                    "candidate_digest": _policy_digest(pending),
-                },
+                sign_canary_transaction(
+                    {
+                        "round": outer,
+                        "repeats": canary_repeats,
+                        "incumbent": incumbent.to_dict(),
+                        "challenger": pending.to_dict(),
+                        "incumbent_digest": _policy_digest(incumbent),
+                        "candidate_digest": _policy_digest(pending),
+                        "evaluation_sample_ids": canary_sample_ids,
+                    }
+                ),
             )
             paired_journals = []
             for rep in range(canary_repeats):
@@ -720,9 +931,40 @@ def run_rsi() -> None:
                     "budget_each": canary_budget,
                     "repeats": canary_repeats,
                     "execution_order": "alternating",
+                    "gate_result": result.to_dict(),
+                    "transaction_sha256": hashlib.sha256(
+                        (canary_root / "transaction.json").read_bytes()
+                    ).hexdigest(),
+                    "gate_config_sha256": _stable_digest(
+                        {
+                            "max_normalized_regression": canary_gate.max_normalized_regression,
+                            "min_valid": canary_gate.min_valid,
+                            "min_pass_fraction": canary_gate.min_pass_fraction,
+                            "score_scale_floor": canary_gate.score_scale_floor,
+                            "require_artifacts": canary_gate.require_artifacts,
+                            "expected_evaluation_identity": canary_gate.expected_evaluation_identity,
+                            "promotion_block_reason": canary_gate.promotion_block_reason,
+                        }
+                    ),
+                    "journal_evidence": [
+                        {
+                            "path": f"rep-{rep:02d}/{side}/journal.json",
+                            "sha256": hashlib.sha256(
+                                (
+                                    canary_root
+                                    / f"rep-{rep:02d}"
+                                    / side
+                                    / "journal.json"
+                                ).read_bytes()
+                            ).hexdigest(),
+                        }
+                        for rep in range(canary_repeats)
+                        for side in ("challenger", "incumbent")
+                    ],
                 }
             )
-            _write_json(canary_root / "decision.json", canary_payload)
+            signed_canary_payload = sign_canary_decision(canary_payload)
+            _write_json(canary_root / "decision.json", signed_canary_payload)
             if result.passed:
                 incumbent = pending
                 incumbent.save(incumbent_path)
@@ -734,7 +976,7 @@ def run_rsi() -> None:
                 next_round=outer,
                 incumbent_digest=_policy_digest(incumbent),
                 pending_digest=None,
-                last_canary=canary_payload,
+                last_canary=signed_canary_payload,
             )
             pending = None
             if pending_path.exists():
@@ -918,7 +1160,11 @@ def run_rsi() -> None:
 
         retire_qualification_ids = []
         if len(split.qualification) >= int(ecfg.min_qualification_worlds) and all(
-            has_trusted_world_evidence(world)
+            has_trusted_world_evidence(
+                world,
+                artifact_root=rsi_dir / "artifacts",
+                require_artifacts=True,
+            )
             for world in (split.development + split.validation + split.qualification)
         ):
             retire_qualification_ids = [world.world_id for world in split.qualification]

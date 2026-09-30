@@ -8,7 +8,6 @@ import os
 import re
 from typing import Any
 
-
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REQUIRED_EVALUATION_HASHES = (
     "candidate_sha256",
@@ -20,6 +19,7 @@ _REQUIRED_EVALUATION_HASHES = (
     "predictions_sha256",
     "environment_sha256",
     "result_sha256",
+    "evaluation_record_sha256",
 )
 _REQUIRED_EVALUATION_TEXT = ("metric_id",)
 _ATTESTATION_KEY_ENV = "AIDE_RSI_EVALUATION_HMAC_KEY"
@@ -47,6 +47,17 @@ def evaluation_result_digest(provenance: dict[str, Any], score: float) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def evaluation_record_bytes(provenance: dict[str, Any], score: float) -> bytes:
+    """Canonical unsigned record body used as the evaluation CAS object."""
+    payload = {
+        key: value
+        for key, value in provenance.items()
+        if key not in {"evaluation_record_sha256", "attestation_hmac_sha256"}
+    }
+    payload["metric_value"] = float(score)
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+
 def _evaluation_key(key: str | bytes | None = None) -> bytes | None:
     raw = key if key is not None else os.environ.get(_ATTESTATION_KEY_ENV)
     if isinstance(raw, str):
@@ -69,6 +80,7 @@ def _attestation_payload(provenance: dict[str, Any], score: float) -> bytes:
         "environment_sha256": provenance["environment_sha256"],
         "metric_id": provenance["metric_id"],
         "result_sha256": provenance["result_sha256"],
+        "evaluation_record_sha256": provenance["evaluation_record_sha256"],
         "metric_maximize": provenance["metric_maximize"],
         "metric_value": float(score),
     }
@@ -87,13 +99,22 @@ def attest_evaluation(
     signed = dict(provenance)
     signed["evaluation_authority"] = "trusted_external"
     signed["result_sha256"] = evaluation_result_digest(signed, score)
+    signed["evaluation_record_sha256"] = hashlib.sha256(
+        evaluation_record_bytes(signed, score)
+    ).hexdigest()
     signed["attestation_hmac_sha256"] = hmac.new(
         secret, _attestation_payload(signed, score), hashlib.sha256
     ).hexdigest()
     return signed
 
 
-def has_trusted_evaluation(node: Any, *, maximize: bool | None = None) -> bool:
+def has_trusted_evaluation(
+    node: Any,
+    *,
+    maximize: bool | None = None,
+    artifact_root: str | os.PathLike[str] | None = None,
+    require_artifacts: bool = False,
+) -> bool:
     """Require an HMAC-backed evaluator record and complete immutable bindings."""
     secret = _evaluation_key()
     if secret is None:
@@ -131,17 +152,134 @@ def has_trusted_evaluation(node: Any, *, maximize: bool | None = None) -> bool:
         "result_sha256"
     ] != evaluation_result_digest(provenance, score):
         return False
+    if (
+        provenance["evaluation_record_sha256"]
+        != hashlib.sha256(evaluation_record_bytes(provenance, score)).hexdigest()
+    ):
+        return False
     expected = hmac.new(
         secret, _attestation_payload(provenance, score), hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(
+    valid = hmac.compare_digest(
         str(provenance.get("attestation_hmac_sha256", "")), expected
     )
+    if not valid or not require_artifacts:
+        return valid
+    if artifact_root is None:
+        return False
+    root = os.fspath(artifact_root)
+    candidate = provenance["candidate_sha256"]
+    predictions = provenance["predictions_sha256"]
+    evaluation = provenance["evaluation_record_sha256"]
+    paths = (
+        (os.path.join(root, "sha256", candidate[:2], f"{candidate}.py"), candidate),
+        (
+            os.path.join(
+                root, "predictions", "sha256", predictions[:2], f"{predictions}.jsonl"
+            ),
+            predictions,
+        ),
+        (
+            os.path.join(
+                root, "evaluations", "sha256", evaluation[:2], f"{evaluation}.json"
+            ),
+            evaluation,
+        ),
+    )
+    try:
+        for path, expected_digest in paths:
+            if os.path.islink(path) or not os.path.isfile(path):
+                return False
+            digest = hashlib.sha256()
+            with open(path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != expected_digest:
+                return False
+    except OSError:
+        return False
+    return True
 
 
-def has_trusted_world_evidence(world: Any) -> bool:
+def has_trusted_world_evidence(
+    world: Any,
+    *,
+    artifact_root: str | os.PathLike[str] | None = None,
+    require_artifacts: bool = False,
+) -> bool:
     """Require at least one score and attest every scored node in a world."""
     nodes = [node for node in world.nodes.values() if getattr(node, "valid", False)]
     return bool(nodes) and all(
-        has_trusted_evaluation(node, maximize=world.maximize) for node in nodes
+        has_trusted_evaluation(
+            node,
+            maximize=world.maximize,
+            artifact_root=artifact_root,
+            require_artifacts=require_artifacts,
+        )
+        for node in nodes
     )
+
+
+def sign_canary_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    """Bind a canary decision and its evidence references to the host HMAC key."""
+    secret = _evaluation_key()
+    if secret is None:
+        raise ValueError(f"set {_ATTESTATION_KEY_ENV} to at least 32 bytes")
+    signed = dict(decision)
+    signed.pop("attestation_hmac_sha256", None)
+    payload = json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()
+    signed["attestation_hmac_sha256"] = hmac.new(
+        secret, b"aide-rsi-canary-decision/v1\0" + payload, hashlib.sha256
+    ).hexdigest()
+    return signed
+
+
+def has_valid_canary_attestation(decision: dict[str, Any]) -> bool:
+    """Verify the host signature over a persisted canary decision."""
+    secret = _evaluation_key()
+    signature = decision.get("attestation_hmac_sha256")
+    if (
+        secret is None
+        or not isinstance(signature, str)
+        or not _SHA256_RE.fullmatch(signature)
+    ):
+        return False
+    payload = dict(decision)
+    payload.pop("attestation_hmac_sha256", None)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    expected = hmac.new(
+        secret, b"aide-rsi-canary-decision/v1\0" + encoded, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+def sign_canary_transaction(transaction: dict[str, Any]) -> dict[str, Any]:
+    """Sign a canary reservation so consumed sample shards survive crashes."""
+    secret = _evaluation_key()
+    if secret is None:
+        raise ValueError(f"set {_ATTESTATION_KEY_ENV} to at least 32 bytes")
+    signed = dict(transaction)
+    signed.pop("attestation_hmac_sha256", None)
+    payload = json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()
+    signed["attestation_hmac_sha256"] = hmac.new(
+        secret, b"aide-rsi-canary-transaction/v1\0" + payload, hashlib.sha256
+    ).hexdigest()
+    return signed
+
+
+def has_valid_canary_transaction(transaction: dict[str, Any]) -> bool:
+    secret = _evaluation_key()
+    signature = transaction.get("attestation_hmac_sha256")
+    if (
+        secret is None
+        or not isinstance(signature, str)
+        or not _SHA256_RE.fullmatch(signature)
+    ):
+        return False
+    payload = dict(transaction)
+    payload.pop("attestation_hmac_sha256", None)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    expected = hmac.new(
+        secret, b"aide-rsi-canary-transaction/v1\0" + encoded, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)

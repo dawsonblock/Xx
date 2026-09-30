@@ -1,19 +1,35 @@
+import hashlib
 import json
 import sys
 from pathlib import Path
+
 import pytest
 
-from aide.rsi.artifacts import candidate_digest, store_candidate
-from aide.rsi.evidence import attest_evaluation
+from aide.journal import Journal, Node
+from aide.rsi.artifacts import (
+    candidate_digest,
+    store_candidate,
+    store_evaluation_artifact,
+)
+from aide.rsi.canary import RealCanaryGate
+from aide.rsi.evidence import (
+    attest_evaluation,
+    evaluation_record_bytes,
+    sign_canary_decision,
+    sign_canary_transaction,
+)
 from aide.rsi.runner import (
     _policy_digest,
     _publish_best_from_worlds,
     _recover_canary_transaction,
+    _stable_digest,
+    _used_canary_sample_ids,
 )
 from aide.rsi.sandbox import SandboxLimits, SecureInterpreter
 from aide.rsi.state import RSIStateStore
 from aide.rsi.types import ROOT_ID, PolicyGenome, ReplayNode, ReplayWorld
-from aide.utils import atomic
+from aide.utils import atomic, serialize
+from aide.utils.metric import MetricValue
 
 _TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
 
@@ -23,7 +39,13 @@ def trusted_evaluator_key(monkeypatch):
     monkeypatch.setenv("AIDE_RSI_EVALUATION_HMAC_KEY", _TEST_ATTESTATION_KEY)
 
 
-def trusted_provenance(candidate_hash: str, score: float) -> dict:
+def trusted_provenance(candidate_hash: str, score: float, artifact_root=None) -> dict:
+    predictions_sha = "8" * 64
+    if artifact_root is not None:
+        prediction_bytes = b'{"id":"sample-1","prediction":1}\n'
+        predictions_sha = store_evaluation_artifact(
+            prediction_bytes, artifact_root, kind="predictions", suffix=".jsonl"
+        )
     provenance = {
         "candidate_sha256": candidate_hash,
         "evaluation_authority": "trusted_external",
@@ -32,12 +54,20 @@ def trusted_provenance(candidate_hash: str, score: float) -> dict:
         "task_sha256": "9" * 64,
         "dataset_sha256": "c" * 64,
         "split_sha256": "d" * 64,
-        "predictions_sha256": "8" * 64,
+        "predictions_sha256": predictions_sha,
         "environment_sha256": "7" * 64,
         "metric_id": "test.metric",
         "metric_maximize": True,
     }
-    return attest_evaluation(provenance, score, key=_TEST_ATTESTATION_KEY)
+    signed = attest_evaluation(provenance, score, key=_TEST_ATTESTATION_KEY)
+    if artifact_root is not None:
+        store_evaluation_artifact(
+            evaluation_record_bytes(signed, score),
+            artifact_root,
+            kind="evaluations",
+            suffix=".json",
+        )
+    return signed
 
 
 def test_interrupted_journal_replacement_preserves_last_good_copy(
@@ -55,6 +85,22 @@ def test_interrupted_journal_replacement_preserves_last_good_copy(
         atomic.replace_bytes(journal, b'{"nodes":[{"id":"next"}]}')
     assert json.loads(journal.read_text())["nodes"][0]["id"] == "previous"
     assert list(tmp_path.glob("journal.json.*.tmp")) == []
+
+
+def test_policy_authority_identity_uses_full_sha256():
+    assert len(_policy_digest(PolicyGenome(beta=0.4))) == 64
+
+
+def test_signed_canary_reservation_records_consumed_sample_ids(tmp_path: Path):
+    transaction_path = tmp_path / "round-003" / "canary" / "transaction.json"
+    transaction_path.parent.mkdir(parents=True)
+    transaction_path.write_text(
+        json.dumps(sign_canary_transaction({"evaluation_sample_ids": ["sample-a"]}))
+    )
+    assert _used_canary_sample_ids(tmp_path) == {"sample-a"}
+    transaction_path.write_text('{"evaluation_sample_ids":["sample-b"]}')
+    with pytest.raises(ValueError, match="host signature"):
+        _used_canary_sample_ids(tmp_path)
 
 
 def test_committed_world_republishes_best_solution_after_interruption(tmp_path: Path):
@@ -77,9 +123,9 @@ def test_committed_world_republishes_best_solution_after_interruption(tmp_path: 
                 42.0,
                 True,
                 False,
-                provenance={
-                    **trusted_provenance(digest, 42.0),
-                },
+                provenance=trusted_provenance(
+                    digest, 42.0, tmp_path / "rsi" / "artifacts"
+                ),
             )
         },
         maximize=True,
@@ -119,15 +165,15 @@ def test_publication_rejects_tampered_content_addressed_candidate(tmp_path: Path
                 1.0,
                 True,
                 False,
-                provenance={
-                    **trusted_provenance(digest, 1.0),
-                },
+                provenance=trusted_provenance(
+                    digest, 1.0, tmp_path / "rsi" / "artifacts"
+                ),
             )
         },
         metadata={"round": 0},
     )
-    with pytest.raises(ValueError, match="digest mismatch"):
-        _publish_best_from_worlds([world], tmp_path)
+    assert _publish_best_from_worlds([world], tmp_path) == (None, {})
+    assert not (tmp_path / "best_solution.py").exists()
 
 
 def test_untrusted_feedback_metric_cannot_authorize_publication(tmp_path: Path):
@@ -156,50 +202,57 @@ def test_untrusted_feedback_metric_cannot_authorize_publication(tmp_path: Path):
     assert not (tmp_path / "best_solution.py").exists()
 
 
-def test_canary_decision_recovers_after_pending_policy_removal(tmp_path: Path):
+def test_unsigned_canary_recovery_cannot_promote_substituted_policy(tmp_path: Path):
     rsi_dir = tmp_path / "rsi"
     canary_root = tmp_path / "round-002" / "canary"
     canary_root.mkdir(parents=True)
     incumbent = PolicyGenome(beta=0.2)
     challenger = PolicyGenome(beta=0.8)
-    incumbent.save(rsi_dir / "incumbent_policy.json")
-    challenger.save(rsi_dir / "pending_policy.json")
+    authorized_incumbent = PolicyGenome(beta=0.3)
+    authorized_pending = PolicyGenome(beta=0.7)
+    authorized_incumbent.save(rsi_dir / "incumbent_policy.json")
+    authorized_pending.save(rsi_dir / "pending_policy.json")
     transaction = {
+        "round": 2,
+        "repeats": 1,
+        "evaluation_sample_ids": ["canary-1"],
         "incumbent": incumbent.to_dict(),
         "challenger": challenger.to_dict(),
         "incumbent_digest": _policy_digest(incumbent),
         "candidate_digest": _policy_digest(challenger),
     }
-    (canary_root / "transaction.json").write_text(json.dumps(transaction))
+    (canary_root / "transaction.json").write_text(
+        json.dumps(sign_canary_transaction(transaction))
+    )
     decision = {
         "passed": True,
         "incumbent_digest": _policy_digest(incumbent),
         "candidate_digest": _policy_digest(challenger),
     }
     (canary_root / "decision.json").write_text(json.dumps(decision))
-    (rsi_dir / "pending_policy.json").unlink()
     state_store = RSIStateStore(rsi_dir / "state.json")
     state_store.write(
         phase="CANARY_RUNNING",
         current_round=2,
         next_round=2,
-        incumbent_digest=_policy_digest(incumbent),
-        pending_digest=_policy_digest(challenger),
+        incumbent_digest=_policy_digest(authorized_incumbent),
+        pending_digest=_policy_digest(authorized_pending),
     )
 
-    recovered = _recover_canary_transaction(
-        state=state_store.load(), state_store=state_store, rsi_dir=rsi_dir
-    )
-    assert recovered["phase"] == "IDLE"
-    assert recovered["incumbent_digest"] == _policy_digest(challenger)
-    assert (
-        PolicyGenome.load(rsi_dir / "incumbent_policy.json").to_dict()
-        == challenger.to_dict()
-    )
-    assert not (rsi_dir / "pending_policy.json").exists()
+    gate = RealCanaryGate(artifact_root=rsi_dir / "artifacts", require_artifacts=True)
+    with pytest.raises(ValueError, match="authorized by durable state"):
+        _recover_canary_transaction(
+            state=state_store.load(),
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            canary_gate=gate,
+        )
+    assert _policy_digest(
+        PolicyGenome.load(rsi_dir / "incumbent_policy.json")
+    ) == _policy_digest(authorized_incumbent)
 
 
-def test_canary_recovery_removes_pending_file_after_state_commit(tmp_path: Path):
+def test_canary_recovery_rejects_unsigned_decision_after_state_commit(tmp_path: Path):
     rsi_dir = tmp_path / "rsi"
     canary_root = tmp_path / "round-001" / "canary"
     canary_root.mkdir(parents=True)
@@ -230,9 +283,153 @@ def test_canary_recovery_removes_pending_file_after_state_commit(tmp_path: Path)
         last_canary=decision,
     )
 
-    _recover_canary_transaction(
-        state=state_store.load(), state_store=state_store, rsi_dir=rsi_dir
+    gate = RealCanaryGate(artifact_root=rsi_dir / "artifacts", require_artifacts=True)
+    with pytest.raises(ValueError, match="host attestation"):
+        _recover_canary_transaction(
+            state=state_store.load(),
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            canary_gate=gate,
+        )
+    assert (rsi_dir / "pending_policy.json").is_file()
+
+
+def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: Path):
+    rsi_dir = tmp_path / "rsi"
+    artifact_root = rsi_dir / "artifacts"
+    canary_root = tmp_path / "round-002" / "canary"
+    incumbent = PolicyGenome(beta=0.2)
+    challenger = PolicyGenome(beta=0.8)
+    incumbent.save(rsi_dir / "incumbent_policy.json")
+    challenger.save(rsi_dir / "pending_policy.json")
+
+    def make_journal(side: str, score: float) -> Journal:
+        code = f"print({score})\n"
+        candidate_sha = store_candidate(code, artifact_root)
+        predictions = store_evaluation_artifact(
+            b'{"id":"sample-1","prediction":1}\n',
+            artifact_root,
+            kind="predictions",
+            suffix=".jsonl",
+        )
+        provenance = attest_evaluation(
+            {
+                "candidate_sha256": candidate_sha,
+                "evaluation_authority": "trusted_external",
+                "evaluator_sha256": "b" * 64,
+                "evaluator_config_sha256": "f" * 64,
+                "task_sha256": "9" * 64,
+                "dataset_sha256": "c" * 64,
+                "split_sha256": "d" * 64,
+                "predictions_sha256": predictions,
+                "environment_sha256": "7" * 64,
+                "metric_id": "test.metric",
+                "metric_maximize": True,
+            },
+            score,
+            key=_TEST_ATTESTATION_KEY,
+        )
+        store_evaluation_artifact(
+            evaluation_record_bytes(provenance, score),
+            artifact_root,
+            kind="evaluations",
+            suffix=".json",
+        )
+        node = Node(
+            code=code,
+            step=0,
+            is_buggy=False,
+            metric=MetricValue(score, maximize=True),
+            rsi_provenance=provenance,
+        )
+        return Journal(nodes=[node], metric_maximize=True)
+
+    paired = []
+    for side, score in (("challenger", 0.9), ("incumbent", 0.8)):
+        journal = make_journal(side, score)
+        path = canary_root / "rep-00" / side / "journal.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        serialize.dump_json(journal, path)
+        paired.append(journal)
+
+    gate = RealCanaryGate(
+        max_normalized_regression=1.0,
+        min_valid=1,
+        min_pass_fraction=0.5,
+        score_scale_floor=1.0,
+        artifact_root=artifact_root,
+        require_artifacts=True,
     )
+    result = gate.evaluate_series([(paired[0], paired[1])]).to_dict()
+    transaction = sign_canary_transaction(
+        {
+            "round": 2,
+            "repeats": 1,
+            "incumbent": incumbent.to_dict(),
+            "challenger": challenger.to_dict(),
+            "incumbent_digest": _policy_digest(incumbent),
+            "candidate_digest": _policy_digest(challenger),
+            "evaluation_sample_ids": ["sample-1"],
+        }
+    )
+    transaction_path = canary_root / "transaction.json"
+    transaction_path.write_text(json.dumps(transaction))
+    gate_config = {
+        "max_normalized_regression": gate.max_normalized_regression,
+        "min_valid": gate.min_valid,
+        "min_pass_fraction": gate.min_pass_fraction,
+        "score_scale_floor": gate.score_scale_floor,
+        "require_artifacts": gate.require_artifacts,
+        "expected_evaluation_identity": gate.expected_evaluation_identity,
+        "promotion_block_reason": gate.promotion_block_reason,
+    }
+    journal_path = canary_root / "rep-00" / "challenger" / "journal.json"
+    incumbent_journal_path = canary_root / "rep-00" / "incumbent" / "journal.json"
+    decision = sign_canary_decision(
+        {
+            **result,
+            "passed": result["passed"],
+            "candidate_digest": _policy_digest(challenger),
+            "incumbent_digest": _policy_digest(incumbent),
+            "repeats": 1,
+            "gate_result": result,
+            "transaction_sha256": hashlib.sha256(
+                transaction_path.read_bytes()
+            ).hexdigest(),
+            "gate_config_sha256": _stable_digest(gate_config),
+            "journal_evidence": [
+                {
+                    "path": "rep-00/challenger/journal.json",
+                    "sha256": hashlib.sha256(journal_path.read_bytes()).hexdigest(),
+                },
+                {
+                    "path": "rep-00/incumbent/journal.json",
+                    "sha256": hashlib.sha256(
+                        incumbent_journal_path.read_bytes()
+                    ).hexdigest(),
+                },
+            ],
+        }
+    )
+    (canary_root / "decision.json").write_text(json.dumps(decision))
+    state_store = RSIStateStore(rsi_dir / "state.json")
+    state_store.write(
+        phase="CANARY_RUNNING",
+        current_round=2,
+        next_round=2,
+        incumbent_digest=_policy_digest(incumbent),
+        pending_digest=_policy_digest(challenger),
+    )
+
+    recovered = _recover_canary_transaction(
+        state=state_store.load(),
+        state_store=state_store,
+        rsi_dir=rsi_dir,
+        canary_gate=gate,
+    )
+
+    assert recovered["phase"] == "IDLE"
+    assert recovered["incumbent_digest"] == _policy_digest(challenger)
     assert not (rsi_dir / "pending_policy.json").exists()
 
 
@@ -333,7 +530,6 @@ def test_bubblewrap_uses_bounded_tmpfs_workspace(tmp_path: Path, monkeypatch):
 
     def fake_runner(cmd, *args, **kwargs):
         captured["cmd"] = cmd
-        return None
 
     monkeypatch.setattr(sandbox, "_run_subprocess", fake_runner)
     sandbox._bubblewrap_run("print('candidate')\n")

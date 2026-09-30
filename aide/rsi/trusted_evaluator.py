@@ -20,16 +20,53 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .artifacts import load_candidate, store_evaluation_artifact
-from .evidence import attest_evaluation
+from .evidence import attest_evaluation, evaluation_record_bytes
+
+REFERENCE_EVALUATOR_ENTRYPOINT = "__aide_reference__"
 
 
 class TrustedEvaluatorError(RuntimeError):
     """A pinned evaluator could not produce a valid trusted record."""
+
+
+def canonical_evaluation_sample_ids(path: str | Path) -> tuple[str, ...] | None:
+    """Read normalized sample IDs from a split manifest when supplied."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TrustedEvaluatorError("split manifest is not valid JSON") from exc
+    values = raw.get("evaluation_sample_ids") if isinstance(raw, dict) else None
+    if values is None:
+        return None
+    if not isinstance(values, list) or not values:
+        raise TrustedEvaluatorError("evaluation_sample_ids must be a nonempty list")
+    normalized = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise TrustedEvaluatorError(
+                "evaluation sample IDs must be nonempty strings"
+            )
+        normalized.append(unicodedata.normalize("NFC", value.strip()))
+    if len(set(normalized)) != len(normalized):
+        raise TrustedEvaluatorError(
+            "evaluation sample IDs must be unique after normalization"
+        )
+    return tuple(sorted(normalized))
+
+
+def evaluation_sample_overlap(
+    left: tuple[str, ...] | None, right: tuple[str, ...] | None
+) -> tuple[str, ...] | None:
+    """Return shared sample IDs, or None when either population is unverified."""
+    if left is None or right is None:
+        return None
+    return tuple(sorted(set(left) & set(right)))
 
 
 def _unique_json_object(pairs):
@@ -75,6 +112,36 @@ def tree_sha256(path: str | Path) -> str:
                 f"unsupported file in pinned directory: {relative.decode()}"
             )
     return digest.hexdigest()
+
+
+def _python_source_tree_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    for item in sorted(path.rglob("*.py")):
+        if item.is_symlink():
+            raise TrustedEvaluatorError("symlink in first-party evaluator source")
+        relative = item.relative_to(path).as_posix().encode("utf-8")
+        digest.update(b"F\0" + relative + b"\0")
+        digest.update(bytes.fromhex(file_sha256(item)))
+    return digest.hexdigest()
+
+
+def _stage_reference_package(package_root: Path, destination: Path) -> Path:
+    source = package_root / "aide"
+    if not source.is_dir() or source.is_symlink():
+        raise TrustedEvaluatorError("first-party evaluator package is unavailable")
+    target = destination / "aide"
+    for item in source.rglob("*.py"):
+        if item.is_symlink():
+            raise TrustedEvaluatorError("symlink in first-party evaluator package")
+        relative = item.relative_to(source)
+        staged = target / relative
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(item, staged)
+        staged.chmod(0o444)
+    for directory in sorted((p for p in target.rglob("*") if p.is_dir()), reverse=True):
+        directory.chmod(0o555)
+    target.chmod(0o555)
+    return target
 
 
 def _require_read_only_tree(path: Path, *, description: str) -> None:
@@ -157,11 +224,14 @@ _EVALUATOR_SEATBELT_PROFILE = """(version 1)
 
 _EVALUATOR_WRAPPER = """import resource, runpy, sys
 file_limit, cpu_limit, memory_limit = map(int, sys.argv[1:4])
+process_limit, descriptor_limit = map(int, sys.argv[4:6])
 resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
 resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+resource.setrlimit(resource.RLIMIT_NPROC, (process_limit, process_limit))
+resource.setrlimit(resource.RLIMIT_NOFILE, (descriptor_limit, descriptor_limit))
 if sys.platform.startswith("linux"):
     resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
-bundle, entry, *args = sys.argv[4:]
+bundle, entry, *args = sys.argv[6:]
 sys.path.insert(0, bundle)
 sys.argv = [entry, *args]
 runpy.run_path(entry, run_name="__main__")
@@ -188,6 +258,7 @@ class TrustedEvaluator:
         self.dataset_sha256 = str(getattr(config, "dataset_sha256", "") or "").lower()
         self.split_path = _required_path(config, "split_manifest")
         self.split_sha256 = str(getattr(config, "split_sha256", "") or "").lower()
+        self.evaluation_sample_ids = canonical_evaluation_sample_ids(self.split_path)
         self.environment_manifest = _required_path(config, "environment_manifest")
         expected_environment_manifest = str(
             getattr(config, "environment_manifest_sha256", "") or ""
@@ -200,6 +271,8 @@ class TrustedEvaluator:
         self.max_memory_bytes = (
             int(getattr(config, "max_memory_mb", 4096) or 0) * 1024**2
         )
+        self.max_processes = int(getattr(config, "max_processes", 2048) or 0)
+        self.max_open_files = int(getattr(config, "max_open_files", 256) or 0)
         self.sandbox_backend = self._resolve_sandbox_backend(
             str(getattr(config, "sandbox_backend", "auto") or "auto").lower()
         )
@@ -208,22 +281,36 @@ class TrustedEvaluator:
         self.task_sha256 = _stable_digest(task_description)
 
         entrypoint = str(getattr(config, "entrypoint", "evaluate.py") or "evaluate.py")
-        relative_entrypoint = Path(entrypoint)
-        if relative_entrypoint.is_absolute() or ".." in relative_entrypoint.parts:
-            raise TrustedEvaluatorError(
-                "evaluator entrypoint must stay inside its bundle"
+        self.reference_evaluator = entrypoint == REFERENCE_EVALUATOR_ENTRYPOINT
+        self.reference_package_root = Path(__file__).resolve().parents[2]
+        if self.reference_evaluator:
+            self.entrypoint = None
+            self.reference_source_sha256 = _python_source_tree_sha256(
+                self.reference_package_root / "aide"
             )
-        self.entrypoint = (self.bundle_dir / relative_entrypoint).resolve(strict=True)
-        if not self.entrypoint.is_file() or not self.entrypoint.is_relative_to(
-            self.bundle_dir
-        ):
-            raise TrustedEvaluatorError("evaluator entrypoint is not a bundle file")
-        self.evaluator_sha256 = _stable_digest(
-            {
+            evaluator_identity = {
+                "bundle_sha256": self.bundle_sha256,
+                "entrypoint": REFERENCE_EVALUATOR_ENTRYPOINT,
+                "reference_source_sha256": self.reference_source_sha256,
+            }
+        else:
+            relative_entrypoint = Path(entrypoint)
+            if relative_entrypoint.is_absolute() or ".." in relative_entrypoint.parts:
+                raise TrustedEvaluatorError(
+                    "evaluator entrypoint must stay inside its bundle"
+                )
+            self.entrypoint = (self.bundle_dir / relative_entrypoint).resolve(
+                strict=True
+            )
+            if not self.entrypoint.is_file() or not self.entrypoint.is_relative_to(
+                self.bundle_dir
+            ):
+                raise TrustedEvaluatorError("evaluator entrypoint is not a bundle file")
+            evaluator_identity = {
                 "bundle_sha256": self.bundle_sha256,
                 "entrypoint": relative_entrypoint.as_posix(),
             }
-        )
+        self.evaluator_sha256 = _stable_digest(evaluator_identity)
 
         for name, value in (
             ("bundle_sha256", self.bundle_sha256),
@@ -246,10 +333,14 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "trusted evaluator max_output_mb must be in [1, 4096]"
             )
-        if not 128 <= self.max_memory_bytes <= 65536 * 1024**2:
+        if not 128 * 1024**2 <= self.max_memory_bytes <= 65536 * 1024**2:
             raise TrustedEvaluatorError(
                 "trusted evaluator max_memory_mb must be in [128, 65536]"
             )
+        if not 1 <= self.max_processes <= 65536:
+            raise TrustedEvaluatorError("max_processes must be in [1, 65536]")
+        if not 16 <= self.max_open_files <= 65536:
+            raise TrustedEvaluatorError("max_open_files must be in [16, 65536]")
         if (
             not os.environ.get("AIDE_RSI_EVALUATION_HMAC_KEY")
             or len(os.environ["AIDE_RSI_EVALUATION_HMAC_KEY"].encode("utf-8")) < 32
@@ -323,6 +414,21 @@ class TrustedEvaluator:
         request: dict[str, Any],
     ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
         """Build a fail-closed Seatbelt or Bubblewrap evaluator invocation."""
+        if self.reference_evaluator:
+            if (
+                _python_source_tree_sha256(self.reference_package_root / "aide")
+                != self.reference_source_sha256
+            ):
+                raise TrustedEvaluatorError(
+                    "first-party evaluator source changed after it was pinned"
+                )
+            evaluator_root = temp_dir / "evaluator"
+            evaluator_root.mkdir()
+            _stage_reference_package(self.reference_package_root, evaluator_root)
+            entrypoint_path = evaluator_root / "aide" / "rsi" / "reference_evaluator.py"
+        else:
+            evaluator_root = self.bundle_dir
+            entrypoint_path = self.entrypoint
         if self.sandbox_backend == "seatbelt":
             request_paths = {
                 "candidate_path": str(candidate_path),
@@ -331,8 +437,8 @@ class TrustedEvaluator:
                 "split_manifest_path": str(self.split_path),
                 "output_dir": str(temp_dir / "predictions"),
             }
-            bundle_path = str(self.bundle_dir)
-            entrypoint = str(self.entrypoint)
+            bundle_path = str(evaluator_root)
+            entrypoint = str(entrypoint_path)
             request_path = str(temp_dir / "request.json")
             response_path = str(temp_dir / "response.json")
             scratch_path = str(temp_dir)
@@ -340,7 +446,7 @@ class TrustedEvaluator:
             for name, value in (
                 ("PY_PREFIX", sys.prefix),
                 ("PY_BASE", sys.base_prefix),
-                ("BUNDLE", self.bundle_dir),
+                ("BUNDLE", evaluator_root),
                 ("DATASET", self.dataset_dir),
                 ("CONFIG", self.config_path),
                 ("SPLIT", self.split_path),
@@ -359,9 +465,12 @@ class TrustedEvaluator:
                 "output_dir": "/scratch/predictions",
             }
             bundle_path = "/evaluator"
-            entrypoint = (
-                Path(bundle_path) / self.entrypoint.relative_to(self.bundle_dir)
-            ).as_posix()
+            if self.reference_evaluator:
+                entrypoint = "/evaluator/aide/rsi/reference_evaluator.py"
+            else:
+                entrypoint = (
+                    Path(bundle_path) / self.entrypoint.relative_to(self.bundle_dir)
+                ).as_posix()
             request_path = "/scratch/request.json"
             response_path = "/scratch/response.json"
             scratch_path = "/scratch"
@@ -396,7 +505,7 @@ class TrustedEvaluator:
             prefix.extend(
                 (
                     "--ro-bind",
-                    str(self.bundle_dir),
+                    str(evaluator_root),
                     "/evaluator",
                     "--ro-bind",
                     str(self.dataset_dir),
@@ -430,6 +539,39 @@ class TrustedEvaluator:
             home_path = "/tmp"
 
         child_request = {**request, **request_paths}
+        if self.reference_evaluator:
+            # This content-pinned adapter is the only evaluator allowed to run
+            # outside the outer Seatbelt namespace: it must launch a nested
+            # candidate sandbox, which macOS forbids from inside Seatbelt.
+            command = [
+                sys.executable,
+                "-I",
+                "-B",
+                "-c",
+                _EVALUATOR_WRAPPER,
+                str(self.max_output_bytes),
+                str(max(1, math.ceil(self.timeout_s))),
+                str(self.max_memory_bytes),
+                str(self.max_processes),
+                str(self.max_open_files),
+                bundle_path,
+                entrypoint,
+                "--request",
+                request_path,
+                "--response",
+                response_path,
+            ]
+            return (
+                command,
+                {
+                    "PATH": self.evaluator_path,
+                    "HOME": str(temp_dir),
+                    "TMPDIR": str(temp_dir),
+                    "PYTHONNOUSERSITE": "1",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+                child_request,
+            )
         command = [
             *prefix,
             sys.executable,
@@ -440,6 +582,8 @@ class TrustedEvaluator:
             str(self.max_output_bytes),
             str(max(1, math.ceil(self.timeout_s))),
             str(self.max_memory_bytes),
+            str(self.max_processes),
+            str(self.max_open_files),
             bundle_path,
             entrypoint,
             "--request",
@@ -500,10 +644,7 @@ class TrustedEvaluator:
         }
 
     def evaluate(self, candidate_sha256: str) -> TrustedEvaluation:
-        # The potentially large hidden dataset is content-hashed at startup.
-        # Require it to be operator-mounted read-only, then recheck the smaller
-        # evaluator/control inputs for each candidate.
-        self._verify_inputs(self.environment_manifest_sha256, verify_dataset=False)
+        self._verify_inputs(self.environment_manifest_sha256)
         try:
             candidate_source = load_candidate(candidate_sha256, self.artifact_root)
         except (OSError, ValueError, UnicodeDecodeError) as exc:
@@ -544,6 +685,9 @@ class TrustedEvaluator:
                 "environment_sha256": self.environment_sha256,
                 "metric_id": self.metric_id,
                 "metric_maximize": self.metric_maximize,
+                "max_processes": self.max_processes,
+                "max_open_files": self.max_open_files,
+                "max_memory_bytes": self.max_memory_bytes,
                 "output_dir": str(output_dir),
             }
             command, environment, child_request = self._evaluator_process(
@@ -728,11 +872,13 @@ class TrustedEvaluator:
                 raise TrustedEvaluatorError(
                     "predictions artifact could not be stored"
                 ) from exc
+            if stored_predictions_sha256 != predictions_sha256:
+                raise TrustedEvaluatorError(
+                    "stored prediction artifact digest mismatch"
+                )
 
             try:
-                self._verify_inputs(
-                    self.environment_manifest_sha256, verify_dataset=False
-                )
+                self._verify_inputs(self.environment_manifest_sha256)
             except TrustedEvaluatorError as exc:
                 raise TrustedEvaluatorError(
                     "pinned evaluator inputs changed during evaluation"
@@ -755,16 +901,7 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "host evaluation attestation could not be created"
             ) from exc
-        attested["predictions_artifact_sha256"] = stored_predictions_sha256
-        record_bytes = (
-            json.dumps(
-                {"score": score, "provenance": attested},
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-            + "\n"
-        ).encode("utf-8")
+        record_bytes = evaluation_record_bytes(attested, score)
         try:
             record_digest = store_evaluation_artifact(
                 record_bytes,
@@ -776,7 +913,10 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError(
                 "evaluation record could not be stored"
             ) from exc
-        attested["evaluation_record_sha256"] = record_digest
+        if attested.get("evaluation_record_sha256") != record_digest:
+            raise TrustedEvaluatorError(
+                "evaluation record digest changed before storage"
+            )
         return TrustedEvaluation(score=score, provenance=attested)
 
 

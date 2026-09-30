@@ -50,16 +50,44 @@
     "docs/MIGRATION_v1.3.2_to_v1.3.3.md",
     "docs/MIGRATION_v1.3.3_to_v1.3.4.md",
     "docs/MIGRATION_v1.3.4_to_v1.3.5.md",
+    "docs/MIGRATION_v1.3.5_hardening-closure.md",
     "docs/MIGRATION_v1.3.0_to_v1.3.1.md",
     "docs/MIGRATION_v1.1_to_v1.2.md",
     "docs/MIGRATION_v1.2_to_v1.3.md",
     "VALIDATION_REPORT.md",
+    "SECURITY_HARDENING_REPORT.md",
     "docs/archive/VALIDATION_REPORT_v1.3.0.md",
     "docs/archive/VALIDATION_REPORT_v1.3.1.md",
     "docs/archive/VALIDATION_REPORT_v1.3.2.md",
     "docs/archive/VALIDATION_REPORT_v1.3.3.md",
     "docs/archive/VALIDATION_REPORT_v1.3.4.md"
   ],
+  "unreleased_hardening": {
+    "branch": "fix/aide-rsi-authority-closure",
+    "base": "v1.3.5",
+    "package_version": "1.3.5 (unchanged; this is not a release build)",
+    "changes": [
+      "full SHA-256 policy identities",
+      "canary recovery bound to durable pending state, signed transaction and decision, journal digests, gate configuration, and gate recomputation",
+      "trusted evidence requires existing and digest-valid candidate, prediction, and evaluation artifacts",
+      "canonical evaluation sample IDs with semantic search/canary overlap rejection",
+      "dataset content reverified before and after every authoritative evaluation",
+      "one-use signed canary reservations with interrupted-transaction resume",
+      "trusted evaluator RLIMIT_NPROC and RLIMIT_NOFILE ceilings",
+      "correct 128 MiB minimum memory validation",
+      "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels"
+    ],
+    "validation": {
+      "full_project_pytest": "151 passed, 1 skipped",
+      "focused_recovery_and_evaluator_pytest": "36 passed",
+      "ruff": "passed for all changed Python source and tests",
+      "black": "passed for changed Python files",
+      "compileall": "passed for aide",
+      "platform_scope": "macOS Seatbelt and first-party candidate isolation exercised; Linux Bubblewrap execution not exercised"
+    },
+    "migration": "Existing unsigned v1.3.5 canary transactions cannot be trusted for recovery; start with a fresh RSI log directory and a fresh canary split epoch. See docs/MIGRATION_v1.3.5_hardening-closure.md.",
+    "security_report": "SECURITY_HARDENING_REPORT.md"
+  },
   "validation": {
     "full_project_pytest": "141 passed, 1 skipped",
     "rsi_pytest": "90 passed, 1 skipped",
@@ -77,12 +105,13 @@
     "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
     "the HMAC signer is not a dedicated UID or signing service; host process compromise can expose the symmetric key",
     "replay-world splitting is not a holdout-data boundary; validation and qualification reuse discovery scores and do not establish untouched generalization",
-    "candidate isolation inside the operator-supplied evaluator and separate validation and one-shot qualification datasets require task-specific adapters not implemented here",
+    "the first-party candidate/label isolation adapter supports the documented tabular format; other task formats require a separately reviewed adapter",
     "the host trusts the task evaluator's metric implementation and does not independently recompute it from labels and predictions",
     "environment identity records platform and restricted PATH values but does not bind a container image, system libraries, GPU driver, or the contents of every executable reachable through allowed runtime paths",
     "reference live executor remains serial",
     "replay cannot generate unseen branch outcomes",
     "JEV is advisory/shadow by default",
-    "Linux Bubblewrap evaluator confinement and resource limits must be integration-tested on the deployment host"
+    "Linux Bubblewrap evaluator confinement and resource limits must be integration-tested on the deployment host",
+    "separate validation and one-shot qualification datasets are not implemented; replay qualification uses the same pinned search measurements"
   ]
 }

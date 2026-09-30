@@ -1,5 +1,27 @@
 # Validation Report — AIDE-DREAM-RSI v1.3.5
 
+## Unreleased hardening closure branch
+
+Package metadata remains 1.3.5. This branch adds canary recovery authority
+closure, full-width policy identities, semantic sample disjointness, one-use
+canary reservations, per-evaluation dataset rehashing, artifact-backed evidence
+checks, evaluator process and descriptor ceilings, and the first-party tabular
+adapter. This is source branch validation, not release qualification.
+
+Validation on the local macOS host:
+
+- RSI test files: **100 passed, 1 skipped**.
+- Focused recovery, trusted-evaluator, and reference-evaluator tests: **36 passed**.
+- Full project suite: **151 passed, 1 skipped**.
+- `python -m compileall -q aide`: passed.
+- Black: passed for modified Python files.
+- Ruff: passed for all changed Python source and test files.
+- The first-party candidate boundary ran under macOS Seatbelt.
+- Linux Bubblewrap execution was not run on this macOS host.
+
+The remainder of this file records the v1.3.5 baseline and must not be read as
+validation of the unreleased changes above.
+
 Build identity: `VERSION=1.3.5`, distribution `aideml-rsi==1.3.5`.
 Validation date: 2026-09-30.
 

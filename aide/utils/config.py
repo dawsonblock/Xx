@@ -140,6 +140,8 @@ class RSITrustedEvaluatorConfig:
     timeout_s: float = 600.0
     max_output_mb: int = 64
     max_memory_mb: int = 4096
+    max_processes: int = 2048
+    max_open_files: int = 256
 
 
 @dataclass
