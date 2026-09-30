@@ -1,0 +1,148 @@
+# path to the task data directory
+data_dir: null
+
+# either provide a path to a plaintext file describing the task
+desc_file: null
+# or provide the task goal (and optionally evaluation information) as arguments
+goal: null
+eval: null
+
+log_dir: logs
+workspace_dir: workspaces
+
+# whether to unzip any archives in the data directory
+preprocess_data: True
+# whether to copy the data to the workspace directory (otherwise it will be symlinked)
+# copying is recommended to prevent the agent from accidentally modifying the original data
+copy_data: True
+
+exp_name: null # a random experiment name will be generated if not provided
+
+# settings for code execution
+exec:
+  timeout: 3600
+  agent_file_name: runfile.py
+  format_tb_ipython: False
+
+generate_report: True
+# LLM settings for final report from journal
+report:
+  model: gpt-4.1
+  temp: 1.0
+
+# agent hyperparams
+agent:
+  # how many improvement iterations to run
+  steps: 20
+  # whether to instruct the agent to use CV (set to 1 to disable)
+  k_fold_validation: 5
+  # whether to instruct the agent to generate a prediction function
+  expose_prediction: False
+  # whether to provide the agent with a preview of the data
+  data_preview: True
+  # optimization direction of the validation metric: true if higher is better,
+  # false if lower is better; leave null to infer it from the task description
+  # with a single LLM call at the start of the run
+  metric_maximize: null
+
+  # LLM settings for coding
+  code:
+    model: o4-mini
+    temp: 0.5
+
+  # LLM settings for evaluating program output / tracebacks
+  feedback:
+    model: gpt-4.1-mini
+    temp: 0.5
+
+  # hyperparameters for the tree search
+  search:
+    max_debug_depth: 3
+    debug_prob: 0.5
+    num_drafts: 5
+
+# Replay-based recursive self-improvement (DREAM-RSI style).
+# Used by the `aide-rsi` entry point. Standard `aide` ignores these fields.
+rsi:
+  enabled: true
+  outer_rounds: 5
+  steps_per_round: 24
+  # The reference runner is truthful about execution: until a real concurrent
+  # worker pool is enabled, one live candidate is executed at a time and replay
+  # receives no parallelism bonus.
+  max_parallelism: 1
+  fallback_width: 6
+  fallback_depth: 8
+  hard_max_width: 24
+  hard_max_depth: 32
+  # Split assignments are immutable inside an epoch. Start a new epoch only when
+  # you deliberately provision a fresh qualification set.
+  split_epoch: "0001"
+  # none | failures | top. `none` avoids prompt-level semantic over-constraint.
+  memory_mode: none
+  # To resume an interrupted run, pass rsi.resume_log_dir=/absolute/path/to/log.
+  resume_log_dir: null
+  sandbox:
+    # strict fails closed. `auto` prefers Linux bubblewrap and otherwise uses an
+    # explicitly configured Docker/Podman image. This enables the same authority
+    # boundary on macOS/Windows through a local OCI runtime.
+    mode: strict
+    backend: auto            # auto | bubblewrap | container
+    container_runtime: auto  # auto | docker | podman
+    # Build with `make sandbox-image`, then set this to aideml-rsi-sandbox:1.3.0
+    # when bubblewrap is unavailable. Null means container fallback is disabled.
+    container_image: null
+    allow_insecure_process: false
+    # POSIX resource envelope for strict candidate execution. Set an individual
+    # value <= 0 to disable that rlimit; wall-clock timeout remains enforced.
+    memory_mb: 32768
+    cpu_seconds: 0
+    file_size_mb: 2048
+    max_output_mb: 16
+    nproc: 128
+    nofile: 256
+  canary:
+    attempts: 4
+    # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to
+    # one stochastic coding/evaluation rollout.
+    repeats: 3
+    min_pass_fraction: 0.66
+    max_normalized_regression: 0.05
+    min_valid: 1
+  # Optional LocalJevFabric/SystemOne advisory layer.  JEV never receives
+  # promotion authority, cannot add legal actions, and cannot bypass the sandbox.
+  # High-confidence failure repairability may influence recovery classification;
+  # branch/model/verification recommendations are shadow-only in v1.3.
+  jev:
+    enabled: false
+    endpoint: http://127.0.0.1:8090/v1/systemone
+    model: local-jev-fabric
+    api_key_env: FABRIC_API_KEY
+    timeout_s: 1.5
+    confidence_threshold: 0.72
+    fail_open: true
+    max_state_chars: 12000
+    failure_classification: true
+    failure_influence: false
+    shadow_action_ranking: true
+    shadow_model_routing: false
+    shadow_verification_depth: false
+  evolution:
+    population: 48
+    generations: 5
+    elite_count: 8
+    seed: 0
+    work_penalty: 0.10
+    # Kept for compatibility; the reference runner forces this to 0 until live
+    # execution has genuine concurrency.
+    parallel_bonus: 0.0
+    beta_grid: [0.2, 0.4, 0.6, 0.8, 1.0]
+    min_validation_margin: 0.0
+    max_qualification_regression: 0.01
+    # Aggregate qualification can hide a catastrophic regression on one world.
+    max_single_world_regression: 0.05
+    min_qualification_worlds: 1
+    use_llm_developer: false
+    llm_candidates: 4
+    llm_model: null
+    llm_temp: 0.4

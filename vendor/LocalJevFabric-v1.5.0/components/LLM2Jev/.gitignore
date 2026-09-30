@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+models/
+/dev-docs/
+/evaluation/*
+!/evaluation/compare_jevbench_accuracy.py
+runs
+RUN2

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-jev-fabric"
+version = "1.5.0"
+description = "Federated Jev-compatible local decision fabric for AnyJev, Laya and LLM2Jev."
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "uvicorn>=0.30",
+  "cryptography>=43",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+local-jev-fabric = "local_jev_fabric.app:main"
+jev-fabric-register = "local_jev_fabric.registry_cli:main"
+jev-fabric-audit-verify = "local_jev_fabric.audit_cli:main"
+jev-fabric-bind-specialist = "local_jev_fabric.specialist_cli:main"
+jev-fabric-sign-registry = "local_jev_fabric.sign_registry_cli:main"
+jev-fabric-doctor = "local_jev_fabric.doctor_cli:main"
+jev-fabric-promotion = "local_jev_fabric.promotion_cli:main"
+jev-fabric-rollout = "local_jev_fabric.rollout_cli:main"
+jev-fabric-drift = "local_jev_fabric.drift_cli:main"
+jev-fabric-dataset = "local_jev_fabric.dataset_cli:main"
+jev-fabric-benchmark = "local_jev_fabric.benchmark_cli:main"
+jev-fabric-artifact = "local_jev_fabric.artifact_cli:main"
+jev-fabric-independent-qualify = "local_jev_fabric.independent_qualification_cli:main"
+jev-fabric-replay = "local_jev_fabric.replay_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["local_jev_fabric*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

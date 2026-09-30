@@ -1,0 +1,71 @@
+{
+  "build": "AIDE-DREAM-RSI-v1.3.0",
+  "distribution_name": "aideml-rsi",
+  "distribution_version": "1.3.0",
+  "base_artifact": {
+    "name": "AIDE-DREAM-RSI-v1.2.0.zip",
+    "sha256": "88a9fc88a3253b24e31cc4b64b4bd3ffffd8ef7bacd7ddb9b24ac326a683ee31"
+  },
+  "jev_integration_source": {
+    "name": "LocalJevFabric_v1.5.0_Full_Upgraded_Source.zip",
+    "sha256": "cdc6fec5b5ab4b28ac07d25ff48d233eab4430bbfde76502fe082b6b0fc85474",
+    "bundled_path": "vendor/LocalJevFabric-v1.5.0"
+  },
+  "decision_schema_reference": {
+    "name": "Jev-1.2.0-Corrected.zip",
+    "sha256": "54f484e42921c154593a75bfc2e59cc7de730c1b0f65f178deec9b51af373fe6"
+  },
+  "architecture": {
+    "world_model": "grounded historical replay only; no learned latent dynamics",
+    "recursive_boundary": "typed bounded exploration policy DSL",
+    "jev_role": "optional bounded SystemOne advisory layer; shadow-first; no promotion or execution authority",
+    "jev_default_influence": "none; failure_influence=false by default",
+    "policy_interface": "one AdaptiveReplayPolicy shared by replay and live adapters",
+    "qualification": "immutable replay splits + worst-world gate + repeated paired real canary",
+    "execution": "strict fail-closed Bubblewrap or Docker/Podman OCI sandbox; insecure process mode only by explicit opt-in",
+    "integrity": "append-only SHA-256 content-addressed replay objects",
+    "parallelism": "effective live parallelism 1; replay parallel bonus 0"
+  },
+  "v1_3_upgrades": [
+    "bundled LocalJevFabric v1.5.0 source",
+    "typed SystemOne advisor",
+    "shadow legal-action ranking",
+    "shadow model-tier routing",
+    "shadow verification-depth recommendation",
+    "optional high-confidence failure repairability",
+    "serialized JEV node evidence and replay-world schema v3",
+    "privacy-minimized JEV advisory JSONL",
+    "JEV doctor/report/vendor-path CLI",
+    "fail-open deterministic fallback"
+  ],
+  "docs": [
+    "docs/ARCHITECTURE.md",
+    "docs/JEV_INTEGRATION.md",
+    "docs/PAPER_MAPPING.md",
+    "docs/REPLAY_SEMANTICS.md",
+    "docs/THREAT_MODEL.md",
+    "docs/MIGRATION_v1.1_to_v1.2.md",
+    "docs/MIGRATION_v1.2_to_v1.3.md",
+    "VALIDATION_REPORT.md"
+  ],
+  "validation": {
+    "rsi_pytest": "43 passed",
+    "local_jev_fabric_pytest": "57 passed",
+    "compileall": "passed",
+    "replay_cli_smoke": "passed",
+    "jev_report_smoke": "passed",
+    "package_version": "1.3.0",
+    "original_full_pytest": "not collectable in build environment because inherited AIDE runtime dependencies humanize, backoff, and dataclasses_json are not installed",
+    "llm2jev_full_pytest": "not collectable in build environment because optional dependency openai is not installed",
+    "strict_backend_execution": "not executed in build container; command construction/fail-closed behavior covered by inherited RSI tests",
+    "live_jev_backend": "not executed; adapter validated against typed mocks and bundled fabric unit tests"
+  },
+  "known_limitations": [
+    "reference live executor remains serial",
+    "replay cannot generate unseen branch outcomes",
+    "JEV is advisory/shadow by default",
+    "failure influence is explicit opt-in and depends on backend calibration quality",
+    "bundled LocalJevFabric does not contain TypeSafe Jev weights",
+    "strict sandbox execution must be integration-tested on the deployment host"
+  ]
+}

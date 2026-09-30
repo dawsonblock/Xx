@@ -1,0 +1,4 @@
+interface:
+  display_name: "jev-gateway Conventions"
+  short_description: "Commit, code, test and docs conventions of jev-gateway"
+  default_prompt: "Use $jev-gateway-conventions to check this change against the repository's conventions before finishing."

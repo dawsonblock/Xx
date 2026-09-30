@@ -1,0 +1,735 @@
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import math
+import os
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from .canary import RealCanaryGate
+from .evaluator import ReplayEvaluator
+from .evolution import PolicyEvolutionEngine
+from .live import LiveExplorationController
+from .jev import JevAdvisor
+from .memory import summarize_worlds
+from .metrics import live_cycle_summary
+from .policy import AdaptiveReplayPolicy
+from .pool import ReplayWorldPool
+from .qualification import QualificationGate
+from .sandbox import SandboxLimits, SecureInterpreter
+from .split import PersistentSplitManager
+from .state import RSIStateStore
+from .support import ReplaySupportIndex
+from .types import PolicyGenome
+from .world import world_from_journal
+
+
+def _stable_digest(value: Any) -> str:
+    try:
+        payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    except TypeError:
+        payload = repr(value)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _policy_digest(genome: PolicyGenome | None) -> str | None:
+    if genome is None:
+        return None
+    payload = json.dumps(genome.to_dict(), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
+    tmp.replace(path)
+
+
+def _atomic_write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _publish_best_from_worlds(
+    worlds, base_log: Path
+) -> tuple[float | None, dict[str, Any]]:
+    """Rebuild the published solution from committed worlds after any interrupted run."""
+    best = None
+    for world in worlds:
+        for node in world.nodes.values():
+            if not node.valid or node.score is None or not math.isfinite(node.score):
+                continue
+            if best is None or (
+                node.score > best[1].score
+                if world.maximize
+                else node.score < best[1].score
+            ):
+                best = (world, node)
+    if best is None:
+        return None, {}
+
+    world, node = best
+    round_no = int(world.metadata["round"])
+    journal_path = base_log / f"round-{round_no:03d}" / "journal.json"
+    journal = json.loads(journal_path.read_text())
+    matches = [
+        item for item in journal.get("nodes", []) if str(item.get("id")) == node.id
+    ]
+    if len(matches) != 1 or not isinstance(matches[0].get("code"), str):
+        raise ValueError(
+            f"committed best node is missing from {journal_path}: {node.id}"
+        )
+    code = matches[0]["code"]
+    meta = {
+        "round": round_no,
+        "node_id": node.id,
+        "score": node.score,
+        "policy_digest": world.metadata.get("policy_digest"),
+        "world_id": world.world_id,
+    }
+    # Either file can be interrupted independently. The next startup rebuilds
+    # both from the committed pool, including after a completed run.
+    _atomic_write_text(base_log / "best_solution.py", code)
+    _write_json(base_log / "best_solution.manifest.json", meta)
+    return node.score, meta
+
+
+def _node_score(node: Any) -> float | None:
+    metric = getattr(node, "metric", None)
+    if (
+        metric is None
+        or getattr(metric, "is_worst", False)
+        or getattr(node, "is_buggy", False)
+    ):
+        return None
+    try:
+        value = float(metric.value)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _external_memory(worlds, mode: str) -> str:
+    mode = str(mode or "none").lower()
+    if mode == "none":
+        return ""
+    if mode == "top":
+        return summarize_worlds(worlds)
+    if mode == "failures":
+        lines = ["Measured prior failures (do not infer hidden outcomes):"]
+        for world in worlds[-5:]:
+            for node in world.nodes.values():
+                if node.is_buggy:
+                    lines.append(
+                        f"- {node.fail_class}: {node.analysis or node.error or '(no detail)'}"
+                    )
+        return "\n".join(lines[:20])
+    raise ValueError(f"unsupported rsi.memory_mode: {mode}")
+
+
+def _episode_cfg(cfg, *, log_dir: Path, workspace_dir: Path):
+    round_cfg = copy.deepcopy(cfg)
+    round_cfg.log_dir = log_dir.resolve()
+    round_cfg.workspace_dir = workspace_dir.resolve()
+    return round_cfg
+
+
+def _prepare_workspace(round_cfg, prep_agent_workspace, *, fresh: bool) -> None:
+    if fresh and round_cfg.workspace_dir.exists():
+        shutil.rmtree(round_cfg.workspace_dir)
+    if not (round_cfg.workspace_dir / "input").exists():
+        prep_agent_workspace(round_cfg)
+
+
+def _run_live_episode(
+    *,
+    cfg,
+    task_desc,
+    task_metric,
+    policy: PolicyGenome,
+    prior_worlds,
+    grid,
+    budget: int,
+    log_dir: Path,
+    workspace_dir: Path,
+    state_store: RSIStateStore | None = None,
+    resume: bool = False,
+    provenance: dict[str, Any] | None = None,
+):
+    """Run one real online episode under exactly one exploration policy."""
+    from omegaconf import OmegaConf
+    from aide.agent import Agent
+    from aide.journal import Journal
+    from aide.utils import serialize
+    from aide.utils.config import prep_agent_workspace, save_run
+
+    round_cfg = _episode_cfg(cfg, log_dir=log_dir, workspace_dir=workspace_dir)
+    _prepare_workspace(round_cfg, prep_agent_workspace, fresh=not resume)
+
+    journal_path = round_cfg.log_dir / "journal.json"
+    if resume and journal_path.exists():
+        journal = serialize.load_json(journal_path, Journal)
+    else:
+        journal = Journal(
+            metric_maximize=task_metric.maximize if task_metric is not None else None
+        )
+
+    agent = Agent(
+        task_desc=task_desc,
+        cfg=round_cfg,
+        journal=journal,
+        external_memory=_external_memory(prior_worlds, cfg.rsi.memory_mode),
+    )
+    scfg = cfg.rsi.sandbox
+    exec_cfg = OmegaConf.to_container(round_cfg.exec)  # type: ignore
+    interpreter = SecureInterpreter(
+        round_cfg.workspace_dir,
+        timeout=int(exec_cfg.get("timeout", 3600)),
+        agent_file_name=str(exec_cfg.get("agent_file_name", "runfile.py")),
+        format_tb_ipython=bool(exec_cfg.get("format_tb_ipython", False)),
+        mode=scfg.mode,
+        backend=scfg.backend,
+        container_runtime=scfg.container_runtime,
+        container_image=scfg.container_image,
+        allow_insecure_process=bool(scfg.allow_insecure_process),
+        limits=SandboxLimits(
+            memory_mb=int(scfg.memory_mb),
+            cpu_seconds=int(scfg.cpu_seconds),
+            file_size_mb=int(scfg.file_size_mb),
+            max_output_mb=int(scfg.max_output_mb),
+            nproc=int(scfg.nproc),
+            nofile=int(scfg.nofile),
+        ),
+    )
+
+    # Optional JEV/SystemOne advisory layer.  It is deliberately outside the
+    # authority chain: it cannot create legal actions, execute tools, change the
+    # evaluator, or promote a policy.  In v1.3 only high-confidence failure
+    # repairability may influence recovery classification; other decisions are
+    # shadow telemetry for later qualification.
+    advisor = None
+    if hasattr(cfg.rsi, "jev"):
+        advisor = JevAdvisor.from_config(
+            cfg.rsi.jev,
+            log_path=round_cfg.log_dir / "rsi" / "jev_advisory.jsonl",
+        )
+
+    # The reference runner does not pretend sequential work is parallel.  A future
+    # worker-pool executor can raise this once actual concurrent execution exists.
+    effective_parallelism = 1
+    controller = LiveExplorationController(
+        policy,
+        max_parallelism=effective_parallelism,
+        width_cap=grid.branch_count,
+        depth_cap=max(1, grid.refine_count + 1),
+        support_index=ReplaySupportIndex(list(prior_worlds)) if prior_worlds else None,
+        advisor=advisor,
+    )
+
+    episode_provenance = {
+        "policy_digest": _policy_digest(policy),
+        "generation_model": str(cfg.agent.code.model),
+        "feedback_model": str(cfg.agent.feedback.model),
+        "task_digest": _stable_digest(task_desc),
+        "sandbox_mode": str(cfg.rsi.sandbox.mode),
+        "agent_config_digest": _stable_digest(OmegaConf.to_container(cfg.agent)),
+        "exec_config_digest": _stable_digest(OmegaConf.to_container(cfg.exec)),
+        "episode_log": str(log_dir),
+        "jev_enabled": bool(getattr(getattr(cfg.rsi, "jev", None), "enabled", False)),
+        "jev_model": str(getattr(getattr(cfg.rsi, "jev", None), "model", "")),
+    }
+    episode_provenance.update(dict(provenance or {}))
+
+    attempts = len(journal.nodes)
+    try:
+        while attempts < int(budget):
+            parents = controller.select_parents(journal)
+            if not parents:
+                break
+            parents = parents[: max(0, int(budget) - attempts)]
+            # Selection is made from one prefix. With effective_parallelism=1 the
+            # execution semantics are also truthful rather than simulated parallelism.
+            batch_nodes = []
+            for parent in parents:
+                route_advice = None
+                if advisor is not None:
+                    route_advice = advisor.shadow_model_route(
+                        {
+                            "parent_exists": parent is not None,
+                            "parent_buggy": (
+                                bool(getattr(parent, "is_buggy", False))
+                                if parent is not None
+                                else False
+                            ),
+                            "parent_depth": (
+                                controller._depth(parent) if parent is not None else 0
+                            ),
+                            "task_digest": episode_provenance["task_digest"],
+                            "configured_model": str(cfg.agent.code.model),
+                        }
+                    )
+                node = agent.generate_for_parent(parent)
+                if route_advice is not None:
+                    node.rsi_jev_advisory = {
+                        "model_route_shadow": route_advice.to_dict(),
+                    }
+                batch_nodes.append(node)
+
+            for node in batch_nodes:
+                node.rsi_provenance = dict(episode_provenance)
+                agent.evaluate_generated_node(node, interpreter.run)
+                if advisor is not None and bool(getattr(node, "is_buggy", False)):
+                    fail_class = controller._failure_class(node)
+                    fail_error = (
+                        str(
+                            getattr(node, "analysis", "")
+                            or getattr(node, "exc_info", "")
+                            or ""
+                        )
+                        or None
+                    )
+                    controller._failure_advice(node, fail_class, fail_error)
+                if advisor is not None:
+                    verify_advice = advisor.shadow_verification_depth(
+                        {
+                            "candidate_buggy": bool(getattr(node, "is_buggy", False)),
+                            "candidate_has_metric": _node_score(node) is not None,
+                            "failure_class": controller._failure_class(node),
+                            "plan": str(getattr(node, "plan", "") or "")[:1200],
+                            "task_digest": episode_provenance["task_digest"],
+                        }
+                    )
+                    if verify_advice is not None:
+                        merged = dict(getattr(node, "rsi_jev_advisory", {}) or {})
+                        merged["verification_depth_shadow"] = verify_advice.to_dict()
+                        node.rsi_jev_advisory = merged
+            for node in batch_nodes:
+                journal.append(node)
+            attempts += len(batch_nodes)
+            save_run(round_cfg, journal)
+            if state_store is not None:
+                state_store.write(phase="LIVE_RUNNING", attempts=attempts)
+    finally:
+        interpreter.cleanup_session()
+    return journal, round_cfg
+
+
+def run_rsi() -> None:
+    """Run AIDE under replay-improved, qualified exploration control."""
+    from omegaconf import OmegaConf
+    from aide.agent import add_task_metric, determine_task_metric
+    from aide.utils.config import load_cfg, load_task_desc
+
+    cfg = load_cfg()
+    if not cfg.rsi.enabled:
+        raise ValueError(
+            "rsi.enabled=false; use the standard `aide` entry point or enable RSI"
+        )
+    if int(cfg.rsi.max_parallelism) != 1:
+        raise ValueError(
+            "AIDE-DREAM-RSI v1.3 has truthful serial live execution only; "
+            "set rsi.max_parallelism=1. A later worker-pool release can safely raise it."
+        )
+
+    task_desc = load_task_desc(cfg)
+    task_metric = determine_task_metric(task_desc, cfg.agent)
+    task_desc = add_task_metric(task_desc, task_metric)
+
+    base_log = Path(cfg.log_dir)
+    base_workspace = Path(cfg.workspace_dir)
+    rsi_dir = base_log / "rsi"
+    pool = ReplayWorldPool(rsi_dir / "worlds")
+    state_store = RSIStateStore(rsi_dir / "state.json")
+    incumbent_path = rsi_dir / "incumbent_policy.json"
+    pending_path = rsi_dir / "pending_policy.json"
+    split_manager = PersistentSplitManager(
+        rsi_dir / "split_manifest.json", epoch=str(cfg.rsi.split_epoch)
+    )
+
+    incumbent = (
+        PolicyGenome.load(incumbent_path) if incumbent_path.exists() else PolicyGenome()
+    )
+    pending = PolicyGenome.load(pending_path) if pending_path.exists() else None
+
+    ecfg = cfg.rsi.evolution
+    # No parallel reward until the live executor is actually concurrent.
+    evaluator = ReplayEvaluator(work_penalty=ecfg.work_penalty, parallel_bonus=0.0)
+    evolver = PolicyEvolutionEngine(
+        evaluator,
+        population=ecfg.population,
+        generations=ecfg.generations,
+        elite_count=ecfg.elite_count,
+        seed=ecfg.seed,
+        beta_grid=ecfg.beta_grid,
+    )
+    qualifier = QualificationGate(
+        evaluator,
+        min_validation_margin=ecfg.min_validation_margin,
+        max_qualification_regression=ecfg.max_qualification_regression,
+        max_single_world_regression=ecfg.max_single_world_regression,
+        min_qualification_worlds=ecfg.min_qualification_worlds,
+        beta_grid=ecfg.beta_grid,
+    )
+    canary_gate = RealCanaryGate(
+        max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
+        min_valid=cfg.rsi.canary.min_valid,
+        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+    )
+
+    prior_worlds = pool.load_all()
+    cycle_summaries = [live_cycle_summary(w) for w in prior_worlds]
+    state = state_store.load()
+    global_best_score, global_best_meta = _publish_best_from_worlds(
+        prior_worlds, base_log
+    )
+    if state.get("phase") == "COMPLETED":
+        print(f"AIDE-RSI already completed. Logs: {base_log}")
+        return
+    start_round = int(state.get("next_round", len(prior_worlds)))
+
+    state_store.write(
+        phase=state.get("phase", "IDLE"),
+        next_round=start_round,
+        base_log=str(base_log),
+        base_workspace=str(base_workspace),
+        incumbent_digest=_policy_digest(incumbent),
+        pending_digest=_policy_digest(pending),
+    )
+
+    for outer in range(start_round, int(cfg.rsi.outer_rounds)):
+        state = state_store.load()
+        same_round = int(state.get("current_round", outer)) == outer
+        phase = state.get("phase", "IDLE") if same_round else "IDLE"
+
+        # Replay qualification only grants pending status. Before it can control a
+        # discovery world it must beat the incumbent in a paired real canary from
+        # fresh, equivalent starting states.
+        if pending is not None and phase in {"IDLE", "CANARY_RUNNING"}:
+            # Resource envelope is chosen by the incumbent authority, not by the
+            # unqualified challenger. Both policies receive exactly the same grid.
+            canary_grid = AdaptiveReplayPolicy(incumbent).plan_grid(
+                cycle_summaries,
+                fallback_width=cfg.rsi.fallback_width,
+                fallback_depth=cfg.rsi.fallback_depth,
+                hard_max_width=cfg.rsi.hard_max_width,
+                hard_max_depth=cfg.rsi.hard_max_depth,
+            )
+            state_store.write(
+                phase="CANARY_RUNNING", current_round=outer, next_round=outer
+            )
+            canary_budget = min(
+                int(cfg.rsi.steps_per_round), max(1, int(cfg.rsi.canary.attempts))
+            )
+            canary_repeats = max(1, int(cfg.rsi.canary.repeats))
+            canary_root = base_log / f"round-{outer:03d}" / "canary"
+            paired_journals = []
+            for rep in range(canary_repeats):
+                rep_root = canary_root / f"rep-{rep:02d}"
+                # Alternate execution order so persistent external conditions do not
+                # always favor the policy that runs first. Each side still starts
+                # from a fresh equivalent workspace with the same real-attempt budget.
+                if rep % 2 == 0:
+                    challenger_journal, _ = _run_live_episode(
+                        cfg=cfg,
+                        task_desc=task_desc,
+                        task_metric=task_metric,
+                        policy=pending,
+                        prior_worlds=prior_worlds,
+                        grid=canary_grid,
+                        budget=canary_budget,
+                        log_dir=rep_root / "challenger",
+                        workspace_dir=base_workspace
+                        / f"round-{outer:03d}-canary-{rep:02d}-challenger",
+                        provenance={
+                            "round": outer,
+                            "episode_role": "canary_challenger",
+                            "canary_rep": rep,
+                        },
+                    )
+                    incumbent_journal, _ = _run_live_episode(
+                        cfg=cfg,
+                        task_desc=task_desc,
+                        task_metric=task_metric,
+                        policy=incumbent,
+                        prior_worlds=prior_worlds,
+                        grid=canary_grid,
+                        budget=canary_budget,
+                        log_dir=rep_root / "incumbent",
+                        workspace_dir=base_workspace
+                        / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
+                        provenance={
+                            "round": outer,
+                            "episode_role": "canary_incumbent",
+                            "canary_rep": rep,
+                        },
+                    )
+                else:
+                    incumbent_journal, _ = _run_live_episode(
+                        cfg=cfg,
+                        task_desc=task_desc,
+                        task_metric=task_metric,
+                        policy=incumbent,
+                        prior_worlds=prior_worlds,
+                        grid=canary_grid,
+                        budget=canary_budget,
+                        log_dir=rep_root / "incumbent",
+                        workspace_dir=base_workspace
+                        / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
+                        provenance={
+                            "round": outer,
+                            "episode_role": "canary_incumbent",
+                            "canary_rep": rep,
+                        },
+                    )
+                    challenger_journal, _ = _run_live_episode(
+                        cfg=cfg,
+                        task_desc=task_desc,
+                        task_metric=task_metric,
+                        policy=pending,
+                        prior_worlds=prior_worlds,
+                        grid=canary_grid,
+                        budget=canary_budget,
+                        log_dir=rep_root / "challenger",
+                        workspace_dir=base_workspace
+                        / f"round-{outer:03d}-canary-{rep:02d}-challenger",
+                        provenance={
+                            "round": outer,
+                            "episode_role": "canary_challenger",
+                            "canary_rep": rep,
+                        },
+                    )
+                paired_journals.append((challenger_journal, incumbent_journal))
+
+            result = canary_gate.evaluate_series(paired_journals)
+            canary_payload = result.to_dict()
+            canary_payload.update(
+                {
+                    "candidate_digest": _policy_digest(pending),
+                    "incumbent_digest": _policy_digest(incumbent),
+                    "budget_each": canary_budget,
+                    "repeats": canary_repeats,
+                    "execution_order": "alternating",
+                }
+            )
+            _write_json(canary_root / "decision.json", canary_payload)
+            if result.passed:
+                incumbent = pending
+                incumbent.save(incumbent_path)
+            pending = None
+            if pending_path.exists():
+                pending_path.unlink()
+            phase = "IDLE"
+            state_store.write(
+                phase="IDLE",
+                current_round=outer,
+                next_round=outer,
+                incumbent_digest=_policy_digest(incumbent),
+                pending_digest=None,
+                last_canary=canary_payload,
+            )
+
+        # The qualified incumbent alone controls the real round's width/depth. If a
+        # challenger just failed canary, its grid cannot leak into live authority.
+        grid = AdaptiveReplayPolicy(incumbent).plan_grid(
+            cycle_summaries,
+            fallback_width=cfg.rsi.fallback_width,
+            fallback_depth=cfg.rsi.fallback_depth,
+            hard_max_width=cfg.rsi.hard_max_width,
+            hard_max_depth=cfg.rsi.hard_max_depth,
+        )
+
+        # If a crash occurred in LIVE_RUNNING, resume the saved journal rather than
+        # silently starting another world. Other incomplete phases are deterministic
+        # and can be rerun from their committed inputs.
+        if phase in {"IDLE", "LIVE_RUNNING"}:
+            round_log = base_log / f"round-{outer:03d}"
+            round_workspace = base_workspace / f"round-{outer:03d}"
+            resume_live = (
+                phase == "LIVE_RUNNING" and (round_log / "journal.json").exists()
+            )
+            state_store.write(
+                phase="LIVE_RUNNING",
+                current_round=outer,
+                next_round=outer,
+                attempts=int(state.get("attempts", 0)) if resume_live else 0,
+                incumbent_digest=_policy_digest(incumbent),
+            )
+            journal, round_cfg = _run_live_episode(
+                cfg=cfg,
+                task_desc=task_desc,
+                task_metric=task_metric,
+                policy=incumbent,
+                prior_worlds=prior_worlds,
+                grid=grid,
+                budget=int(cfg.rsi.steps_per_round),
+                log_dir=round_log,
+                workspace_dir=round_workspace,
+                state_store=state_store,
+                resume=resume_live,
+                provenance={"round": outer, "episode_role": "discovery"},
+            )
+
+            world = world_from_journal(
+                journal,
+                world_id=f"{cfg.exp_name}:round:{outer}",
+                max_parallelism=1,
+                metadata={
+                    "round": outer,
+                    "planned_width": grid.branch_count,
+                    "planned_depth": grid.refine_count,
+                    "grid_reason": grid.reason,
+                    "policy_digest": _policy_digest(incumbent),
+                    "sandbox_mode": cfg.rsi.sandbox.mode,
+                    "effective_parallelism": 1,
+                    "generation_model": str(cfg.agent.code.model),
+                    "feedback_model": str(cfg.agent.feedback.model),
+                    "task_digest": _stable_digest(task_desc),
+                    "agent_config_digest": _stable_digest(
+                        OmegaConf.to_container(cfg.agent)
+                    ),
+                    "exec_config_digest": _stable_digest(
+                        OmegaConf.to_container(cfg.exec)
+                    ),
+                },
+            )
+            world.metadata["replay_support"] = (
+                ReplaySupportIndex(list(prior_worlds)).support(world)
+                if prior_worlds
+                else 0.0
+            )
+            pool.add(world)
+            state_store.write(
+                phase="WORLD_COMMITTED",
+                current_round=outer,
+                next_round=outer,
+                world_id=world.world_id,
+                attempts=len(journal.nodes),
+            )
+
+        # WORLD_COMMITTED and later phases can resume here without the live
+        # journal in memory. Publish from the immutable pool on every pass.
+        global_best_score, global_best_meta = _publish_best_from_worlds(
+            pool.load_all(), base_log
+        )
+
+        # Policy improvement can be deterministically rerun after a crash because it
+        # consumes only the immutable replay pool and split manifest.
+        prior_worlds = pool.load_all()
+        cycle_summaries = [live_cycle_summary(w) for w in prior_worlds]
+        state_store.write(
+            phase="POLICY_EVALUATING", current_round=outer, next_round=outer
+        )
+        split = split_manager.split(prior_worlds)
+        round_rsi_dir = base_log / f"round-{outer:03d}" / "rsi"
+
+        seed_candidates = []
+        if bool(getattr(ecfg, "use_llm_developer", False)) and split.development:
+            try:
+                from .llm_developer import LLMPolicyDeveloper
+
+                llm_model = ecfg.llm_model or cfg.agent.code.model
+                developer = LLMPolicyDeveloper(
+                    model=llm_model, temperature=ecfg.llm_temp
+                )
+                seed_candidates = developer.propose(
+                    incumbent, split.development, evaluator, count=ecfg.llm_candidates
+                )
+            except Exception as exc:
+                _write_json(
+                    round_rsi_dir / "llm_policy_developer_error.json",
+                    {"error": repr(exc)},
+                )
+
+        candidate, evolution_history = evolver.evolve(
+            incumbent,
+            split.development,
+            split.validation,
+            seed_candidates=seed_candidates,
+        )
+        record = qualifier.compare(candidate, incumbent, split)
+        _write_json(round_rsi_dir / "evolution_history.json", evolution_history)
+        _write_json(
+            round_rsi_dir / "beta_sweep.json",
+            evaluator.beta_sweep(
+                AdaptiveReplayPolicy(candidate),
+                split.validation or split.development,
+                ecfg.beta_grid,
+            ),
+        )
+        record.save(round_rsi_dir / "promotion_record.json")
+        candidate.save(round_rsi_dir / "candidate_policy.json")
+
+        final_round = outer + 1 >= int(cfg.rsi.outer_rounds)
+        if (
+            record.promoted
+            and candidate.to_dict() != incumbent.to_dict()
+            and not final_round
+        ):
+            pending = candidate
+            pending.save(pending_path)
+            state_store.write(
+                phase="CANDIDATE_PENDING",
+                current_round=outer,
+                next_round=outer + 1,
+                pending_digest=_policy_digest(pending),
+            )
+        else:
+            # A policy discovered after the final online round has no remaining live
+            # canary opportunity in this run. Preserve it as shadow evidence but do
+            # not leave an apparently promotable pending authority behind.
+            if (
+                final_round
+                and record.promoted
+                and candidate.to_dict() != incumbent.to_dict()
+            ):
+                candidate.save(round_rsi_dir / "shadow_candidate_policy.json")
+                _write_json(
+                    round_rsi_dir / "shadow_candidate_status.json",
+                    {
+                        "reason": "final online round completed; replay-qualified candidate was not live-canaried",
+                        "candidate_digest": _policy_digest(candidate),
+                    },
+                )
+            pending = None
+            if pending_path.exists():
+                pending_path.unlink()
+
+        incumbent.save(incumbent_path)
+        state_store.write(
+            phase="IDLE" if outer + 1 < int(cfg.rsi.outer_rounds) else "COMPLETED",
+            current_round=outer,
+            next_round=outer + 1,
+            attempts=0,
+            world_pool=pool.manifest(),
+            incumbent_digest=_policy_digest(incumbent),
+            pending_digest=_policy_digest(pending),
+            global_best=global_best_meta,
+            last_grid={
+                "width": grid.branch_count,
+                "depth": grid.refine_count,
+                "reason": grid.reason,
+            },
+        )
+
+    print(f"AIDE-RSI completed. Logs: {base_log}")
+    if global_best_score is not None:
+        print(f"Best real metric: {global_best_score}")
+        print(f"Best solution: {base_log / 'best_solution.py'}")
+
+
+if __name__ == "__main__":
+    run_rsi()
