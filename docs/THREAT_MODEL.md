@@ -69,7 +69,9 @@ The interface is deprecated by Apple and can change in a macOS update. The
 profile permits host file metadata lookup and reads of the selected Python
 installation, including Homebrew Cellar/opt directories when applicable.
 There is no per-workspace disk quota or container-style process/memory
-isolation. Candidate dependencies may fail to import if they require files
+isolation. CPU, per-file size, and open-file limits are enforced where the
+kernel supports them; Darwin rejected the address-space limit in local tests.
+Candidate dependencies may fail to import if they require files
 outside the allowed runtime roots. This backend must be requalified on each
 target macOS/runtime combination before unattended use.
 

@@ -14,7 +14,11 @@ Build date: 2026-09-29
 - Seatbelt is a deprecated macOS interface and lacks the OCI backend's
   process/memory isolation. These local checks do not establish security
   qualification across macOS or Python runtime versions.
-- The full project suite now passes **103 tests**. Ruff and Black pass for
+- A follow-up audit found that a rejected Darwin `RLIMIT_AS` value skipped
+  later resource limits. CPU, per-file size, and open-file limits now apply
+  independently; a failure to set one of those limits refuses candidate
+  execution. Address-space limiting remains unsupported on this host.
+- The full project suite now passes **105 tests**. Ruff and Black pass for
   `aide/`, and the updated wheel and source distribution build successfully.
 
 ## Post-review local hardening (2026-09-29)

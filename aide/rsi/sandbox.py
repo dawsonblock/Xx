@@ -250,34 +250,56 @@ class SecureInterpreter:
     def _new_workspace(self) -> Path:
         return Path(tempfile.mkdtemp(prefix="candidate-", dir=self._tmp_root))
 
-    def _limit_preexec(self):
+    def _limit_preexec(self, *, require_portable_limits: bool = False):
         limits = self.limits
+        try:
+            import resource
+        except ImportError as exc:
+            if require_portable_limits:
+                raise SandboxUnavailable(
+                    "POSIX resource limits are unavailable"
+                ) from exc
+            return None
 
         def apply() -> None:
-            try:
-                import resource
-
-                if limits.memory_mb > 0:
-                    size = int(limits.memory_mb) * 1024 * 1024
+            if limits.memory_mb > 0:
+                size = int(limits.memory_mb) * 1024 * 1024
+                try:
                     resource.setrlimit(resource.RLIMIT_AS, (size, size))
-                cpu = int(limits.cpu_seconds or self.timeout)
-                if cpu > 0:
+                except (OSError, ValueError):
+                    # Darwin can reject RLIMIT_AS. It is not a reliable physical
+                    # memory boundary there; apply the other limits separately.
+                    pass
+            cpu = int(limits.cpu_seconds or self.timeout)
+            if cpu > 0:
+                try:
                     resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
-                if limits.file_size_mb > 0:
-                    size = int(limits.file_size_mb) * 1024 * 1024
+                except (OSError, ValueError):
+                    if require_portable_limits:
+                        raise
+            if limits.file_size_mb > 0:
+                size = int(limits.file_size_mb) * 1024 * 1024
+                try:
                     resource.setrlimit(resource.RLIMIT_FSIZE, (size, size))
-                if hasattr(resource, "RLIMIT_NPROC") and limits.nproc > 0:
+                except (OSError, ValueError):
+                    if require_portable_limits:
+                        raise
+            if hasattr(resource, "RLIMIT_NPROC") and limits.nproc > 0:
+                try:
                     resource.setrlimit(
                         resource.RLIMIT_NPROC, (int(limits.nproc), int(limits.nproc))
                     )
-                if limits.nofile > 0:
+                except (OSError, ValueError):
+                    # Seatbelt denies process creation; this is an extra guard.
+                    pass
+            if limits.nofile > 0:
+                try:
                     resource.setrlimit(
                         resource.RLIMIT_NOFILE, (int(limits.nofile), int(limits.nofile))
                     )
-            except Exception:
-                # Namespace/container isolation remains authoritative. Resource
-                # limits are defense-in-depth and reported by backend metadata.
-                pass
+                except (OSError, ValueError):
+                    if require_portable_limits:
+                        raise
 
         return apply
 
@@ -546,14 +568,19 @@ class SecureInterpreter:
             input_dir = self.base_workspace / "input"
             if input_dir.exists():
                 os.symlink(input_dir, work / "input", target_is_directory=True)
-            return self._run_subprocess(
-                self._seatbelt_command(work, script),
-                work,
-                backend="seatbelt",
-                env=self._seatbelt_env(work),
-                preexec_fn=self._limit_preexec(),
-                cwd=work,
-            )
+            try:
+                return self._run_subprocess(
+                    self._seatbelt_command(work, script),
+                    work,
+                    backend="seatbelt",
+                    env=self._seatbelt_env(work),
+                    preexec_fn=self._limit_preexec(require_portable_limits=True),
+                    cwd=work,
+                )
+            except subprocess.SubprocessError as exc:
+                raise SandboxUnavailable(
+                    "failed to enforce macOS candidate resource limits"
+                ) from exc
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
