@@ -135,3 +135,67 @@ def test_seatbelt_timeout_stops_candidate_and_cleans_workspace(tmp_path: Path):
     assert result.exc_type == "TimeoutError"
     assert "started" in "".join(result.term_out)
     assert list((tmp_path / ".rsi_exec").iterdir()) == []
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
+    reason="macOS Seatbelt is unavailable",
+)
+def test_seatbelt_workspace_has_a_hard_disk_capacity(tmp_path: Path):
+    sandbox = SecureInterpreter(
+        tmp_path,
+        mode="strict",
+        backend="seatbelt",
+        limits=SandboxLimits(
+            workspace_mb=64, file_size_mb=256, memory_mb=512, max_output_mb=1
+        ),
+    )
+    result = sandbox.run(
+        "import errno\n"
+        "try:\n"
+        "    with open('large', 'wb') as stream:\n"
+        "        for _ in range(32): stream.write(b'x' * (4 * 1024 * 1024))\n"
+        "except OSError as exc: print('disk_full', exc.errno == errno.ENOSPC)\n"
+    )
+    assert result.exc_type is None
+    assert "disk_full True" in "".join(result.term_out)
+    assert list((tmp_path / ".rsi_exec").iterdir()) == []
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
+    reason="macOS Seatbelt is unavailable",
+)
+def test_seatbelt_stops_sustained_memory_overuse(tmp_path: Path):
+    sandbox = SecureInterpreter(
+        tmp_path,
+        mode="strict",
+        backend="seatbelt",
+        limits=SandboxLimits(workspace_mb=64, memory_mb=64),
+    )
+    result = sandbox.run(
+        "import time\n"
+        "data = bytearray(128 * 1024 * 1024)\n"
+        "for offset in range(0, len(data), 4096): data[offset] = 1\n"
+        "time.sleep(5)\n"
+    )
+    assert result.exc_type == "MemoryLimitExceeded"
+    assert result.exc_info["resident_bytes"] > 64 * 1024 * 1024
+    assert list((tmp_path / ".rsi_exec").iterdir()) == []
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("sandbox-exec") is None,
+    reason="macOS Seatbelt is unavailable",
+)
+def test_seatbelt_stops_if_memory_monitor_fails(tmp_path: Path, monkeypatch):
+    sandbox = SecureInterpreter(
+        tmp_path,
+        mode="strict",
+        backend="seatbelt",
+        limits=SandboxLimits(workspace_mb=64, memory_mb=64),
+    )
+    monkeypatch.setattr(sandbox, "_macos_resident_bytes", lambda pid: None)
+    with pytest.raises(SandboxUnavailable, match="memory monitoring failed"):
+        sandbox.run("import time\ntime.sleep(5)")
+    assert list((tmp_path / ".rsi_exec").iterdir()) == []

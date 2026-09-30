@@ -2,6 +2,18 @@
 
 Build date: 2026-09-29
 
+## Bounded local macOS workspace follow-up (2026-09-29)
+
+- The Seatbelt workspace now mounts a case-sensitive sparse disk image with
+  configurable capacity. A 64 MiB test image returned `ENOSPC` on an oversized
+  write; the candidate and image were cleaned afterward.
+- A `proc_pidinfo` supervisor stopped sustained resident memory above a
+  configured threshold and refused execution when monitoring failed. This is
+  a sampled guard, not a hard memory ceiling; short spikes can overshoot it.
+- The local Seatbelt ceiling defaults to 1 GiB via `seatbelt_memory_mb`, while
+  the image capacity defaults to 2 GiB via `workspace_mb`.
+- The full project suite passes **109 tests**. Ruff and Black pass for `aide/`.
+
 ## Local macOS Seatbelt follow-up (2026-09-29)
 
 - Added an explicit native `seatbelt` backend and macOS `auto` selection when

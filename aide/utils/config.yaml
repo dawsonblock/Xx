@@ -96,8 +96,10 @@ rsi:
     # POSIX resource envelope for strict candidate execution. Set an individual
     # value <= 0 to disable that rlimit; wall-clock timeout remains enforced.
     memory_mb: 32768
+    seatbelt_memory_mb: 1024 # local Seatbelt RSS monitor ceiling
     cpu_seconds: 0
     file_size_mb: 2048
+    workspace_mb: 2048      # Seatbelt disk-image capacity; hard workspace bound
     max_output_mb: 16
     nproc: 128
     nofile: 256

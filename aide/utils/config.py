@@ -79,8 +79,10 @@ class RSISandboxConfig:
     container_image: str | None = None
     allow_insecure_process: bool = False
     memory_mb: int = 32768
+    seatbelt_memory_mb: int = 1024
     cpu_seconds: int = 0
     file_size_mb: int = 2048
+    workspace_mb: int = 2048
     max_output_mb: int = 16
     nproc: int = 128
     nofile: int = 256

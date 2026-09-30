@@ -87,10 +87,15 @@ aide-rsi \
 Seatbelt runs a live confinement check before candidate execution. It denies
 candidate network access, process spawning, host-file contents outside the
 Python runtime and task input, and writes outside the disposable workspace.
+Its writable workspace is a local disk image capped by
+`rsi.sandbox.workspace_mb` (2 GiB by default). A supervisor samples candidate
+resident memory and stops sustained use above the smaller of
+`rsi.sandbox.memory_mb` and `rsi.sandbox.seatbelt_memory_mb` (1 GiB by default).
 Apple has deprecated the `sandbox-exec` interface. It exposes host file
 metadata and the local Python runtime to candidates, and it does not provide
-the container backend's process/memory isolation. Use a dedicated runtime
-without secrets in its installation directory.
+the container backend's hard memory isolation: short allocation spikes may
+exceed the sampled threshold. Use a dedicated runtime without secrets in its
+installation directory.
 
 macOS/Windows can also use the supplied Docker/Podman strict container backend:
 

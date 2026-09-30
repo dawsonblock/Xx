@@ -7,12 +7,39 @@ import sys
 import tempfile
 import threading
 import time
+import ctypes
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 
 class SandboxUnavailable(RuntimeError):
     pass
+
+
+class _MacProcTaskInfo(ctypes.Structure):
+    # Matches proc_taskinfo in the macOS SDK's sys/proc_info.h.
+    _fields_ = [
+        ("virtual_size", ctypes.c_uint64),
+        ("resident_size", ctypes.c_uint64),
+        ("times", ctypes.c_uint64 * 4),
+        ("rest", ctypes.c_int32 * 11),
+    ]
+
+
+@lru_cache(maxsize=1)
+def _macos_libproc():
+    libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    libproc.proc_pidinfo.argtypes = [
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
+    libproc.proc_pidinfo.restype = ctypes.c_int
+    return libproc
 
 
 # Seatbelt profiles are evaluated by the macOS kernel. Keep path values in
@@ -39,8 +66,10 @@ class SandboxLimits:
     """Resource envelope for strict candidate execution."""
 
     memory_mb: int = 32768
+    seatbelt_memory_mb: int = 1024
     cpu_seconds: int = 0
     file_size_mb: int = 2048
+    workspace_mb: int = 2048
     max_output_mb: int = 16
     nproc: int = 128
     nofile: int = 256
@@ -129,7 +158,9 @@ class SecureInterpreter:
         runtime = self._resolve_runtime()
         container_ok = runtime is not None and bool(self.container_image)
         seatbelt_ok = (
-            sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
+            sys.platform == "darwin"
+            and shutil.which("sandbox-exec") is not None
+            and shutil.which("hdiutil") is not None
         )
 
         if requested == "bubblewrap":
@@ -147,7 +178,7 @@ class SecureInterpreter:
         if requested == "seatbelt":
             if not seatbelt_ok:
                 raise SandboxUnavailable(
-                    "Seatbelt backend requires macOS and sandbox-exec"
+                    "Seatbelt backend requires macOS, sandbox-exec, and hdiutil"
                 )
             return "seatbelt"
         if bwrap_ok:
@@ -201,7 +232,14 @@ class SecureInterpreter:
         }
 
     def _seatbelt_preflight(self) -> None:
-        work = self._new_workspace()
+        if self.limits.workspace_mb < 64:
+            raise SandboxUnavailable("macOS workspace limit must be at least 64 MiB")
+        if (
+            self.limits.memory_mb <= 0
+            or self.limits.seatbelt_memory_mb <= 0
+            or self._macos_resident_bytes(os.getpid()) is None
+        ):
+            raise SandboxUnavailable("macOS candidate memory monitoring is unavailable")
         sentinel_fd, sentinel_name = tempfile.mkstemp(
             prefix=".rsi-seatbelt-probe-", dir=self._tmp_root
         )
@@ -209,43 +247,125 @@ class SecureInterpreter:
         try:
             with os.fdopen(sentinel_fd, "w") as stream:
                 stream.write("private")
-            probe = work / "probe.py"
-            probe.write_text(
-                "import errno, socket, subprocess, sys\n"
-                "from pathlib import Path\n"
-                "work, sentinel = map(Path, sys.argv[1:])\n"
-                "(work / 'writable').write_text('ok')\n"
-                "def denied(action):\n"
-                "    try: action()\n"
-                "    except OSError as exc: return exc.errno in (errno.EPERM, errno.EACCES)\n"
-                "    return False\n"
-                "if not denied(lambda: sentinel.read_bytes()): raise SystemExit('host read allowed')\n"
-                "if not denied(lambda: sentinel.write_text('bad')): raise SystemExit('host write allowed')\n"
-                "if not denied(lambda: socket.create_connection(('127.0.0.1', 1), timeout=1)): raise SystemExit('network allowed')\n"
-                "if not denied(lambda: subprocess.run(['/usr/bin/true'], check=True)): raise SystemExit('spawn allowed')\n"
-                "print('seatbelt-ok')\n"
-            )
-            result = subprocess.run(
-                self._seatbelt_command(work, probe) + [str(work), str(sentinel)],
-                cwd=work,
-                env=self._seatbelt_env(work),
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-            )
-            if result.returncode != 0 or result.stdout.strip() != "seatbelt-ok":
-                raise SandboxUnavailable(
-                    f"macOS Seatbelt confinement check failed (exit {result.returncode}): "
-                    f"{result.stderr[-500:]}"
+            with self._seatbelt_workspace(64) as work:
+                probe = work / "probe.py"
+                probe.write_text(
+                    "import errno, socket, subprocess, sys\n"
+                    "from pathlib import Path\n"
+                    "work, sentinel = map(Path, sys.argv[1:])\n"
+                    "(work / 'writable').write_text('ok')\n"
+                    "def denied(action):\n"
+                    "    try: action()\n"
+                    "    except OSError as exc: return exc.errno in (errno.EPERM, errno.EACCES)\n"
+                    "    return False\n"
+                    "if not denied(lambda: sentinel.read_bytes()): raise SystemExit('host read allowed')\n"
+                    "if not denied(lambda: sentinel.write_text('bad')): raise SystemExit('host write allowed')\n"
+                    "if not denied(lambda: socket.create_connection(('127.0.0.1', 1), timeout=1)): raise SystemExit('network allowed')\n"
+                    "if not denied(lambda: subprocess.run(['/usr/bin/true'], check=True)): raise SystemExit('spawn allowed')\n"
+                    "print('seatbelt-ok')\n"
                 )
+                result = subprocess.run(
+                    self._seatbelt_command(work, probe) + [str(work), str(sentinel)],
+                    cwd=work,
+                    env=self._seatbelt_env(work),
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                if result.returncode != 0 or result.stdout.strip() != "seatbelt-ok":
+                    raise SandboxUnavailable(
+                        f"macOS Seatbelt confinement check failed (exit {result.returncode}): "
+                        f"{result.stderr[-500:]}"
+                    )
         except subprocess.TimeoutExpired as exc:
             raise SandboxUnavailable(
                 "macOS Seatbelt confinement check timed out"
             ) from exc
         finally:
             sentinel.unlink(missing_ok=True)
-            shutil.rmtree(work, ignore_errors=True)
+
+    @staticmethod
+    def _macos_resident_bytes(pid: int) -> int | None:
+        try:
+            info = _MacProcTaskInfo()
+            size = _macos_libproc().proc_pidinfo(
+                pid, 4, 0, ctypes.byref(info), ctypes.sizeof(info)
+            )
+            return int(info.resident_size) if size == ctypes.sizeof(info) else None
+        except (OSError, AttributeError, ValueError, ctypes.ArgumentError):
+            return None
+
+    @contextmanager
+    def _seatbelt_workspace(self, size_mb: int):
+        slot = self._new_workspace()
+        work = slot / "workspace"
+        work.mkdir()
+        image = slot / "workspace.sparseimage"
+        mounted = False
+        try:
+            subprocess.run(
+                [
+                    "hdiutil",
+                    "create",
+                    "-size",
+                    f"{int(size_mb)}m",
+                    "-fs",
+                    "HFS+X",
+                    "-type",
+                    "SPARSE",
+                    "-volname",
+                    "AIDERSI",
+                    "-quiet",
+                    str(image),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "hdiutil",
+                    "attach",
+                    "-nobrowse",
+                    "-mountpoint",
+                    str(work),
+                    "-quiet",
+                    str(image),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            mounted = os.path.ismount(work)
+            if not mounted:
+                raise SandboxUnavailable("macOS workspace image did not mount")
+            yield work
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise SandboxUnavailable(
+                "failed to create bounded macOS workspace"
+            ) from exc
+        finally:
+            mounted = mounted or os.path.ismount(work)
+            if mounted:
+                for _ in range(3):
+                    try:
+                        subprocess.run(
+                            ["hdiutil", "detach", "-quiet", str(work)],
+                            capture_output=True,
+                            timeout=30,
+                            check=True,
+                        )
+                        break
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                        time.sleep(0.2)
+                if os.path.ismount(work):
+                    raise SandboxUnavailable(
+                        f"failed to detach macOS workspace image at {work}"
+                    )
+            shutil.rmtree(slot)
 
     def _new_workspace(self) -> Path:
         return Path(tempfile.mkdtemp(prefix="candidate-", dir=self._tmp_root))
@@ -358,6 +478,7 @@ class SecureInterpreter:
         env: dict[str, str] | None = None,
         preexec_fn=None,
         cwd: Path | None = None,
+        memory_limit_bytes: int | None = None,
     ):
         from aide.interpreter import ExecutionResult
 
@@ -398,17 +519,82 @@ class SecureInterpreter:
         for reader in readers:
             reader.start()
         timed_out = False
+        memory_exceeded = 0
+        monitor_failed = False
         try:
-            proc.wait(timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            proc.kill()
-            proc.wait()
+            if memory_limit_bytes is None:
+                try:
+                    proc.wait(timeout=self.timeout)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+            else:
+                deadline = start + self.timeout
+                missing_samples = 0
+                while proc.poll() is None:
+                    resident = self._macos_resident_bytes(proc.pid)
+                    if resident is None:
+                        try:
+                            proc.wait(timeout=0.05)
+                            break
+                        except subprocess.TimeoutExpired:
+                            missing_samples += 1
+                            if missing_samples >= 3:
+                                monitor_failed = True
+                                break
+                            continue
+                    missing_samples = 0
+                    if resident > memory_limit_bytes:
+                        memory_exceeded = resident
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        timed_out = True
+                        break
+                    try:
+                        proc.wait(timeout=min(remaining, 0.05))
+                    except subprocess.TimeoutExpired:
+                        pass
+            if timed_out or memory_exceeded or monitor_failed:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+        except BaseException:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+            raise
         finally:
             for reader in readers:
                 reader.join()
         if errors:
             raise RuntimeError("failed to capture sandbox output") from errors[0]
+        if monitor_failed:
+            raise SandboxUnavailable("macOS candidate memory monitoring failed")
+        if memory_exceeded:
+            stdout, _ = self._read_capped(stdout_path, cap)
+            stderr, _ = self._read_capped(stderr_path, cap)
+            output = [x for x in (stdout, stderr) if x]
+            output.append(
+                f"MemoryLimitExceeded: resident memory exceeded {memory_limit_bytes} bytes"
+            )
+            return ExecutionResult(
+                output,
+                time.monotonic() - start,
+                "MemoryLimitExceeded",
+                {
+                    "sandbox_backend": backend,
+                    "resident_bytes": memory_exceeded,
+                    "memory_limit_bytes": memory_limit_bytes,
+                    "stdout_truncated": truncated[0],
+                    "stderr_truncated": truncated[1],
+                },
+                [],
+            )
         if timed_out:
             stdout, _ = self._read_capped(stdout_path, cap)
             stderr, _ = self._read_capped(stderr_path, cap)
@@ -561,8 +747,7 @@ class SecureInterpreter:
             shutil.rmtree(work, ignore_errors=True)
 
     def _seatbelt_run(self, code: str):
-        work = self._new_workspace()
-        try:
+        with self._seatbelt_workspace(self.limits.workspace_mb) as work:
             script = work / self.agent_file_name
             script.write_text(code)
             input_dir = self.base_workspace / "input"
@@ -576,13 +761,16 @@ class SecureInterpreter:
                     env=self._seatbelt_env(work),
                     preexec_fn=self._limit_preexec(require_portable_limits=True),
                     cwd=work,
+                    memory_limit_bytes=(
+                        min(self.limits.memory_mb, self.limits.seatbelt_memory_mb)
+                        * 1024
+                        * 1024
+                    ),
                 )
             except subprocess.SubprocessError as exc:
                 raise SandboxUnavailable(
                     "failed to enforce macOS candidate resource limits"
                 ) from exc
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
 
     def _process_run(self, code: str):
         from aide.interpreter import Interpreter

@@ -65,12 +65,19 @@ live probe checks that Python runs, the workspace is writable, and host reads,
 host writes, network access, and process spawning are denied. Failure refuses
 strict execution.
 
+The writable workspace is a mounted sparse disk image with a hard capacity
+configured by `rsi.sandbox.workspace_mb`. The controller monitors the
+candidate's resident memory via macOS `proc_pidinfo` and kills sustained use
+above the smaller of `memory_mb` and `seatbelt_memory_mb`. Monitoring is
+sampled, so it cannot prevent a short memory spike or guarantee a hard
+physical-memory ceiling.
+
 The interface is deprecated by Apple and can change in a macOS update. The
 profile permits host file metadata lookup and reads of the selected Python
 installation, including Homebrew Cellar/opt directories when applicable.
-There is no per-workspace disk quota or container-style process/memory
-isolation. CPU, per-file size, and open-file limits are enforced where the
-kernel supports them; Darwin rejected the address-space limit in local tests.
+There is no container-style process/memory isolation. CPU, per-file size, and
+open-file limits are enforced where the kernel supports them; Darwin rejected
+the address-space limit in local tests.
 Candidate dependencies may fail to import if they require files
 outside the allowed runtime roots. This backend must be requalified on each
 target macOS/runtime combination before unattended use.

@@ -208,8 +208,10 @@ def _run_live_episode(
         allow_insecure_process=bool(scfg.allow_insecure_process),
         limits=SandboxLimits(
             memory_mb=int(scfg.memory_mb),
+            seatbelt_memory_mb=int(scfg.seatbelt_memory_mb),
             cpu_seconds=int(scfg.cpu_seconds),
             file_size_mb=int(scfg.file_size_mb),
+            workspace_mb=int(scfg.workspace_mb),
             max_output_mb=int(scfg.max_output_mb),
             nproc=int(scfg.nproc),
             nofile=int(scfg.nofile),
