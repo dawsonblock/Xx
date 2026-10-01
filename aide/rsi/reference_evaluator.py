@@ -61,7 +61,6 @@ _CANDIDATE_SEATBELT_PROFILE = """(version 1)
     (subpath "/usr/local/Cellar")
     (subpath (param "WORK"))
     (subpath (param "INPUT")))
-(allow file-write* (subpath (param "WORK")))
 (allow sysctl-read)
 """
 
@@ -84,6 +83,97 @@ def _sample_ids(split_path: Path) -> tuple[str, ...]:
     if len(result) != len(set(result)):
         raise ReferenceEvaluatorError("split manifest contains duplicate sample IDs")
     return result
+
+
+def sample_content_sha256(
+    dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
+) -> frozenset[str]:
+    """Hash each tabular feature/label record without its partition-local ID."""
+    scoring = config.get("scoring", {})
+    if not isinstance(scoring, dict):
+        raise ReferenceEvaluatorError("scoring must be an object")
+    id_column = scoring.get("id_column", "id")
+    label_column = scoring.get("label_column", "label")
+    labels_relative = _safe_relative(config.get("labels_file"), field="labels_file")
+    labels_path = (dataset_root / labels_relative).resolve(strict=True)
+    if not labels_path.is_file() or not labels_path.is_relative_to(dataset_root):
+        raise ReferenceEvaluatorError("labels_file must be a dataset file")
+    try:
+        with labels_path.open("r", newline="", encoding="utf-8") as stream:
+            label_rows = list(csv.DictReader(stream))
+        label_by_id: dict[str, str] = {}
+        for row in label_rows:
+            sample_id = _canonical_id(row[id_column])
+            if sample_id in label_by_id:
+                raise ReferenceEvaluatorError(
+                    "trusted label file contains duplicate IDs"
+                )
+            label_by_id[sample_id] = row[label_column]
+        feature_rows: dict[str, dict[str, str]] = {}
+        public_files = config.get("public_files")
+        if not isinstance(public_files, list) or not public_files:
+            raise ReferenceEvaluatorError(
+                "public_files must list at least one feature file"
+            )
+        for value in public_files:
+            relative = _safe_relative(value, field="public_files entry")
+            feature_path = (dataset_root / relative).resolve(strict=True)
+            if not feature_path.is_file() or not feature_path.is_relative_to(
+                dataset_root
+            ):
+                raise ReferenceEvaluatorError(
+                    "public feature path is outside the dataset"
+                )
+            if feature_path == labels_path:
+                raise ReferenceEvaluatorError(
+                    "labels_file cannot be a public candidate input"
+                )
+            seen_in_file: set[str] = set()
+            with feature_path.open("r", newline="", encoding="utf-8") as stream:
+                for row in csv.DictReader(stream):
+                    sample_id = _canonical_id(row[id_column])
+                    if sample_id in seen_in_file:
+                        raise ReferenceEvaluatorError(
+                            "public feature file contains duplicate IDs"
+                        )
+                    seen_in_file.add(sample_id)
+                    if sample_id in feature_rows:
+                        feature_rows[sample_id].update(
+                            {
+                                key: value
+                                for key, value in row.items()
+                                if key != id_column
+                            }
+                        )
+                    else:
+                        feature_rows[sample_id] = {
+                            key: value for key, value in row.items() if key != id_column
+                        }
+    except (OSError, UnicodeDecodeError, csv.Error, KeyError) as exc:
+        raise ReferenceEvaluatorError(
+            "sample content could not be canonicalized"
+        ) from exc
+    if not set(sample_ids) <= set(label_by_id) or not set(sample_ids) <= set(
+        feature_rows
+    ):
+        raise ReferenceEvaluatorError("sample content is missing pinned IDs")
+    result = set()
+    for sample_id in sample_ids:
+        canonical_features = {
+            unicodedata.normalize("NFC", key): unicodedata.normalize("NFC", value)
+            for key, value in feature_rows[sample_id].items()
+        }
+        canonical = json.dumps(
+            {
+                "features": canonical_features,
+                "label": unicodedata.normalize("NFC", label_by_id[sample_id]),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        result.add(hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+    return frozenset(result)
 
 
 def _safe_relative(value: Any, *, field: str) -> Path:
@@ -215,7 +305,12 @@ def _run_candidate(
         raise ReferenceEvaluatorError(
             "public_files must list at least one feature file"
         )
-    with tempfile.TemporaryDirectory(prefix="aide-reference-candidate-") as temp:
+    scratch_root = (
+        Path(request.get("output_dir", request["candidate_path"])).resolve().parent
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="aide-reference-candidate-", dir=scratch_root
+    ) as temp:
         workspace = Path(temp)
         input_root = workspace / "input"
         input_root.mkdir()
@@ -248,6 +343,11 @@ def _run_candidate(
             sandbox_config,
             max_processes=int(request["max_processes"]),
             max_open_files=int(request["max_open_files"]),
+            child_process_groups_path=(
+                Path(request["candidate_process_groups_path"])
+                if request.get("candidate_process_groups_path")
+                else None
+            ),
         )
         predictions = _read_predictions(stdout, samples)
         return b"".join(
@@ -263,14 +363,15 @@ def _run_candidate_seatbelt(
     *,
     max_processes: int,
     max_open_files: int,
+    child_process_groups_path: Path | None = None,
 ) -> bytes:
     timeout = int(config.get("timeout_s", 300))
     memory_mb = int(config.get("memory_mb", 1024))
     output_mb = int(config.get("max_output_mb", 64))
-    file_mb = int(config.get("file_size_mb", 64))
+    tmpfs_mb = int(config.get("tmpfs_mb", 16))
     if not 1 <= timeout <= 86400 or not 128 <= memory_mb <= 65536:
         raise ReferenceEvaluatorError("candidate resource limits are invalid")
-    if not 1 <= output_mb <= 4096 or not 1 <= file_mb <= 4096:
+    if not 1 <= output_mb <= 4096 or not 1 <= tmpfs_mb <= 1024:
         raise ReferenceEvaluatorError("candidate output limits are invalid")
     if sys.platform == "darwin":
         sandbox_exec = shutil.which("sandbox-exec")
@@ -299,6 +400,8 @@ def _run_candidate_seatbelt(
             "/proc",
             "--dev",
             "/dev",
+            "--size",
+            str(tmpfs_mb * 1024**2),
             "--tmpfs",
             "/tmp",
         ]
@@ -316,12 +419,9 @@ def _run_candidate_seatbelt(
                 bound.add(str(root))
         command.extend(
             (
-                "--bind",
+                "--ro-bind",
                 str(workspace),
                 "/work",
-                "--ro-bind",
-                str(workspace / "input"),
-                "/work/input",
                 "--chdir",
                 "/work",
                 "--clearenv",
@@ -363,6 +463,11 @@ def _run_candidate_seatbelt(
             )
         except OSError as exc:
             raise SandboxUnavailable("candidate Seatbelt launch failed") from exc
+        if child_process_groups_path is not None:
+            child_process_groups_path.parent.mkdir(parents=True, exist_ok=True)
+            staged = child_process_groups_path.with_suffix(".tmp")
+            staged.write_text(json.dumps([process.pid]) + "\n", encoding="utf-8")
+            os.replace(staged, child_process_groups_path)
         deadline = time.monotonic() + timeout
         max_output = output_mb * 1024**2
         memory_limit = memory_mb * 1024**2

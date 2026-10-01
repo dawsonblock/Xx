@@ -12,9 +12,10 @@ closed on those records and does not migrate a pending challenger or recover a
 previous unsigned promotion. Preserve the old log directory for audit, and use
 a new log directory and split epoch for a run under this hardening branch.
 
-Keep the HMAC key stable for the lifetime of a hardened run. The signed canary
-reservation ledger is stored below each round's `canary/transaction.json`; do
-not delete it or restore an older version of the log directory. Configure
+Keep the HMAC key stable for the lifetime of a hardened run. Canary sample IDs
+are now retired in HMAC-authenticated `rsi/state.json` before evaluation;
+deleting a round's `canary/transaction.json` cannot make them reusable. Do not
+restore an older version of the log directory. Configure
 canonical `evaluation_sample_ids` for both search and canary split manifests.
 Canary sample IDs are consumed as soon as a signed reservation is written,
 including when evaluation later crashes or fails.

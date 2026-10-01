@@ -20,7 +20,11 @@ sandbox on both platforms so it can launch the nested candidate sandbox. It
 inherits the evaluator resource limits and does not receive the HMAC key, but
 it has host filesystem, process, and network access and remains trusted host
 code. Candidate code itself runs under a deny-by-default Seatbelt profile on
-macOS or Bubblewrap namespaces on Linux.
+macOS or Bubblewrap namespaces on Linux. Its workspace is read-only on both
+platforms. Linux provides a size-limited tmpfs at `/tmp`; predictions travel
+only over capped stdout. The adapter records the nested candidate process
+group in outer scratch so an outer timeout can terminate it, including on
+macOS.
 
 The reference adapter supports CSV feature and label files, JSON split manifests,
 and the fixed metrics `accuracy`, `mean_squared_error`,
@@ -59,10 +63,19 @@ not protected from compromise of the AIDE process or its account.
 
 When search and canary share a dataset, the evaluator requires canonical sample
 IDs and checks set intersection after Unicode NFC normalization, trimming, and
-duplicate rejection. Different JSON formatting or different split-file hashes
-do not establish sample independence. A signed ledger retires canary sample IDs
-after reservation; an already consumed shard cannot authorize another
-promotion. Rotate to a fresh, disjoint canary shard before further promotion.
+duplicate rejection. For the first-party tabular adapter it also hashes the
+canonical feature row and label without the partition-local sample ID, then
+rejects content duplicates across evaluator roles. Custom evaluator formats
+receive ID-based checks only unless their adapter implements an equivalent
+content identity. Different JSON formatting or different split-file hashes do
+not establish sample independence. Canary IDs are committed to HMAC-authenticated
+durable state before evaluation, so deleting reservation files cannot restore
+them. Rotate to a fresh, disjoint canary shard before further promotion.
+
+An exclusive per-log-directory writer lock prevents concurrent RSI controllers
+from producing conflicting transitions. Signed state detects edits, but a full
+rollback to an older valid experiment snapshot still requires an external
+monotonic checkpoint to detect.
 
 Replay development, validation, and qualification worlds are trajectory splits,
 not independent data holds. Replay qualification reuses measured scores and

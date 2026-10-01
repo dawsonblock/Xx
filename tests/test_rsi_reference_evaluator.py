@@ -1,4 +1,5 @@
 import json
+from unittest.mock import Mock
 from pathlib import Path
 
 import pytest
@@ -118,8 +119,14 @@ def test_reference_candidate_cannot_read_labels_or_open_network(tmp_path: Path):
         "    network = True\n"
         "except Exception:\n"
         "    network = False\n"
+        "try:\n"
+        "    open('escape.txt', 'w').write('unbounded')\n"
+        "    workspace_writable = True\n"
+        "except Exception:\n"
+        "    workspace_writable = False\n"
         "print(json.dumps({'id':'sample-1','prediction':"
-        "{'labels_exposed':exposed,'network_available':network}}))\n"
+        "{'labels_exposed':exposed,'network_available':network,"
+        "'workspace_writable':workspace_writable}}))\n"
     )
     try:
         prediction_bytes = reference._run_candidate(
@@ -138,4 +145,39 @@ def test_reference_candidate_cannot_read_labels_or_open_network(tmp_path: Path):
     assert prediction["prediction"] == {
         "labels_exposed": False,
         "network_available": False,
+        "workspace_writable": False,
     }
+
+
+def test_bubblewrap_candidate_workspace_is_read_only_and_tmpfs_is_sized(
+    tmp_path: Path, monkeypatch
+):
+    script = tmp_path / "candidate.py"
+    script.write_text("pass\n")
+    monkeypatch.setattr(reference.sys, "platform", "linux")
+    monkeypatch.setattr(reference.shutil, "which", lambda name: "/usr/bin/bwrap")
+
+    class Finished:
+        pid = 222
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    popen = Mock(return_value=Finished())
+    monkeypatch.setattr(reference.subprocess, "Popen", popen)
+    reference._run_candidate_seatbelt(
+        script,
+        tmp_path,
+        {"tmpfs_mb": 7},
+        max_processes=64,
+        max_open_files=64,
+    )
+    command = popen.call_args.args[0]
+    assert command[command.index("--size") + 1] == str(7 * 1024**2)
+    assert command[command.index("--size") + 1 : command.index("--size") + 3] == [
+        str(7 * 1024**2),
+        "--tmpfs",
+    ]
+    assert "--ro-bind" in command
+    assert "--bind" not in command

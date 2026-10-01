@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,11 +17,13 @@ from aide.rsi.runner import (
     _stored_evaluator_identity,
     _validate_trusted_evaluator_roles,
 )
+from aide.rsi.reference_evaluator import sample_content_sha256
 from aide.rsi.trusted_evaluator import (
     REFERENCE_EVALUATOR_ENTRYPOINT,
     TrustedEvaluator,
     TrustedEvaluatorError,
     _stable_digest,
+    _kill_process_group,
     canonical_evaluation_sample_ids,
     evaluation_sample_overlap,
     file_sha256,
@@ -28,6 +32,23 @@ from aide.rsi.trusted_evaluator import (
 from aide.utils.metric import WorstMetricValue
 
 TEST_KEY = "test-only-hmac-key-with-at-least-32-bytes"
+
+
+def test_outer_cleanup_kills_registered_nested_candidate_group(tmp_path: Path):
+    parent = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    registry = tmp_path / "candidate-process-groups.json"
+    registry.write_text(json.dumps([child.pid]))
+    _kill_process_group(parent, additional_process_groups_path=registry)
+    assert parent.poll() is not None
+    assert not registry.exists()
+    assert child.wait(timeout=2) is not None
 
 
 def _write_evaluator_bundle(
@@ -513,6 +534,38 @@ def test_canary_evaluator_requires_an_independent_data_split():
     _validate_trusted_evaluator_roles(search, canary, metric)
 
 
+def test_reference_sample_content_detects_duplicate_rows_with_different_ids(
+    tmp_path: Path,
+):
+    (tmp_path / "features.csv").write_text("id,x\na,1\nb,1\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,positive\nb,positive\n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["features.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    first = sample_content_sha256(tmp_path, config, ("a",))
+    second = sample_content_sha256(tmp_path, config, ("b",))
+    assert first == second
+    metric = SimpleNamespace(name="accuracy", maximize=True)
+    search = SimpleNamespace(
+        dataset_sha256="a" * 64,
+        split_sha256="b" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+        evaluation_sample_content_sha256=first,
+    )
+    canary = SimpleNamespace(
+        dataset_sha256="c" * 64,
+        split_sha256="d" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+        evaluation_sample_content_sha256=second,
+    )
+    with pytest.raises(ValueError, match="duplicate sample content"):
+        _validate_trusted_evaluator_roles(search, canary, metric)
+
+
 def test_canary_evaluator_must_use_the_same_metric():
     metric = SimpleNamespace(name="accuracy", maximize=True)
     canary = SimpleNamespace(
@@ -558,9 +611,18 @@ def test_evaluator_identity_binds_task_description_and_pinned_inputs(
     assert evaluator.identity == _stable_digest(evaluator._identity_fields())
 
 
-def test_evaluator_identity_binds_resource_limits(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize(
+    ("resource", "delta"),
+    (("max_output_mb", 1), ("max_processes", 1), ("max_open_files", 16)),
+)
+def test_evaluator_identity_binds_resource_limits(
+    tmp_path: Path, monkeypatch, resource, delta
+):
     evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
-    config.max_output_mb += 1
+    defaults = {"max_processes": 2048, "max_open_files": 256}
+    setattr(
+        config, resource, getattr(config, resource, defaults.get(resource, 0)) + delta
+    )
     changed = TrustedEvaluator(
         config,
         task_description={"Task goal": "test"},

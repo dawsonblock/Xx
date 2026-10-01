@@ -103,6 +103,34 @@ def test_signed_canary_reservation_records_consumed_sample_ids(tmp_path: Path):
         _used_canary_sample_ids(tmp_path)
 
 
+def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
+    tmp_path: Path,
+):
+    base_log = tmp_path / "logs"
+    state_store = RSIStateStore(tmp_path / "state.json", require_attestation=True)
+    state_store.write(consumed_canary_sample_ids=["canary-A"])
+    transaction_path = base_log / "round-001" / "canary" / "transaction.json"
+    transaction_path.parent.mkdir(parents=True)
+    transaction_path.write_text(
+        json.dumps(sign_canary_transaction({"evaluation_sample_ids": ["canary-A"]}))
+    )
+    assert _used_canary_sample_ids(base_log, state_store.load()) == {"canary-A"}
+    transaction_path.unlink()
+    assert _used_canary_sample_ids(base_log, state_store.load()) == {"canary-A"}
+
+
+def test_rsi_writer_lock_is_exclusive_and_released(tmp_path: Path):
+    from aide.rsi.state import rsi_writer_lock
+
+    path = tmp_path / "writer.lock"
+    with rsi_writer_lock(path):
+        with pytest.raises(RuntimeError, match="another RSI controller"):
+            with rsi_writer_lock(path):
+                pass
+    with rsi_writer_lock(path):
+        pass
+
+
 def test_trusted_rsi_state_is_signed_and_detects_tampering(tmp_path: Path):
     path = tmp_path / "state.json"
     store = RSIStateStore(path, require_attestation=True)

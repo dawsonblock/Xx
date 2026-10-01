@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
+import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,27 @@ VALID_PHASES = {
     "CANDIDATE_PENDING",
     "COMPLETED",
 }
+
+
+@contextmanager
+def rsi_writer_lock(path: str | Path):
+    """Hold the single-controller lock for one RSI run."""
+    lock_path = Path(path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(lock_path, flags, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise RuntimeError("RSI writer lock must be a regular file")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("another RSI controller holds the writer lock") from exc
+        yield
+    finally:
+        os.close(fd)
 
 
 class RSIStateStore:

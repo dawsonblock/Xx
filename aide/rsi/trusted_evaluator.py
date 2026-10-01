@@ -165,12 +165,53 @@ def _scratch_size(path: Path) -> int:
     return total
 
 
-def _kill_process_group(process: subprocess.Popen) -> None:
+def _kill_process_group(
+    process: subprocess.Popen,
+    *,
+    additional_process_groups_path: Path | None = None,
+) -> None:
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # On macOS a Seatbelt-launched evaluator may make its process group
+        # unaddressable while the direct child remains signalable.
+        try:
+            process.send_signal(signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     process.wait()
+    if additional_process_groups_path is not None:
+        try:
+            process_groups = json.loads(
+                additional_process_groups_path.read_text(encoding="utf-8")
+            )
+        except FileNotFoundError:
+            return
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            raise TrustedEvaluatorError("nested process group record is invalid")
+        if not isinstance(process_groups, list):
+            raise TrustedEvaluatorError("nested process group record is invalid")
+        for process_group in process_groups:
+            if (
+                isinstance(process_group, bool)
+                or not isinstance(process_group, int)
+                or process_group <= 1
+            ):
+                raise TrustedEvaluatorError("nested process group record is invalid")
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                # A newly sandboxed macOS group can reject group signaling;
+                # its session leader PID is the recorded process group ID.
+                try:
+                    os.kill(process_group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        additional_process_groups_path.unlink(missing_ok=True)
 
 
 def _stable_digest(value: Any) -> str:
@@ -282,6 +323,25 @@ class TrustedEvaluator:
 
         entrypoint = str(getattr(config, "entrypoint", "evaluate.py") or "evaluate.py")
         self.reference_evaluator = entrypoint == REFERENCE_EVALUATOR_ENTRYPOINT
+        self.evaluation_sample_content_sha256: frozenset[str] | None = None
+        if self.reference_evaluator and self.evaluation_sample_ids is not None:
+            try:
+                from .reference_evaluator import sample_content_sha256
+
+                pinned_config = json.loads(self.config_path.read_text(encoding="utf-8"))
+                self.evaluation_sample_content_sha256 = sample_content_sha256(
+                    self.dataset_dir, pinned_config, self.evaluation_sample_ids
+                )
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                ValueError,
+                RuntimeError,
+            ) as exc:
+                raise TrustedEvaluatorError(
+                    "reference evaluator sample content could not be pinned"
+                ) from exc
         self.reference_package_root = Path(__file__).resolve().parents[2]
         if self.reference_evaluator:
             self.entrypoint = None
@@ -367,6 +427,8 @@ class TrustedEvaluator:
                     "timeout_s": self.timeout_s,
                     "max_output_bytes": self.max_output_bytes,
                     "max_memory_bytes": self.max_memory_bytes,
+                    "max_processes": self.max_processes,
+                    "max_open_files": self.max_open_files,
                 },
                 "installed_distributions": sorted(
                     (
@@ -540,6 +602,9 @@ class TrustedEvaluator:
 
         child_request = {**request, **request_paths}
         if self.reference_evaluator:
+            child_request["candidate_process_groups_path"] = str(
+                temp_dir / "candidate_process_groups.json"
+            )
             # This content-pinned adapter is the only evaluator allowed to run
             # outside the outer Seatbelt namespace: it must launch a nested
             # candidate sandbox, which macOS forbids from inside Seatbelt.
@@ -664,6 +729,11 @@ class TrustedEvaluator:
             temp_dir = Path(temp)
             request_path = temp_dir / "request.json"
             response_path = temp_dir / "response.json"
+            child_process_groups_path = (
+                temp_dir / "candidate_process_groups.json"
+                if self.reference_evaluator
+                else None
+            )
             candidate_path = Path(source_temp) / "candidate.py"
             candidate_bytes = candidate_source.encode("utf-8")
             candidate_path.write_bytes(candidate_bytes)
@@ -716,7 +786,10 @@ class TrustedEvaluator:
                 deadline = time.monotonic() + self.timeout_s
                 while process.poll() is None:
                     if _scratch_size(temp_dir) > self.max_output_bytes:
-                        _kill_process_group(process)
+                        _kill_process_group(
+                            process,
+                            additional_process_groups_path=child_process_groups_path,
+                        )
                         raise TrustedEvaluatorError(
                             "pinned evaluator exceeded its scratch output limit"
                         )
@@ -725,12 +798,18 @@ class TrustedEvaluator:
                         if resident_bytes is None:
                             missing_memory_samples += 1
                             if missing_memory_samples >= 3:
-                                _kill_process_group(process)
+                                _kill_process_group(
+                                    process,
+                                    additional_process_groups_path=child_process_groups_path,
+                                )
                                 raise TrustedEvaluatorError(
                                     "macOS evaluator memory monitoring failed"
                                 )
                         elif resident_bytes > self.max_memory_bytes:
-                            _kill_process_group(process)
+                            _kill_process_group(
+                                process,
+                                additional_process_groups_path=child_process_groups_path,
+                            )
                             raise TrustedEvaluatorError(
                                 "pinned evaluator exceeded its memory limit"
                             )
@@ -738,7 +817,10 @@ class TrustedEvaluator:
                             missing_memory_samples = 0
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        _kill_process_group(process)
+                        _kill_process_group(
+                            process,
+                            additional_process_groups_path=child_process_groups_path,
+                        )
                         raise TrustedEvaluatorError(
                             "pinned evaluator exceeded its timeout"
                         )
@@ -750,10 +832,10 @@ class TrustedEvaluator:
                 # A bundle may exit successfully while a child it created keeps
                 # writing into the scratch directory. The evaluator owns one
                 # process group, so end that group before validating its outputs.
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                _kill_process_group(
+                    process,
+                    additional_process_groups_path=child_process_groups_path,
+                )
                 if return_code != 0:
                     if _scratch_size(temp_dir) >= self.max_output_bytes:
                         raise TrustedEvaluatorError(

@@ -4,8 +4,10 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The full local project suite passed with **153 passed, 1 skipped** on
-macOS. Linux Bubblewrap execution and deployment qualification remain open.
+archive. The branch's pre-follow-up full local project suite passed with **153
+passed, 1 skipped** on macOS. This follow-up reran the RSI suite and
+hardening-focused tests, not the full project suite. Linux Bubblewrap execution
+and deployment qualification remain open.
 
 ## Promotion and recovery authority
 
@@ -27,11 +29,20 @@ match their recorded content digests before publication, qualification, or
 canary acceptance. The HMAC covers the canonical evaluation record bytes and
 the artifact identity.
 
-Canary decisions use canonical evaluation sample IDs. The system rejects
-semantic overlap with search samples, reserves canary IDs in signed durable
-transactions, and retires IDs after use while allowing an interrupted
-transaction to resume. This prevents routine repeated querying of the same
-samples after a completed canary attempt.
+Canary decisions use canonical evaluation sample IDs. The first-party tabular
+adapter also rejects matching canonical feature-row-plus-label hashes even when
+duplicate examples use different IDs. Canary IDs are committed to
+HMAC-authenticated durable state before evaluation, and a per-log-directory
+exclusive lock prevents simultaneous controllers. Deleting a round transaction
+cannot restore retired IDs. The reference candidate workspace is read-only;
+Linux writable `/tmp` is a sized tmpfs, stdout is capped, and the adapter records
+the nested process group so outer timeout cleanup can kill it on macOS too.
+
+The canary aggregation remains a repeated paired heuristic over best outcomes,
+not a confidence interval or formal statistical promotion test. The generic
+operator evaluator supports ID-based overlap checks only. The cumulative
+consumed-ID list grows with canary use; an authenticated append-only ledger is a
+future storage improvement.
 
 ## Evaluator integrity and isolation
 
@@ -70,15 +81,17 @@ rehashing detects changes at authoritative evaluation boundaries but does not
 provide an immutable filesystem snapshot against a concurrent privileged host
 actor. HMAC state authentication detects edits but cannot prevent rollback of a
 complete older signed state and evidence snapshot without an external monotonic
-anchor. Linux Bubblewrap confinement and resource limits need integration
-testing on the deployment host. Separate untouched validation and one-shot
-qualification datasets are still outside this branch's guarantees.
+anchor. No external monotonic service or hardware counter is configured here.
+Linux Bubblewrap confinement and resource limits need integration testing on
+the deployment host. Separate untouched validation and one-shot qualification
+datasets are still outside this branch's guarantees.
 
 ## Validation performed
 
 - Full project: `153 passed, 1 skipped`.
-- Focused recovery, trusted evaluator, and first-party adapter: `38 passed`.
-- RSI suite: `102 passed, 1 skipped`.
+- Focused recovery, trusted evaluator, and first-party adapter after this
+  follow-up: `45 passed`.
+- RSI suite after this follow-up: `109 passed, 1 skipped`.
 - `python -m compileall -q aide`: passed.
 - Black on changed Python files: passed.
 - Ruff on changed Python source and tests: passed.

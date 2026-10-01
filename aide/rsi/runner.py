@@ -31,7 +31,7 @@ from .pool import ReplayWorldPool
 from .qualification import QualificationGate
 from .sandbox import SandboxLimits, SecureInterpreter
 from .split import PersistentSplitManager
-from .state import RSIStateStore
+from .state import RSIStateStore, rsi_writer_lock
 from .support import ReplaySupportIndex
 from .types import PolicyGenome
 from .world import world_from_journal
@@ -52,9 +52,16 @@ def _policy_digest(genome: PolicyGenome | None) -> str | None:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _used_canary_sample_ids(base_log: Path) -> set[str]:
-    """Recover consumed canary populations from signed reservation records."""
-    used: set[str] = set()
+def _used_canary_sample_ids(
+    base_log: Path, durable_state: dict[str, Any] | None = None
+) -> set[str]:
+    """Recover consumed populations from signed state and reservation records."""
+    sample_ids = (durable_state or {}).get("consumed_canary_sample_ids", [])
+    if not isinstance(sample_ids, list) or any(
+        not isinstance(sample_id, str) or not sample_id for sample_id in sample_ids
+    ):
+        raise ValueError("durable canary retirement set is invalid")
+    used: set[str] = set(sample_ids)
     for path in base_log.glob("round-*/canary/transaction.json"):
         if path.is_symlink() or not path.is_file():
             raise ValueError("canary transaction must be a regular file")
@@ -341,6 +348,17 @@ def _validate_trusted_evaluator_roles(search, canary, task_metric) -> None:
         raise ValueError(
             "trusted canary evaluator must use a different pinned dataset or split"
         )
+    if search is not None and canary is not None:
+        search_content = getattr(search, "evaluation_sample_content_sha256", None)
+        canary_content = getattr(canary, "evaluation_sample_content_sha256", None)
+        if (
+            search_content is not None
+            and canary_content is not None
+            and search_content.intersection(canary_content)
+        ):
+            raise ValueError(
+                "trusted canary evaluator contains duplicate sample content"
+            )
 
 
 def _stored_evaluator_identity(state: dict[str, Any]) -> Any:
@@ -581,7 +599,7 @@ def _run_live_episode(
     return journal, round_cfg
 
 
-def run_rsi() -> None:
+def _run_rsi_unlocked() -> None:
     """Run AIDE under replay-improved, qualified exploration control."""
     from omegaconf import OmegaConf
 
@@ -695,7 +713,7 @@ def run_rsi() -> None:
             "search and canary evaluators do not share task and metric identity"
         )
     if canary_evaluator is not None and canary_evaluator.evaluation_sample_ids:
-        used_ids = _used_canary_sample_ids(base_log)
+        used_ids = _used_canary_sample_ids(base_log, state)
         active = state.get("phase") == "CANARY_RUNNING"
         if set(canary_evaluator.evaluation_sample_ids) & used_ids and not active:
             canary_block_reason = "canary sample shard has already been consumed"
@@ -826,6 +844,17 @@ def run_rsi() -> None:
                 if canary_evaluator is not None
                 and canary_evaluator.evaluation_sample_ids is not None
                 else []
+            )
+            consumed = set(state.get("consumed_canary_sample_ids", []))
+            consumed.update(canary_sample_ids)
+            # Commit shard retirement to HMAC-authenticated state before any
+            # evaluator can observe a canary score. Deleting transaction files
+            # therefore cannot make a completed shard reusable.
+            state = state_store.write(
+                phase="CANARY_RUNNING",
+                current_round=outer,
+                next_round=outer,
+                consumed_canary_sample_ids=sorted(consumed),
             )
             _write_json(
                 canary_root / "transaction.json",
@@ -1204,6 +1233,16 @@ def run_rsi() -> None:
     if global_best_score is not None:
         print(f"Best real metric: {global_best_score}")
         print(f"Best solution: {base_log / 'best_solution.py'}")
+
+
+def run_rsi() -> None:
+    """Run one serialized RSI controller against the configured log directory."""
+    from aide.utils.config import load_cfg
+
+    cfg = load_cfg()
+    lock_path = Path(cfg.log_dir) / "rsi" / "writer.lock"
+    with rsi_writer_lock(lock_path):
+        _run_rsi_unlocked()
 
 
 if __name__ == "__main__":
