@@ -22,9 +22,13 @@ Validation on the local macOS host:
 - Ruff: passed for all changed Python source and test files.
 - The first-party candidate boundary and outer-timeout cleanup ran under macOS
   Seatbelt.
-- The previous revision's Linux Bubblewrap workflow passed; the current source
-  must pass the post-push workflow before its Linux behavior is considered
-  qualified. Windows writer-lock execution was not run on a Windows host.
+
+GitHub Actions checked commit `18167f8` on the platform-specific paths:
+
+- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36841501712): passed.
+- [Linux Bubblewrap isolation](https://github.com/dawsonblock/Xx/actions/runs/36841501818): passed.
+- [Windows state import and writer lock](https://github.com/dawsonblock/Xx/actions/runs/36841501831): passed.
+- [Python linter](https://github.com/dawsonblock/Xx/actions/runs/36841501730): passed.
 
 The remainder of this file records the v1.3.5 baseline and must not be read as
 validation of the unreleased changes above.

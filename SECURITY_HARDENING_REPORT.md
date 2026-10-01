@@ -7,9 +7,9 @@ Package metadata remains at 1.3.5; the work has not been published as a release
 archive. The latest full local project run passed with **173 passed, 1
 skipped** on macOS after the canary crash, rotation, anchor, and sample-identity
 fixes. The nested outer-timeout test passes locally and on a GitHub-hosted
-macOS runner. The prior Linux Bubblewrap workflow passed before these latest
-edits and must rerun against this commit. Windows lock execution has not been
-exercised on a Windows host. Deployment qualification remains open.
+macOS runner. The current Linux Bubblewrap, Windows writer-lock, and linter
+workflows also passed on commit `18167f8`. Deployment qualification remains
+open.
 
 ## Promotion and recovery authority
 
@@ -136,7 +136,5 @@ datasets remain open.
 - First-party candidate isolation exercised with macOS Seatbelt.
 - Linux Bubblewrap execution passed in the privileged Linux container; this
   macOS host cannot provide unprivileged namespaces directly.
-- GitHub Linux Bubblewrap workflow passed on the preceding authority-closure
-  revision; rerun is pending for the current edits. The macOS nested-timeout
-  hosted workflow passed on the preceding revision, and the current local full
-  suite passed its timeout test.
+- GitHub-hosted macOS nested-timeout, Linux Bubblewrap, Windows state-lock, and
+  linter workflows passed on commit `18167f8` ([macOS](https://github.com/dawsonblock/Xx/actions/runs/36841501712), [Linux](https://github.com/dawsonblock/Xx/actions/runs/36841501818), [Windows](https://github.com/dawsonblock/Xx/actions/runs/36841501831), [linter](https://github.com/dawsonblock/Xx/actions/runs/36841501730)).

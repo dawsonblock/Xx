@@ -90,7 +90,13 @@
       "ruff": "passed for modified RSI security source and tests; config.py has pre-existing findings under the local newer Ruff release",
       "black": "passed for changed Python files",
       "compileall": "passed for aide",
-      "platform_scope": "current source passed the macOS local full suite; hosted Linux Bubblewrap and Windows writer-lock reruns are pending"
+      "platform_scope": "macOS local full suite, hosted macOS nested-timeout, Linux Bubblewrap, and Windows writer-lock checks passed on commit 18167f8",
+      "hosted_workflows": {
+        "macos_nested_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36841501712",
+        "linux_bubblewrap": "https://github.com/dawsonblock/Xx/actions/runs/36841501818",
+        "windows_state_lock": "https://github.com/dawsonblock/Xx/actions/runs/36841501831",
+        "linter": "https://github.com/dawsonblock/Xx/actions/runs/36841501730"
+      }
     },
     "migration": "Existing unsigned v1.3.5 canary transactions cannot be trusted for recovery; start with a fresh RSI log directory and a fresh canary split epoch. See docs/MIGRATION_v1.3.5_hardening-closure.md.",
     "security_report": "SECURITY_HARDENING_REPORT.md"
