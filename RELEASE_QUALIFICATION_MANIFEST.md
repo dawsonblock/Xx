@@ -47,9 +47,19 @@ The following implementation is work after the frozen `f21f159` snapshot and
 is not covered by the hosted runs listed above. It adds a SQLite-backed
 reference anchor service, a hash-chained sequential alpha budget committed to
 authenticated RSI state before each canary attempt, anchor and budget
-conformance tests, and a seeded statistical sensitivity probe. It remains
-unreleased and must pass the new hosted workflows before its code is treated
-as platform-qualified.
+conformance tests, and a seeded statistical sensitivity probe. The focused
+hosted workflows passed on source commit
+`4006d1683ab09c5dd938326e8b3bdec2a8ab2dda`:
+
+| Hosted workflow | Result | Scope |
+|---|---|---|
+| [Linux Bubblewrap](https://github.com/dawsonblock/Xx/actions/runs/36935981465) | Passed | Candidate isolation, anchor service, and budget tests |
+| [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36935981266) | Passed | Seatbelt nested-timeout, anchor service, and budget tests |
+| [Windows RSI state lock](https://github.com/dawsonblock/Xx/actions/runs/36935981267) | Passed | Cross-platform lock, anchor service, and budget tests |
+| [Linter](https://github.com/dawsonblock/Xx/actions/runs/36935981213) | Passed | Ruff 0.7.1 and Black 24.3.0 |
+
+These are focused hosted checks, not a complete project suite on all three
+platforms. The implementation remains unreleased.
 
 Local validation on 2026-10-01:
 
