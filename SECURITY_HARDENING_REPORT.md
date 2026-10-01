@@ -4,10 +4,9 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The branch's pre-follow-up full local project suite passed with **153
-passed, 1 skipped** on macOS; after this follow-up, the full project suite
-passed with **162 passed, 1 skipped**. Linux Bubblewrap execution passed in a
-privileged container, while deployment qualification remains open.
+archive. The latest full local project run passed with **163 passed, 1
+skipped** on macOS. Linux Bubblewrap execution passed in a privileged
+container, while deployment qualification remains open.
 
 ## Promotion and recovery authority
 
@@ -31,12 +30,16 @@ the artifact identity.
 
 Canary decisions use canonical evaluation sample IDs. The first-party tabular
 adapter also rejects matching canonical feature-row-plus-label hashes even when
-duplicate examples use different IDs. Canary IDs are committed to
-HMAC-authenticated durable state before evaluation, and a per-log-directory
-exclusive lock prevents simultaneous controllers. Deleting a round transaction
-cannot restore retired IDs. The reference candidate workspace is read-only;
-Linux writable `/tmp` is a sized tmpfs, stdout is capped, and the adapter records
-the nested process group so outer timeout cleanup can kill it on macOS too.
+duplicate examples use different IDs. Canary IDs and available content hashes
+are committed to HMAC-authenticated durable state before evaluation and are
+included in signed reservation transactions. Deleting a round transaction
+cannot restore retired identities or permit the same tabular rows under new
+IDs. A per-log-directory exclusive lock prevents simultaneous controllers. The
+reference candidate workspace is read-only; Linux writable `/tmp` is a sized
+tmpfs, stdout is capped, and the adapter records the nested process group so
+outer timeout cleanup can kill it on macOS too. An integration test now forces
+an outer evaluator timeout while the nested candidate sleeps and verifies the
+candidate process group is gone.
 
 Canary promotion now requires five paired repeats, a deterministic 95% lower
 percentile bootstrap bound over per-repeat normalized best-score differences,
@@ -44,8 +47,9 @@ a nonnegative median effect by default, a minimum passing fraction, and a
 worst-pair regression ceiling. This quantifies repeat-to-repeat rollout
 variation; it is not a per-sample confidence interval and does not establish
 generalization beyond the retired canary shard. The generic operator evaluator
-supports ID-based overlap checks only. The cumulative consumed-ID list grows
-with canary use; an authenticated append-only ledger is a future storage
+supports ID-based overlap checks only because it has no canonical sample
+content model. The cumulative consumed-ID and content-hash lists grow with
+canary use; an authenticated append-only ledger is a future storage
 improvement.
 
 ## Evaluator integrity and isolation

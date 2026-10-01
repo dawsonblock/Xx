@@ -52,16 +52,27 @@ def _policy_digest(genome: PolicyGenome | None) -> str | None:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _used_canary_sample_ids(
+def _used_canary_retirements(
     base_log: Path, durable_state: dict[str, Any] | None = None
-) -> set[str]:
-    """Recover consumed populations from signed state and reservation records."""
+) -> tuple[set[str], set[str]]:
+    """Recover consumed IDs and content identities from state and reservations."""
     sample_ids = (durable_state or {}).get("consumed_canary_sample_ids", [])
     if not isinstance(sample_ids, list) or any(
         not isinstance(sample_id, str) or not sample_id for sample_id in sample_ids
     ):
         raise ValueError("durable canary retirement set is invalid")
     used: set[str] = set(sample_ids)
+    content_hashes = (durable_state or {}).get(
+        "consumed_canary_sample_content_sha256", []
+    )
+    if not isinstance(content_hashes, list) or any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+        for value in content_hashes
+    ):
+        raise ValueError("durable canary content retirement set is invalid")
+    used_content: set[str] = set(content_hashes)
     for path in base_log.glob("round-*/canary/transaction.json"):
         if path.is_symlink() or not path.is_file():
             raise ValueError("canary transaction must be a regular file")
@@ -79,7 +90,34 @@ def _used_canary_sample_ids(
         ):
             raise ValueError("canary reservation ledger has invalid sample IDs")
         used.update(sample_ids)
-    return used
+        transaction_content = transaction.get("evaluation_sample_content_sha256", [])
+        if not isinstance(transaction_content, list) or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(char not in "0123456789abcdef" for char in value)
+            for value in transaction_content
+        ):
+            raise ValueError("canary reservation ledger has invalid content hashes")
+        used_content.update(transaction_content)
+    return used, used_content
+
+
+def _used_canary_sample_ids(
+    base_log: Path, durable_state: dict[str, Any] | None = None
+) -> set[str]:
+    """Compatibility helper returning consumed sample IDs."""
+    return _used_canary_retirements(base_log, durable_state)[0]
+
+
+def _canary_shard_overlaps_retired(
+    sample_ids: set[str] | tuple[str, ...],
+    content_hashes: set[str] | frozenset[str] | None,
+    used_ids: set[str],
+    used_content_hashes: set[str],
+) -> bool:
+    return bool(
+        set(sample_ids) & used_ids or (set(content_hashes or ()) & used_content_hashes)
+    )
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -708,9 +746,17 @@ def _run_rsi_unlocked() -> None:
             "search and canary evaluators do not share task and metric identity"
         )
     if canary_evaluator is not None and canary_evaluator.evaluation_sample_ids:
-        used_ids = _used_canary_sample_ids(base_log, state)
+        used_ids, used_content_hashes = _used_canary_retirements(base_log, state)
         active = state.get("phase") == "CANARY_RUNNING"
-        if set(canary_evaluator.evaluation_sample_ids) & used_ids and not active:
+        if (
+            _canary_shard_overlaps_retired(
+                canary_evaluator.evaluation_sample_ids,
+                canary_evaluator.evaluation_sample_content_sha256,
+                used_ids,
+                used_content_hashes,
+            )
+            and not active
+        ):
             canary_block_reason = "canary sample shard has already been consumed"
     canary_gate = RealCanaryGate(
         max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
@@ -845,8 +891,18 @@ def _run_rsi_unlocked() -> None:
                 and canary_evaluator.evaluation_sample_ids is not None
                 else []
             )
+            canary_content_hashes = (
+                sorted(canary_evaluator.evaluation_sample_content_sha256)
+                if canary_evaluator is not None
+                and canary_evaluator.evaluation_sample_content_sha256 is not None
+                else []
+            )
             consumed = set(state.get("consumed_canary_sample_ids", []))
             consumed.update(canary_sample_ids)
+            consumed_content = set(
+                state.get("consumed_canary_sample_content_sha256", [])
+            )
+            consumed_content.update(canary_content_hashes)
             # Commit shard retirement to HMAC-authenticated state before any
             # evaluator can observe a canary score. Deleting transaction files
             # therefore cannot make a completed shard reusable.
@@ -855,6 +911,7 @@ def _run_rsi_unlocked() -> None:
                 current_round=outer,
                 next_round=outer,
                 consumed_canary_sample_ids=sorted(consumed),
+                consumed_canary_sample_content_sha256=sorted(consumed_content),
             )
             _write_json(
                 canary_root / "transaction.json",
@@ -867,6 +924,7 @@ def _run_rsi_unlocked() -> None:
                         "incumbent_digest": _policy_digest(incumbent),
                         "candidate_digest": _policy_digest(pending),
                         "evaluation_sample_ids": canary_sample_ids,
+                        "evaluation_sample_content_sha256": canary_content_hashes,
                     }
                 ),
             )

@@ -21,10 +21,12 @@ from aide.rsi.evidence import (
     sign_canary_transaction,
 )
 from aide.rsi.runner import (
+    _canary_shard_overlaps_retired,
     _policy_digest,
     _publish_best_from_worlds,
     _recover_canary_transaction,
     _stable_digest,
+    _used_canary_retirements,
     _used_canary_sample_ids,
 )
 from aide.rsi.sandbox import SandboxLimits, SecureInterpreter
@@ -110,15 +112,37 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
 ):
     base_log = tmp_path / "logs"
     state_store = RSIStateStore(tmp_path / "state.json", require_attestation=True)
-    state_store.write(consumed_canary_sample_ids=["canary-A"])
+    content_hash = "a" * 64
+    state_store.write(
+        consumed_canary_sample_ids=["canary-A"],
+        consumed_canary_sample_content_sha256=[content_hash],
+    )
     transaction_path = base_log / "round-001" / "canary" / "transaction.json"
     transaction_path.parent.mkdir(parents=True)
     transaction_path.write_text(
-        json.dumps(sign_canary_transaction({"evaluation_sample_ids": ["canary-A"]}))
+        json.dumps(
+            sign_canary_transaction(
+                {
+                    "evaluation_sample_ids": ["canary-A"],
+                    "evaluation_sample_content_sha256": [content_hash],
+                }
+            )
+        )
     )
     assert _used_canary_sample_ids(base_log, state_store.load()) == {"canary-A"}
+    assert _used_canary_retirements(base_log, state_store.load()) == (
+        {"canary-A"},
+        {content_hash},
+    )
     transaction_path.unlink()
     assert _used_canary_sample_ids(base_log, state_store.load()) == {"canary-A"}
+    used_ids, used_content = _used_canary_retirements(base_log, state_store.load())
+    assert used_ids == {"canary-A"}
+    assert used_content == {content_hash}
+    # A row duplicated under a newly assigned ID remains retired by content.
+    assert _canary_shard_overlaps_retired(
+        {"renamed-canary-row"}, {content_hash}, used_ids, used_content
+    )
 
 
 def test_rsi_writer_lock_is_exclusive_and_released(tmp_path: Path):

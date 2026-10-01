@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import time
@@ -355,6 +356,96 @@ def test_first_party_reference_evaluator_is_wired_through_trusted_runner(
             pytest.skip(f"strict nested candidate sandbox unavailable: {exc}")
         raise
     assert result.score == pytest.approx(1.0)
+
+
+def test_outer_timeout_kills_nested_reference_candidate(tmp_path: Path, monkeypatch):
+    import aide.rsi.trusted_evaluator as trusted_evaluator_module
+
+    evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
+    dataset = Path(config.dataset_dir)
+    dataset.chmod(0o755)
+    labels = dataset / "labels.csv"
+    labels.chmod(0o644)
+    labels.write_text("id,label\na,1\n")
+    features = dataset / "features.csv"
+    features.write_text("id,x\na,1\n")
+    features.chmod(0o444)
+    labels.chmod(0o444)
+    dataset.chmod(0o555)
+    split = Path(config.split_manifest)
+    split.write_text('{"evaluation_sample_ids":["a"]}\n')
+    config_path = Path(config.config_path)
+    config_path.write_text(
+        json.dumps(
+            {
+                "labels_file": "labels.csv",
+                "public_files": ["features.csv"],
+                "scoring": {"id_column": "id", "label_column": "label"},
+            }
+        )
+        + "\n"
+    )
+    config.entrypoint = REFERENCE_EVALUATOR_ENTRYPOINT
+    config.dataset_sha256 = tree_sha256(dataset)
+    config.split_sha256 = file_sha256(split)
+    config.config_sha256 = file_sha256(config_path)
+    config.timeout_s = 3
+    evaluator = TrustedEvaluator(
+        config,
+        task_description={"Task goal": "timeout nested candidate"},
+        artifact_root=Path(config.dataset_dir).parent / "artifacts",
+    )
+    candidate_sha256 = store_candidate(
+        "import time\ntime.sleep(3600)\n", evaluator.artifact_root
+    )
+    captured_groups: list[int] = []
+    original_kill = trusted_evaluator_module._kill_process_group
+
+    def capture_then_kill(process, *, additional_process_groups_path=None):
+        if additional_process_groups_path is not None:
+            try:
+                groups = json.loads(additional_process_groups_path.read_text())
+            except FileNotFoundError:
+                groups = []
+            captured_groups.extend(groups)
+        return original_kill(
+            process,
+            additional_process_groups_path=additional_process_groups_path,
+        )
+
+    monkeypatch.setattr(
+        trusted_evaluator_module, "_kill_process_group", capture_then_kill
+    )
+    try:
+        with pytest.raises(TrustedEvaluatorError, match="timeout"):
+            evaluator.evaluate(candidate_sha256)
+    except TrustedEvaluatorError as exc:
+        if "candidate sandbox" in str(exc) or "strict" in str(exc):
+            pytest.skip(f"strict nested candidate sandbox unavailable: {exc}")
+        raise
+
+    assert captured_groups, "reference adapter never registered its candidate group"
+    for process_group in captured_groups:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(process_group, 0)
+            except ProcessLookupError:
+                break
+            # A terminated orphan may briefly remain as a zombie until reaped.
+            result = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(process_group)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0 or result.stdout.strip().startswith("Z"):
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail(
+                f"nested candidate process group {process_group} survived timeout"
+            )
 
 
 def test_canonical_evaluation_sample_ids_detect_semantic_overlap(tmp_path: Path):
