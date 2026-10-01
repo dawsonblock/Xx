@@ -4,12 +4,12 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The latest full local project run passed with **163 passed, 1 skipped**
-on macOS. The nested outer-timeout test passed locally; a GitHub-hosted macOS
-runner returned from the evaluator before reaching the timeout, so that hosted
-run does not qualify the nested Seatbelt lifecycle. Linux Bubblewrap execution
-passed in a privileged container and in GitHub Actions, while deployment
-qualification remains open.
+archive. The latest full local project run passed with **164 passed, 1
+skipped** on macOS after capping process and descriptor limits to host hard
+ceilings. The nested outer-timeout
+test passes locally and on a GitHub-hosted macOS runner. Linux Bubblewrap
+execution passed in a privileged container and in GitHub Actions, while
+deployment qualification remains open.
 
 ## Promotion and recovery authority
 
@@ -59,9 +59,11 @@ improvement.
 
 The trusted evaluator rehashes the pinned dataset before and after each
 authoritative evaluation. It validates the memory limit in MiB and applies
-`RLIMIT_NPROC` and `RLIMIT_NOFILE` in the evaluator wrapper. Children inherit
-those outer ceilings. Per-child `preexec_fn` limits are not used because they
-can fail when nested sandbox processes try to alter inherited resource limits.
+`RLIMIT_NPROC` and `RLIMIT_NOFILE` in the evaluator wrapper. Requested process
+and descriptor limits are capped to the host hard limit and the effective
+ceilings are part of the evaluator identity. Children inherit those outer
+ceilings. Per-child `preexec_fn` limits are not used because they can fail when
+nested sandbox processes try to alter inherited resource limits.
 
 A first-party tabular evaluator adapter is included. It gives candidate code
 public feature inputs in a separate strict Seatbelt or Bubblewrap sandbox and
@@ -102,11 +104,11 @@ datasets remain open.
 
 ## Validation performed
 
-- Full local project suite: `163 passed, 1 skipped` on macOS.
-- Recovery and trusted-evaluator focused suites: `43 passed`.
+- Full local project suite after host-limit handling: `164 passed, 1 skipped`
+  on macOS.
+- Recovery and trusted-evaluator focused suites: `44 passed`.
 - Nested reference-candidate outer-timeout integration: passed on the local
-  macOS host; GitHub-hosted macOS did not reach timeout and is not counted as a
-  qualification result.
+  macOS host and GitHub-hosted macOS.
 - Linux first-party adapter and Bubblewrap tests in a privileged Docker
   container: `4 passed`.
 - Package source distribution: passed at v1.3.5.
@@ -117,4 +119,4 @@ datasets remain open.
 - Linux Bubblewrap execution passed in the privileged Linux container; this
   macOS host cannot provide unprivileged namespaces directly.
 - GitHub Linux Bubblewrap workflow passed on the authority-closure branch; the
-  macOS nested-timeout hosted run remains unqualified as described above.
+  macOS nested-timeout hosted workflow passed after host-limit handling.
