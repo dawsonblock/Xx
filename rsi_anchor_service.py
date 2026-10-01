@@ -98,7 +98,8 @@ class CheckpointStore:
         connection = self._connect()
         try:
             connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript("""
+            connection.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS anchor_heads (
                     anchor_id TEXT PRIMARY KEY,
                     revision INTEGER NOT NULL CHECK (revision >= 1),
@@ -124,7 +125,8 @@ class CheckpointStore:
                 BEGIN
                     SELECT RAISE(ABORT, 'anchor history is append-only');
                 END;
-                """)
+                """
+            )
         finally:
             connection.close()
 
