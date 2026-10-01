@@ -1,2 +1,4 @@
 include SECURITY_HARDENING_REPORT.md
+include rsi_anchor_service.py
+include tools/qualify_canary_statistics.py
 recursive-include docs *.md

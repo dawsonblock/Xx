@@ -7,13 +7,17 @@ on:
       - aide/rsi/canary.py
       - aide/rsi/runner.py
       - aide/rsi/state.py
+      - aide/rsi/statistics.py
       - aide/rsi/trusted_evaluator.py
       - aide/utils/config.py
       - aide/utils/config.yaml
+      - rsi_anchor_service.py
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_reference_evaluator.py
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_v120.py
+      - tests/test_rsi_anchor_service.py
+      - tests/test_rsi_statistics_budget.py
       - .github/workflows/linux-bubblewrap.yml
   push:
     branches: [main, fix/aide-rsi-authority-closure]
@@ -22,13 +26,17 @@ on:
       - aide/rsi/canary.py
       - aide/rsi/runner.py
       - aide/rsi/state.py
+      - aide/rsi/statistics.py
       - aide/rsi/trusted_evaluator.py
       - aide/utils/config.py
       - aide/utils/config.yaml
+      - rsi_anchor_service.py
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_reference_evaluator.py
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_v120.py
+      - tests/test_rsi_anchor_service.py
+      - tests/test_rsi_statistics_budget.py
       - .github/workflows/linux-bubblewrap.yml
 
 permissions:
@@ -64,4 +72,6 @@ jobs:
             tests/test_rsi_recovery_hardening.py::test_signed_canary_attempt_counter_is_monotonic \
             tests/test_rsi_recovery_hardening.py::test_recovery_rejects_canary_from_another_sequential_attempt \
             tests/test_rsi_recovery_hardening.py::test_long_sequence_of_interrupted_canaries_never_restores_retired_samples \
-            tests/test_rsi_v120.py::test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales
+            tests/test_rsi_v120.py::test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales \
+            tests/test_rsi_anchor_service.py \
+            tests/test_rsi_statistics_budget.py

@@ -1,0 +1,67 @@
+{
+  "branch": "fix/aide-rsi-authority-closure",
+  "complete_tree_hash_method": "SHA-256 over UTF-8 canonical JSON (sorted keys, compact separators, ensure_ascii=false) of every recursive Git leaf entry sorted by raw path bytes; each entry records raw path in base64, mode, object type, Git object id, and SHA-256 of blob bytes",
+  "default_config_path": "aide/utils/config.yaml",
+  "default_config_sha256": "f26ec5717e719617c83cf25939a6f5fc6d7990170b65873fafeabb446cc810a5",
+  "dependency_input_files": [
+    {
+      "path": "requirements.txt",
+      "sha256": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
+    },
+    {
+      "path": "requirements-replay.txt",
+      "sha256": "721ab338e3934b7667fcfe8c33c520bfbb01616051ff30db6a2715a0bf771734"
+    }
+  ],
+  "dependency_inputs_sha256": "ae21eb38c099d6344a6380b56e8a08265e58dbf80e2ff22f45987ddd427f6cac",
+  "dependency_lock_sha256": null,
+  "dependency_lock_status": "No complete root dependency lockfile exists. requirements.txt and requirements-replay.txt contain unpinned/ranged dependencies and are not represented as a lock.",
+  "executable_config_security_hash_method": "SHA-256 over canonical JSON of selected Git tree entries including path, mode, Git object id, and blob SHA-256; excludes only the three post-validation report files listed in the TCB selector.",
+  "executable_config_security_identical_between_qualified_code_and_release_head": true,
+  "executable_config_security_sha256": "e594a26fa190e0e2b6c8407702e1326a347d776ca4753e74e554e4b68c398089",
+  "qualified_code_commit": "cd94004385b09fa71fc10f0c9ff8b6b87042b63c",
+  "qualified_code_git_tree": "ea282e7b11b0575539853f59fbbce501e8038649",
+  "qualified_code_tree_sha256": "7a85210d3879bea8aeba15f90c2a830484c00fa3e9396b2d387a0e3679f00467",
+  "release_git_tree": "877e0ebae4aab5f1e74d395de8704d69965a4b7f",
+  "release_head": "f21f159ef4b9cca7b2b4db69f73f0934e2eba5a0",
+  "release_head_semantics": "Frozen input snapshot whose validation/report-only updates were reviewed; this manifest is a later metadata artifact and does not change the f21f159 qualification target.",
+  "release_tree_sha256": "93593594e37184970559d7f8f69f926b8d49b4bad4640cae969de2bee3fb3f6b",
+  "repository": "https://github.com/dawsonblock/Xx",
+  "schema_version": 1,
+  "source_tree_manifest": "SOURCE_TREE_MANIFEST.json",
+  "source_tree_manifest_sha256": "dda7ebcfabae602a4b101a919e9ec0c8019ab08cf6c9550273e1453f4eaf6ff3",
+  "status": "unreleased qualification snapshot; no release tag or publication is authorized by this record",
+  "tcb_manifest": "TCB_MANIFEST.json",
+  "tcb_manifest_entry_count": 619,
+  "tcb_manifest_sha256": "aef08aee19e0c8f833352aa82b07580d74cd15c4d33b18d9a8f10a751942a2a8",
+  "workflow_runs": [
+    {
+      "conclusion": "success",
+      "head_sha": "cd94004385b09fa71fc10f0c9ff8b6b87042b63c",
+      "name": "macOS nested candidate timeout",
+      "run_id": 36848550589,
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36848550589"
+    },
+    {
+      "conclusion": "success",
+      "head_sha": "cd94004385b09fa71fc10f0c9ff8b6b87042b63c",
+      "name": "Linux Bubblewrap",
+      "run_id": 36848550461,
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36848550461"
+    },
+    {
+      "conclusion": "success",
+      "head_sha": "cd94004385b09fa71fc10f0c9ff8b6b87042b63c",
+      "name": "Windows RSI state lock",
+      "run_id": 36848550549,
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36848550549"
+    },
+    {
+      "conclusion": "success",
+      "head_sha": "cd94004385b09fa71fc10f0c9ff8b6b87042b63c",
+      "name": "Linter",
+      "run_id": 36848550714,
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36848550714"
+    }
+  ]
+}

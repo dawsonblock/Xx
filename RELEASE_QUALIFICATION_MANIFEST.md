@@ -1,5 +1,76 @@
 # Unreleased qualification manifest
 
+## Frozen source qualification identity
+
+The authority-closure source snapshot before the next milestone work is frozen at release head
+`f21f159ef4b9cca7b2b4db69f73f0934e2eba5a0`. Hosted platform and lint jobs
+qualified the executable source at `cd94004385b09fa71fc10f0c9ff8b6b87042b63c`.
+The complete-tree comparison confirms that the intervening commit changes only
+`BUILD_MANIFEST.json`, `SECURITY_HARDENING_REPORT.md`, and
+`VALIDATION_REPORT.md`. The canonical executable/configuration/security digest
+is identical across both commits.
+
+Machine-readable records:
+
+- [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json) records both
+  commit identities, complete-tree digests, the TCB digest, configuration and
+  dependency-input hashes, and hosted workflow runs.
+- [`SOURCE_TREE_MANIFEST.json`](SOURCE_TREE_MANIFEST.json) inventories every
+  Git leaf entry at both commits and supplies the inputs for the complete-tree
+  SHA-256 values.
+- [`TCB_MANIFEST.json`](TCB_MANIFEST.json) inventories the selected source,
+  tests, workflows, configuration, and dependency/build inputs.
+
+The release head in these records means the frozen source/report snapshot, not
+the later commit that stores these manifests. These manifests are qualification
+metadata and do not alter the source snapshot exercised by CI. There is no
+complete root dependency lockfile: the requirements files contain ranged or
+unpinned dependencies, so `dependency_lock_sha256` is null and their combined
+input digest is recorded separately. Any code committed after `f21f159` is
+outside these hashes and CI results until it is qualified separately.
+
+| Hosted workflow | Result | Qualified commit |
+|---|---|---|
+| [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36848550589) | Passed | `cd94004385b09fa71fc10f0c9ff8b6b87042b63c` |
+| [Linux Bubblewrap](https://github.com/dawsonblock/Xx/actions/runs/36848550461) | Passed | `cd94004385b09fa71fc10f0c9ff8b6b87042b63c` |
+| [Windows RSI state lock](https://github.com/dawsonblock/Xx/actions/runs/36848550549) | Passed | `cd94004385b09fa71fc10f0c9ff8b6b87042b63c` |
+| [Linter](https://github.com/dawsonblock/Xx/actions/runs/36848550714) | Passed | `cd94004385b09fa71fc10f0c9ff8b6b87042b63c` |
+
+The current source remains unreleased. These records freeze repository and CI
+identity; they do not claim that an external anchor service has been deployed,
+that multi-task statistical assumptions have been validated, or that a
+100–500-generation lineage campaign has passed.
+
+## Post-freeze milestone implementation
+
+The following implementation is work after the frozen `f21f159` snapshot and
+is not covered by the hosted runs listed above. It adds a SQLite-backed
+reference anchor service, a hash-chained sequential alpha budget committed to
+authenticated RSI state before each canary attempt, anchor and budget
+conformance tests, and a seeded statistical sensitivity probe. It remains
+unreleased and must pass the new hosted workflows before its code is treated
+as platform-qualified.
+
+Local validation on 2026-10-01:
+
+| Check | Result | Scope |
+|---|---|---|
+| Full project suite | 191 passed, 1 skipped | Local environment |
+| Black | Passed | Changed Python files |
+| Ruff | Passed | Changed Python files |
+| `compileall` | Passed | `aide`, `tests`, anchor service, and tools |
+| `git diff --check` | Passed | Working tree |
+| Source distribution | Passed | Built locally; contents checked |
+| Anchor rollback conformance | Passed | 100 anchored revisions; restoring revision 20 after revision 100 failed closed |
+
+The statistical sensitivity run is recorded in
+[`qualification/canary-statistics-synthetic.json`](qualification/canary-statistics-synthetic.json)
+and described in [`docs/STATISTICAL_QUALIFICATION.md`](docs/STATISTICAL_QUALIFICATION.md).
+It is synthetic evidence only: the shared-task-effect null produced a 47.8%
+false-promotion rate over 500 lineages. The current single-task canary does not
+establish independent task-level signs, so multi-task statistical validity,
+external service deployment, and long-lineage qualification remain open.
+
 > Historical snapshot: the artifact digest and checksum inventory below were
 > generated from source revision `386b374a8643add87408adb30c88bf020f38ae0b`.
 > They do not cover the subsequent authority-closure fixes now on this branch.

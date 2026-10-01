@@ -9,6 +9,12 @@ from statistics import mean, median
 from typing import Any
 
 from .evidence import has_trusted_evaluation
+from .statistics import (
+    SPENDING_RULE_ID,
+    SPENDING_RULE_VERSION,
+    exact_sign_min_pairs,
+    sequential_alpha,
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +39,8 @@ class CanarySeriesResult:
     sign_test_p_value: float | None = None
     sequential_alpha: float | None = None
     promotion_attempt_index: int | None = None
+    sequential_alpha_rule_id: str | None = None
+    sequential_alpha_rule_version: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +53,8 @@ class CanarySeriesResult:
             "sign_test_p_value": self.sign_test_p_value,
             "sequential_alpha": self.sequential_alpha,
             "promotion_attempt_index": self.promotion_attempt_index,
+            "sequential_alpha_rule_id": self.sequential_alpha_rule_id,
+            "sequential_alpha_rule_version": self.sequential_alpha_rule_version,
             "reason": self.reason,
             "pairs": [asdict(x) for x in self.pairs],
         }
@@ -135,15 +145,11 @@ class RealCanaryGate:
                 raise ValueError("experiment_alpha must be finite and in (0, 1)")
             self.promotion_attempt_index = promotion_attempt_index
             self.experiment_alpha = experiment_alpha
-            # This alpha-spending sequence sums to experiment_alpha over an
-            # unbounded number of promotions: alpha_i = alpha / (i * (i + 1)).
-            self.sequential_alpha = experiment_alpha / (
-                promotion_attempt_index * (promotion_attempt_index + 1)
+            self.sequential_alpha = sequential_alpha(
+                experiment_alpha, promotion_attempt_index
             )
-            exact_sign_pairs = max(1, math.ceil(math.log2(1.0 / self.sequential_alpha)))
-            while 2.0**-exact_sign_pairs > self.sequential_alpha:
-                exact_sign_pairs += 1
-            self.min_pairs = max(self.min_pairs, exact_sign_pairs)
+            required_pairs = exact_sign_min_pairs(self.sequential_alpha)
+            self.min_pairs = max(self.min_pairs, required_pairs)
 
     def authority_config(self) -> dict[str, Any]:
         """Return every setting that can affect a promotion decision."""
@@ -166,6 +172,8 @@ class RealCanaryGate:
                 promotion_attempt_index=self.promotion_attempt_index,
                 experiment_alpha=self.experiment_alpha,
                 sequential_alpha=self.sequential_alpha,
+                sequential_alpha_rule_id=SPENDING_RULE_ID,
+                sequential_alpha_rule_version=SPENDING_RULE_VERSION,
             )
         return config
 
@@ -317,6 +325,12 @@ class RealCanaryGate:
                 None,
                 self.sequential_alpha,
                 self.promotion_attempt_index,
+                SPENDING_RULE_ID if self.promotion_attempt_index is not None else None,
+                (
+                    SPENDING_RULE_VERSION
+                    if self.promotion_attempt_index is not None
+                    else None
+                ),
             )
         pass_fraction = sum(1 for r in results if r.passed) / len(results)
         deltas = [r.normalized_delta for r in results]
@@ -394,4 +408,6 @@ class RealCanaryGate:
             sign_test_p_value,
             self.sequential_alpha,
             self.promotion_attempt_index,
+            SPENDING_RULE_ID if self.promotion_attempt_index is not None else None,
+            SPENDING_RULE_VERSION if self.promotion_attempt_index is not None else None,
         )

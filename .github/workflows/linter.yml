@@ -20,6 +20,12 @@ jobs:
           pip install ruff==0.7.1
           pip install black==24.3.0
       - name: Run Ruff
-        run: ruff check --output-format=github aide/
+        run: >-
+          ruff check --output-format=github aide/
+          rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
       - name: Run Black
-        run: black --check --diff aide/
+        run: >-
+          black --check --diff aide/
+          rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py

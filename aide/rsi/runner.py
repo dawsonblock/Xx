@@ -32,6 +32,7 @@ from .qualification import QualificationGate
 from .sandbox import SandboxLimits, SecureInterpreter
 from .split import PersistentSplitManager
 from .state import RSIStateStore, rsi_writer_lock
+from .statistics import StatisticalBudget
 from .support import ReplaySupportIndex
 from .types import PolicyGenome
 from .world import world_from_journal
@@ -362,6 +363,17 @@ def _recover_canary_transaction(
             raise ValueError(
                 "canary promotion attempt is not authorized by durable state"
             )
+        if "statistical_budget" in state:
+            budget = StatisticalBudget.from_dict(state["statistical_budget"])
+            budget_digest = budget.digest()
+            if (
+                budget.attempt_index != attempt_index
+                or transaction.get("statistical_budget_sha256") != budget_digest
+                or decision.get("statistical_budget_sha256") != budget_digest
+            ):
+                raise ValueError(
+                    "canary evidence does not match the durable statistical budget"
+                )
     incumbent = PolicyGenome.from_dict(transaction["incumbent"])
     challenger = PolicyGenome.from_dict(transaction["challenger"])
     if _policy_digest(incumbent) != transaction.get("incumbent_digest"):
@@ -1017,6 +1029,18 @@ def _run_rsi_unlocked() -> None:
         state = state_store.write(canary_experiment_alpha=configured_experiment_alpha)
     elif float(state["canary_experiment_alpha"]) != configured_experiment_alpha:
         raise ValueError("rsi.canary.experiment_alpha changed for an existing RSI run")
+    if "statistical_budget" not in state:
+        statistical_budget = StatisticalBudget.migrate_legacy(
+            configured_experiment_alpha, int(state.get("canary_attempt_count", 0))
+        )
+        state = state_store.write(statistical_budget=statistical_budget.to_dict())
+    else:
+        statistical_budget = StatisticalBudget.from_dict(state["statistical_budget"])
+        if (
+            statistical_budget.family_alpha != configured_experiment_alpha
+            or statistical_budget.attempt_index != state.get("canary_attempt_count", 0)
+        ):
+            raise ValueError("durable statistical budget does not match RSI state")
     canary_block_reason = None
     if trusted_evaluator is None or canary_evaluator is None:
         canary_block_reason = "promotion requires separately configured trusted search and canary evaluators"
@@ -1101,7 +1125,9 @@ def _run_rsi_unlocked() -> None:
         )
 
     canary_gate = build_canary_gate(
-        canary_attempt_count if canary_attempt_count > 0 else None
+        statistical_budget.attempt_index
+        if statistical_budget.attempt_index > 0
+        else None
     )
     gate_policy_digest = _stable_digest(
         {
@@ -1232,7 +1258,10 @@ def _run_rsi_unlocked() -> None:
             )
             # The signed counter covers completed and aborted reservations. It
             # is migrated conservatively from the last completed round above.
-            promotion_attempt_index = int(state.get("canary_attempt_count", 0)) + 1
+            reserved_budget = StatisticalBudget.from_dict(
+                state["statistical_budget"]
+            ).reserve()
+            promotion_attempt_index = reserved_budget.attempt_index
             active_canary_gate = build_canary_gate(promotion_attempt_index)
             canary_repeats = max(
                 1, int(cfg.rsi.canary.repeats), active_canary_gate.min_pairs
@@ -1275,6 +1304,7 @@ def _run_rsi_unlocked() -> None:
                 consumed_canary_sample_content_sha256=sorted(consumed_content),
                 consumed_canary_public_input_sha256=sorted(consumed_public),
                 canary_attempt_count=promotion_attempt_index,
+                statistical_budget=reserved_budget.to_dict(),
             )
             _write_json(
                 canary_root / "transaction.json",
@@ -1293,6 +1323,7 @@ def _run_rsi_unlocked() -> None:
                         "canary_shard_identity": canary_evaluator.identity,
                         "canary_shard_epoch": canary_epoch,
                         "promotion_attempt_index": promotion_attempt_index,
+                        "statistical_budget_sha256": reserved_budget.digest(),
                     }
                 ),
             )
@@ -1391,6 +1422,7 @@ def _run_rsi_unlocked() -> None:
                     "budget_each": canary_budget,
                     "repeats": canary_repeats,
                     "promotion_attempt_index": promotion_attempt_index,
+                    "statistical_budget_sha256": reserved_budget.digest(),
                     "execution_order": "alternating",
                     "gate_result": result.to_dict(),
                     "transaction_sha256": hashlib.sha256(

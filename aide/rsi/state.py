@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from .statistics import StatisticalBudget
+
 if os.name == "nt":
     import msvcrt
 else:
@@ -361,6 +363,19 @@ class RSIStateStore:
             r"[0-9a-f]{64}", str(raw["canary_gate_policy_sha256"])
         ):
             raise ValueError("durable canary gate policy digest is invalid")
+        if "statistical_budget" in raw:
+            budget = StatisticalBudget.from_dict(raw["statistical_budget"])
+            if budget.attempt_index != attempt_count:
+                raise ValueError(
+                    "durable statistical budget does not match the canary attempt counter"
+                )
+            if (
+                "canary_experiment_alpha" not in raw
+                or budget.family_alpha != raw["canary_experiment_alpha"]
+            ):
+                raise ValueError(
+                    "durable statistical budget does not match the experiment alpha"
+                )
         self._verify_anchor(raw)
         return raw
 
@@ -398,6 +413,42 @@ class RSIStateStore:
             raise ValueError("canary experiment alpha must be finite and in (0, 1)")
         if current_alpha is not None and next_alpha != current_alpha:
             raise ValueError("canary experiment alpha is immutable for this run")
+        current_budget_data = raw.get("statistical_budget")
+        next_budget_data = updates.get("statistical_budget", current_budget_data)
+        if current_budget_data is not None or next_budget_data is not None:
+            next_budget = StatisticalBudget.from_dict(next_budget_data)
+            if next_budget.attempt_index != next_attempt_count:
+                raise ValueError(
+                    "statistical budget attempt index must match the canary counter"
+                )
+            if current_budget_data is not None:
+                current_budget = StatisticalBudget.from_dict(current_budget_data)
+                if next_budget.attempt_index == current_budget.attempt_index:
+                    if next_budget != current_budget:
+                        raise ValueError(
+                            "statistical budget cannot change without a reservation"
+                        )
+                elif next_budget.attempt_index == current_budget.attempt_index + 1:
+                    if next_budget != current_budget.reserve():
+                        raise ValueError(
+                            "statistical budget reservation is not the exact next allocation"
+                        )
+                else:
+                    raise ValueError(
+                        "statistical budget attempt index can advance only once"
+                    )
+            else:
+                expected_migration = StatisticalBudget.migrate_legacy(
+                    next_budget.family_alpha, next_budget.attempt_index
+                )
+                if next_budget != expected_migration:
+                    raise ValueError(
+                        "new statistical budget must be initial or conservatively migrated"
+                    )
+            if next_budget.family_alpha != next_alpha:
+                raise ValueError(
+                    "statistical budget family alpha must match the configured experiment alpha"
+                )
         current_gate_policy = raw.get("canary_gate_policy_sha256")
         next_gate_policy = updates.get("canary_gate_policy_sha256", current_gate_policy)
         if current_gate_policy is not None and next_gate_policy != current_gate_policy:

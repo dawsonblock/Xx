@@ -67,8 +67,65 @@ before the remote advance, the next run completes that exact signed one-step
 advance. A service outage blocks RSI state transitions; it never falls back to
 local-only promotion.
 
-This repository includes the client protocol and local HTTP conformance test,
-but does not deploy or operate an anchor service. Rollback protection is active
-only after an operator provisions a service with the semantics above and sets
-all three variables. Protecting a copied experiment under a new anchor ID is
-the anchor service's enrollment and authorization responsibility.
+## Reference service
+
+The repository includes a small standard-library service in
+[`rsi_anchor_service.py`](../rsi_anchor_service.py). It stores the current head
+and an append-only transition history in SQLite, commits each update in one
+`BEGIN IMMEDIATE` transaction, and uses WAL mode with `synchronous=FULL`. The
+compare-and-swap checks both the previous revision and digest, then requires an
+exact one-step advance. Concurrent writers therefore cannot both commit the
+same expected head. The service verifies SQLite integrity and walks the history
+chain before starting. The HTTP API has no reset or delete operation. Local
+development may use loopback HTTP; any non-loopback listener requires a TLS
+certificate and key.
+
+Provision one random token for each experiment ID. Keep the bearer token in the
+experiment host's secret manager; the service's private authorization file
+contains only its SHA-256 digest:
+
+```sh
+python rsi_anchor_service.py token experiment-001
+# Securely retain the emitted token. Put only its sha256 value in this file:
+# {"experiment-001":"<64 lowercase hex characters>"}
+chmod 600 /etc/aide-rsi/anchor-auth.json
+python rsi_anchor_service.py serve \
+  --database /var/lib/aide-rsi-anchor/checkpoints.sqlite3 \
+  --auth-file /etc/aide-rsi/anchor-auth.json \
+  --host 0.0.0.0 --port 8765 \
+  --tls-certificate /etc/aide-rsi-anchor/fullchain.pem \
+  --tls-private-key /etc/aide-rsi-anchor/private-key.pem
+```
+
+The auth file maps stable anchor IDs to token digests, so credentials are
+scoped to one experiment. Unknown IDs and invalid credentials receive the
+same not-found response. The database and auth file must live outside the
+experiment directory and be administered separately. Use TLS with a normal
+validated certificate chain and configure the client with the exact
+out-of-band leaf-certificate SHA-256 pin. Never put tokens in command history,
+process arguments, service logs, or the experiment directory.
+
+After generating the authorization file, restrict it to the service account
+and mode `0600` (or stricter). The service refuses a symlinked or group/world
+readable authorization file and refuses a symlinked or non-regular database.
+The SQLite file is set to mode `0600`; run the process with a restrictive
+umask so its WAL and shared-memory files are private as well.
+
+SQLite is a single-host reference backend, not a substitute for a separately
+operated service boundary. The database owner can still replace the entire
+database, and a stale database restore can roll back the anchor itself. Keep
+the service host, credentials, storage, and tested backups independent of the
+experiment host; protect backup generations with a separate monotonic or
+administrative control. For multi-host failover, use a PostgreSQL-backed
+implementation with transaction-scoped row locking and the same wire contract.
+Do not copy a live SQLite database file as a backup; use SQLite's online backup
+API and qualify restore behavior before relying on it.
+
+The repository now includes a local service conformance suite and an
+end-to-end test that advances 100 signed state revisions, restores revision
+20, and verifies startup fails before further RSI work. Those tests qualify
+the implementation locally; they do not mean this service has been deployed
+or independently operated. Rollback protection is active only when an
+operator provisions and monitors an external service and configures all anchor
+variables. Protecting a copied experiment under a new anchor ID remains the
+service enrollment and authorization responsibility.
