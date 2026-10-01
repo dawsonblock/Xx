@@ -1007,6 +1007,16 @@ def _run_rsi_unlocked() -> None:
         else:
             legacy_attempt_count = 0
         state = state_store.write(canary_attempt_count=legacy_attempt_count)
+    configured_experiment_alpha = float(cfg.rsi.canary.experiment_alpha)
+    if (
+        not math.isfinite(configured_experiment_alpha)
+        or not 0 < configured_experiment_alpha < 1
+    ):
+        raise ValueError("rsi.canary.experiment_alpha must be finite and in (0, 1)")
+    if "canary_experiment_alpha" not in state:
+        state = state_store.write(canary_experiment_alpha=configured_experiment_alpha)
+    elif float(state["canary_experiment_alpha"]) != configured_experiment_alpha:
+        raise ValueError("rsi.canary.experiment_alpha changed for an existing RSI run")
     canary_block_reason = None
     if trusted_evaluator is None or canary_evaluator is None:
         canary_block_reason = "promotion requires separately configured trusted search and canary evaluators"
@@ -1086,13 +1096,24 @@ def _run_rsi_unlocked() -> None:
             promotion_block_reason=canary_block_reason,
             promotion_attempt_index=attempt_index,
             experiment_alpha=(
-                cfg.rsi.canary.experiment_alpha if attempt_index is not None else None
+                configured_experiment_alpha if attempt_index is not None else None
             ),
         )
 
     canary_gate = build_canary_gate(
         canary_attempt_count if canary_attempt_count > 0 else None
     )
+    gate_policy_digest = _stable_digest(
+        {
+            **canary_gate.policy_config(),
+            "configured_repeats": max(1, int(cfg.rsi.canary.repeats)),
+        }
+    )
+    stored_gate_policy_digest = state.get("canary_gate_policy_sha256")
+    if stored_gate_policy_digest is None:
+        state = state_store.write(canary_gate_policy_sha256=gate_policy_digest)
+    elif stored_gate_policy_digest != gate_policy_digest:
+        raise ValueError("canary promotion gate policy changed for an existing RSI run")
     try:
         state = _recover_canary_transaction(
             state=state,

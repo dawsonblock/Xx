@@ -101,15 +101,17 @@ deployed checkpoint service.
 ## Canary promotion statistics
 
 Promotion uses paired canary repetitions. A one-sided exact sign test spends
-the experiment-wide alpha budget as `alpha_i = alpha / (i * (i + 1))`, where
-the authenticated durable canary-attempt index `i` increases for each reserved
-shard. With the default 0.05 budget, at least six all-positive pairs are needed
+the experiment-wide alpha budget as `alpha_i = alpha / (i * (i + 1))`. Both
+the total alpha and authenticated durable canary-attempt index `i` are
+immutable/monotonic state; `i` increases for each reserved shard. With the
+default 0.05 budget, at least six all-positive pairs are needed
 at attempt one and seven at attempt two; the runner expands the configured
 repeat count as needed. A deterministic bootstrap lower bound still enforces
 the non-inferiority margin. The default bootstrap confidence level is 95%, the
 median effect floor is zero, and the worst-pair regression ceiling is 0.25
-normalized units. Recovery signs and recomputes every gate setting with the
-decision.
+normalized units. The static gate policy digest is pinned in durable state, so
+operators cannot change these thresholds between generations. Recovery signs
+and recomputes every per-attempt gate setting with the decision.
 
 The alpha schedule controls sequential false positives only when each attempt's
 sign-test assumptions hold, including independent paired rollout outcomes. The

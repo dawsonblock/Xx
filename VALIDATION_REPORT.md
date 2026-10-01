@@ -6,8 +6,8 @@ Package metadata remains 1.3.5. This branch adds canary recovery authority
 closure, full-width policy identities, candidate-visible sample-content
 identity, one-use canary reservations that burn interrupted shards, sticky
 external anchor authority with HTTPS certificate pinning, rotating canary shard
-epochs, sequential alpha spending over signed promotion attempts, a portable
-writer lock, per-evaluation dataset rehashing, artifact-backed evidence checks,
+epochs, sequential alpha spending with immutable thresholds over signed
+promotion attempts, a portable writer lock, per-evaluation dataset rehashing, artifact-backed evidence checks,
 evaluator process and descriptor ceilings, and the first-party tabular adapter.
 This is source branch validation, not release qualification.
 
@@ -27,7 +27,8 @@ Validation on the local macOS host:
 - A 100-attempt interrupted-canary simulation retained all retired sample
   identities after reservation-file deletion.
 - Sequential alpha-spending and dynamically increasing minimum paired runs
-  passed deterministic gate tests.
+  passed deterministic gate tests; experiment alpha and static gate settings
+  are pinned by the authenticated state.
 - HTTPS anchor pin tests confirmed a wrong certificate is rejected before the
   bearer credential is sent.
 

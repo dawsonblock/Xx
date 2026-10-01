@@ -84,7 +84,12 @@
       "HTTPS state anchors require an out-of-band TLS leaf-certificate SHA-256 pin, verified before bearer credentials are sent",
       "sequential canary promotion uses a durable attempt index and a summable exact sign-test alpha-spending schedule",
       "canary repetition count grows to meet the current sequential sign-test threshold",
-      "100-attempt interrupted-canary recovery test preserves retired sample identities after reservation deletion"
+      "100-attempt interrupted-canary recovery test preserves retired sample identities after reservation deletion",
+      "the experiment alpha budget and static canary gate thresholds are immutable in HMAC-authenticated state",
+      "legacy attempt counters seed conservatively from persisted round progress when enabling alpha spending",
+      "the configured experiment alpha and static canary gate policy digest are immutable in authenticated RSI state",
+      "Linux hosted workflow runs the sequential-alpha, TLS-pin, and 100-attempt crash-recovery regressions",
+      "Windows hosted workflow runs sequential-alpha, TLS-pin, and interrupted-canary recovery regressions"
     ],
     "validation": {
       "full_project_pytest": "178 passed, 1 skipped (macOS local)",
@@ -133,6 +138,7 @@
     "Linux Bubblewrap evaluator confinement and resource limits must be integration-tested on the deployment host",
     "separate validation and one-shot qualification datasets are not implemented; replay qualification uses the same pinned search measurements",
     "sequential alpha spending assumes valid per-attempt paired sign-test p-values; independence across rollout seeds and tasks has not been qualified",
-    "HTTPS anchor certificate renewal requires an explicit pin migration; the repository does not provide an anchor service"
+    "HTTPS anchor certificate renewal requires an explicit pin migration; the repository does not provide an anchor service",
+    "a whole-directory rollback without an external monotonic anchor can roll back both the promotion attempt index and its alpha budget"
   ]
 }

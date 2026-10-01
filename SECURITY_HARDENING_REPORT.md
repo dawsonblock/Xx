@@ -64,9 +64,13 @@ Canary promotion retains the deterministic 95% bootstrap non-inferiority bound,
 minimum passing fraction, and worst-pair regression ceiling. It now also uses a
 one-sided exact paired sign test with alpha spending
 `alpha_i = experiment_alpha / (i * (i + 1))`; the monotonic attempt index is
-stored in authenticated state and bound into each signed transaction, decision,
-and gate configuration. Repeats grow as the per-attempt alpha shrinks (six
-pairs at attempt one, seven at attempt two with the default 0.05 budget). The
+stored in authenticated state, with the total experiment alpha immutable for
+the run. The complete static promotion-rule digest is also pinned in state, so
+confidence levels and regression thresholds cannot drift between generations.
+The attempt index is bound into each signed transaction and decision; the
+derived alpha appears in the signed result and gate configuration. Repeats grow
+as the per-attempt alpha shrinks: six pairs at attempt one and seven at attempt
+two with the default 0.05 budget. The
 spending schedule sums to the configured experiment alpha if each attempt's
 sign-test p-value is valid. That requires independent paired rollout outcomes;
 the current runner does not establish cross-task or seed independence, so this

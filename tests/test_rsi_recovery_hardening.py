@@ -155,12 +155,22 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
 
 def test_signed_canary_attempt_counter_is_monotonic(tmp_path: Path):
     store = RSIStateStore(tmp_path / "state.json", require_attestation=True)
-    store.write(canary_attempt_count=4)
+    store.write(
+        canary_attempt_count=4,
+        canary_experiment_alpha=0.05,
+        canary_gate_policy_sha256="d" * 64,
+    )
     assert store.load()["canary_attempt_count"] == 4
+    assert store.load()["canary_experiment_alpha"] == 0.05
+    assert store.load()["canary_gate_policy_sha256"] == "d" * 64
     with pytest.raises(ValueError, match="cannot decrease"):
         store.write(canary_attempt_count=3)
     with pytest.raises(ValueError, match="cannot decrease"):
         store.write(canary_attempt_count=True)
+    with pytest.raises(ValueError, match="alpha is immutable"):
+        store.write(canary_experiment_alpha=0.1)
+    with pytest.raises(ValueError, match="gate policy is immutable"):
+        store.write(canary_gate_policy_sha256="e" * 64)
 
 
 def test_rsi_writer_lock_is_exclusive_and_released(tmp_path: Path):

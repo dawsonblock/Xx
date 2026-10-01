@@ -190,6 +190,7 @@ def test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales():
     spent = sum(0.05 / (attempt * (attempt + 1)) for attempt in range(1, 100_001))
     assert spent < 0.05
     assert first.authority_config() != second.authority_config()
+    assert first.policy_config() == second.policy_config()
 
 
 class FakeEvaluator:

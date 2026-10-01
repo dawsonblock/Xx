@@ -41,8 +41,10 @@ without that field seeds it conservatively from its last completed round; a
 fresh experiment begins at zero. Each reserved canary increments the index
 before evaluation. The default 0.05 family-wise budget uses
 `alpha_i = 0.05 / (i * (i + 1))`, and the runner adds paired repeats as needed
-for the exact sign-test resolution. A full signed-directory rollback can also
-roll back this index unless an external monotonic anchor is configured.
+for the exact sign-test resolution. The static gate thresholds and configured
+alpha are pinned for the run; changing them requires a new experiment. A
+full signed-directory rollback can also roll back this index unless an external
+monotonic anchor is configured.
 
 ## Evaluator configuration
 

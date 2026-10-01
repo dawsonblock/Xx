@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import math
 import os
 import re
 import ssl
@@ -347,6 +348,19 @@ class RSIStateStore:
             or attempt_count < 0
         ):
             raise ValueError("durable canary attempt count is invalid")
+        if "canary_experiment_alpha" in raw:
+            alpha = raw["canary_experiment_alpha"]
+            if (
+                isinstance(alpha, bool)
+                or not isinstance(alpha, (int, float))
+                or not math.isfinite(alpha)
+                or not 0 < alpha < 1
+            ):
+                raise ValueError("durable canary experiment alpha is invalid")
+        if "canary_gate_policy_sha256" in raw and not re.fullmatch(
+            r"[0-9a-f]{64}", str(raw["canary_gate_policy_sha256"])
+        ):
+            raise ValueError("durable canary gate policy digest is invalid")
         self._verify_anchor(raw)
         return raw
 
@@ -371,6 +385,28 @@ class RSIStateStore:
             or next_attempt_count < current_attempt_count
         ):
             raise ValueError("canary attempt count cannot decrease or be invalid")
+        current_alpha = raw.get("canary_experiment_alpha")
+        next_alpha = updates.get("canary_experiment_alpha", current_alpha)
+        if "canary_experiment_alpha" in updates and next_alpha is None:
+            raise ValueError("canary experiment alpha must be finite and in (0, 1)")
+        if next_alpha is not None and (
+            isinstance(next_alpha, bool)
+            or not isinstance(next_alpha, (int, float))
+            or not math.isfinite(next_alpha)
+            or not 0 < next_alpha < 1
+        ):
+            raise ValueError("canary experiment alpha must be finite and in (0, 1)")
+        if current_alpha is not None and next_alpha != current_alpha:
+            raise ValueError("canary experiment alpha is immutable for this run")
+        current_gate_policy = raw.get("canary_gate_policy_sha256")
+        next_gate_policy = updates.get("canary_gate_policy_sha256", current_gate_policy)
+        if current_gate_policy is not None and next_gate_policy != current_gate_policy:
+            raise ValueError("canary gate policy is immutable for this run")
+        if "canary_gate_policy_sha256" in updates and (
+            not isinstance(next_gate_policy, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", next_gate_policy)
+        ):
+            raise ValueError("canary gate policy digest must be a SHA-256 value")
         raw.update(updates)
         raw.setdefault("schema_version", 1)
         previous_revision = int(raw.get("anchor_revision", 0))

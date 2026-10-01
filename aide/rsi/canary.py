@@ -90,7 +90,8 @@ class RealCanaryGate:
             or not 0 <= self.min_pass_fraction <= 1
         ):
             raise ValueError("min_pass_fraction must be in [0, 1]")
-        self.min_pairs = max(1, int(min_pairs))
+        self.configured_min_pairs = max(1, int(min_pairs))
+        self.min_pairs = self.configured_min_pairs
         self.confidence_level = float(confidence_level)
         if not 0.5 < self.confidence_level < 1.0:
             raise ValueError("confidence_level must be in (0.5, 1)")
@@ -166,6 +167,24 @@ class RealCanaryGate:
                 experiment_alpha=self.experiment_alpha,
                 sequential_alpha=self.sequential_alpha,
             )
+        return config
+
+    def policy_config(self) -> dict[str, Any]:
+        """Static promotion rules pinned for the lifetime of an experiment."""
+        config = {
+            "max_normalized_regression": self.max_normalized_regression,
+            "min_valid": self.min_valid,
+            "min_pass_fraction": self.min_pass_fraction,
+            "configured_min_pairs": self.configured_min_pairs,
+            "confidence_level": self.confidence_level,
+            "bootstrap_samples": self.bootstrap_samples,
+            "min_effect_size": self.min_effect_size,
+            "max_single_pair_regression": self.max_single_pair_regression,
+            "score_scale_floor": self.score_scale_floor,
+            "require_artifacts": self.require_artifacts,
+        }
+        if self.experiment_alpha is not None:
+            config["experiment_alpha"] = self.experiment_alpha
         return config
 
     @staticmethod
