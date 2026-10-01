@@ -32,15 +32,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Bubblewrap and test dependency
+      - name: Install Bubblewrap and focused test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes bubblewrap
-          python -m pip install pytest
+          python -m pip install pytest numpy dataclasses_json
       - name: Require Bubblewrap
         run: command -v bwrap
       - name: Run Linux candidate isolation tests
         # The hosted VM's unprivileged user namespace can create a network
         # namespace but cannot configure its loopback device. Run this isolated
         # test job as root so Bubblewrap can complete namespace setup.
-        run: sudo env PYTHONPATH=. "$pythonLocation/bin/python" -m pytest -q tests/test_rsi_reference_evaluator.py tests/test_rsi_trusted_evaluator.py
+        run: sudo env PYTHONPATH=. "$pythonLocation/bin/python" -m pytest -q tests/test_rsi_reference_evaluator.py tests/test_rsi_trusted_evaluator.py::test_outer_timeout_kills_nested_reference_candidate

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from aide.agent import Agent
 from aide.execution_types import ExecutionResult
 from aide.journal import Node
 from aide.rsi.artifacts import store_candidate
@@ -205,6 +204,8 @@ def _make_evaluator(
 def test_pinned_evaluator_runs_without_host_attestation_key_and_signs_record(
     tmp_path: Path, monkeypatch
 ):
+    from aide.agent import Agent
+
     evaluator, candidate_sha256, _ = _make_evaluator(tmp_path, monkeypatch)
     node = Node(
         code="print('candidate')\n",
@@ -268,6 +269,8 @@ def test_pinned_evaluator_runs_without_host_attestation_key_and_signs_record(
 def test_pinned_evaluator_failure_does_not_fall_back_to_feedback_metric(
     tmp_path: Path, monkeypatch
 ):
+    from aide.agent import Agent
+
     evaluator, candidate_sha256, _ = _make_evaluator(tmp_path, monkeypatch, exit_code=5)
     node = Node(code="print('candidate')\n")
     agent = object.__new__(Agent)
