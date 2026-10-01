@@ -13,6 +13,7 @@ import json
 import math
 import os
 import platform
+import resource
 import shutil
 import signal
 import stat
@@ -33,6 +34,20 @@ REFERENCE_EVALUATOR_ENTRYPOINT = "__aide_reference__"
 
 class TrustedEvaluatorError(RuntimeError):
     """A pinned evaluator could not produce a valid trusted record."""
+
+
+def _effective_resource_limit(name: str, requested: int) -> int:
+    """Cap requested limits to the host hard limit before passing them to a child."""
+    resource_id = getattr(resource, name, None)
+    if resource_id is None:
+        return requested
+    try:
+        _, hard_limit = resource.getrlimit(resource_id)
+    except (OSError, ValueError):
+        return requested
+    if hard_limit == resource.RLIM_INFINITY:
+        return requested
+    return min(requested, int(hard_limit))
 
 
 def canonical_evaluation_sample_ids(path: str | Path) -> tuple[str, ...] | None:
@@ -401,6 +416,15 @@ class TrustedEvaluator:
             raise TrustedEvaluatorError("max_processes must be in [1, 65536]")
         if not 16 <= self.max_open_files <= 65536:
             raise TrustedEvaluatorError("max_open_files must be in [16, 65536]")
+        # Hosted and managed macOS environments can have lower hard ceilings
+        # than the configured maximum. Bind and apply the effective ceiling so
+        # the wrapper cannot fail before the evaluator starts.
+        self.max_processes = _effective_resource_limit(
+            "RLIMIT_NPROC", self.max_processes
+        )
+        self.max_open_files = _effective_resource_limit(
+            "RLIMIT_NOFILE", self.max_open_files
+        )
         if (
             not os.environ.get("AIDE_RSI_EVALUATION_HMAC_KEY")
             or len(os.environ["AIDE_RSI_EVALUATION_HMAC_KEY"].encode("utf-8")) < 32

@@ -22,6 +22,7 @@ from aide.rsi.trusted_evaluator import (
     REFERENCE_EVALUATOR_ENTRYPOINT,
     TrustedEvaluator,
     TrustedEvaluatorError,
+    _effective_resource_limit,
     _kill_process_group,
     _stable_digest,
     canonical_evaluation_sample_ids,
@@ -713,7 +714,7 @@ def test_evaluator_identity_binds_resource_limits(
     tmp_path: Path, monkeypatch, resource, delta
 ):
     evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
-    defaults = {"max_processes": 2048, "max_open_files": 256}
+    defaults = {"max_processes": 64, "max_open_files": 64}
     setattr(
         config, resource, getattr(config, resource, defaults.get(resource, 0)) + delta
     )
@@ -723,3 +724,14 @@ def test_evaluator_identity_binds_resource_limits(
         artifact_root=evaluator.artifact_root,
     )
     assert changed.identity != evaluator.identity
+
+
+def test_requested_process_limit_is_capped_to_host_hard_limit(monkeypatch):
+    import aide.rsi.trusted_evaluator as trusted_evaluator_module
+
+    monkeypatch.setattr(
+        trusted_evaluator_module.resource,
+        "getrlimit",
+        lambda _resource_id: (64, 128),
+    )
+    assert _effective_resource_limit("RLIMIT_NPROC", 2048) == 128

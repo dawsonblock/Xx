@@ -1,0 +1,40 @@
+name: macOS nested candidate timeout
+
+on:
+  pull_request:
+    paths:
+      - aide/rsi/reference_evaluator.py
+      - aide/rsi/runner.py
+      - aide/rsi/trusted_evaluator.py
+      - aide/utils/config.yaml
+      - tests/test_rsi_trusted_evaluator.py
+      - .github/workflows/macos-nested-timeout.yml
+  push:
+    branches: [main, fix/aide-rsi-authority-closure]
+    paths:
+      - aide/rsi/reference_evaluator.py
+      - aide/rsi/runner.py
+      - aide/rsi/trusted_evaluator.py
+      - aide/utils/config.yaml
+      - tests/test_rsi_trusted_evaluator.py
+      - .github/workflows/macos-nested-timeout.yml
+
+permissions:
+  contents: read
+
+jobs:
+  nested-timeout:
+    name: Kill nested candidate after outer timeout
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused test dependencies
+        run: python -m pip install pytest numpy dataclasses_json humanize black requests
+      - name: Require Seatbelt
+        run: command -v sandbox-exec
+      - name: Test nested candidate cleanup
+        run: python -m pytest -q tests/test_rsi_trusted_evaluator.py::test_outer_timeout_kills_nested_reference_candidate
