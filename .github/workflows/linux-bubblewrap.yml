@@ -4,13 +4,19 @@ on:
   pull_request:
     paths:
       - aide/rsi/reference_evaluator.py
+      - aide/rsi/runner.py
+      - aide/rsi/trusted_evaluator.py
       - tests/test_rsi_reference_evaluator.py
+      - tests/test_rsi_trusted_evaluator.py
       - .github/workflows/linux-bubblewrap.yml
   push:
     branches: [main, fix/aide-rsi-authority-closure]
     paths:
       - aide/rsi/reference_evaluator.py
+      - aide/rsi/runner.py
+      - aide/rsi/trusted_evaluator.py
       - tests/test_rsi_reference_evaluator.py
+      - tests/test_rsi_trusted_evaluator.py
       - .github/workflows/linux-bubblewrap.yml
 
 permissions:
@@ -37,4 +43,4 @@ jobs:
         # The hosted VM's unprivileged user namespace can create a network
         # namespace but cannot configure its loopback device. Run this isolated
         # test job as root so Bubblewrap can complete namespace setup.
-        run: sudo env PYTHONPATH=. "$pythonLocation/bin/python" -m pytest -q tests/test_rsi_reference_evaluator.py
+        run: sudo env PYTHONPATH=. "$pythonLocation/bin/python" -m pytest -q tests/test_rsi_reference_evaluator.py tests/test_rsi_trusted_evaluator.py
