@@ -11,6 +11,8 @@ promotion attempts, a portable writer lock, per-evaluation dataset rehashing, ar
 evaluator process and descriptor ceilings, and the first-party tabular adapter.
 This is source branch validation, not release qualification.
 
+Current hardening validation date: 2026-10-01.
+
 Validation on the local macOS host:
 
 - RSI test files: **127 passed, 1 skipped**.
@@ -32,13 +34,12 @@ Validation on the local macOS host:
 - HTTPS anchor pin tests confirmed a wrong certificate is rejected before the
   bearer credential is sent.
 
-Hosted validation for this source revision is pending. GitHub Actions checked
-the prior implementation commit `18167f8` on the platform-specific paths:
+GitHub Actions checked commit `cd94004`:
 
-- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36841501712): passed.
-- [Linux Bubblewrap isolation](https://github.com/dawsonblock/Xx/actions/runs/36841501818): passed.
-- [Windows state import and writer lock](https://github.com/dawsonblock/Xx/actions/runs/36841501831): passed.
-- [Python linter](https://github.com/dawsonblock/Xx/actions/runs/36841501730): passed.
+- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36848550589): passed.
+- [Linux Bubblewrap and authority regression tests](https://github.com/dawsonblock/Xx/actions/runs/36848550461): passed.
+- [Windows state and authority regression tests](https://github.com/dawsonblock/Xx/actions/runs/36848550549): passed.
+- [Python linter](https://github.com/dawsonblock/Xx/actions/runs/36848550714): passed.
 
 The remainder of this file records the v1.3.5 baseline and must not be read as
 validation of the unreleased changes above.

@@ -6,8 +6,8 @@ This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
 archive. The current source has **178 passed, 1 skipped** in the full local
 suite, **127 passed, 1 skipped** in RSI tests, and **57 passed** in the focused
-recovery/evaluator suite on macOS. Hosted macOS, Linux, Windows, and linter
-reruns for this source revision are pending. Deployment qualification remains
+recovery/evaluator suite on macOS. GitHub-hosted macOS, Linux, Windows, and
+linter workflows passed on commit `cd94004`. Deployment qualification remains
 open.
 
 ## Promotion and recovery authority
@@ -153,6 +153,6 @@ datasets remain open.
 - First-party candidate isolation exercised with macOS Seatbelt.
 - Linux Bubblewrap execution passed in the privileged Linux container; this
   macOS host cannot provide unprivileged namespaces directly.
-- GitHub-hosted platform and linter workflows from commit `18167f8` passed, but
-  they predate the sequential-alpha and TLS-pin changes. Reruns for the current
-  source commit are pending.
+- GitHub-hosted macOS nested-timeout, Linux Bubblewrap plus canary-authority,
+  Windows state and canary-authority, and linter workflows passed on commit
+  `cd94004` ([macOS](https://github.com/dawsonblock/Xx/actions/runs/36848550589), [Linux](https://github.com/dawsonblock/Xx/actions/runs/36848550461), [Windows](https://github.com/dawsonblock/Xx/actions/runs/36848550549), [linter](https://github.com/dawsonblock/Xx/actions/runs/36848550714)).
