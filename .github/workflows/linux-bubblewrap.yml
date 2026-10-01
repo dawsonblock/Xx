@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes bubblewrap
-          python -m pip install pytest numpy dataclasses_json humanize black
+          python -m pip install pytest numpy dataclasses_json humanize black requests
       - name: Require Bubblewrap
         run: command -v bwrap
       - name: Run Linux candidate isolation tests
