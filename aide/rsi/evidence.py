@@ -283,3 +283,40 @@ def has_valid_canary_transaction(transaction: dict[str, Any]) -> bool:
         secret, b"aide-rsi-canary-transaction/v1\0" + encoded, hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(signature, expected)
+
+
+def sign_rsi_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Authenticate durable RSI state when trusted evaluation is enabled."""
+    secret = _evaluation_key()
+    if secret is None:
+        raise ValueError(f"set {_ATTESTATION_KEY_ENV} to at least 32 bytes")
+    signed = dict(state)
+    signed.pop("state_attestation_hmac_sha256", None)
+    payload = json.dumps(
+        signed, sort_keys=True, separators=(",", ":"), default=str
+    ).encode()
+    signed["state_attestation_hmac_sha256"] = hmac.new(
+        secret, b"aide-rsi-state/v1\0" + payload, hashlib.sha256
+    ).hexdigest()
+    return signed
+
+
+def has_valid_rsi_state(state: dict[str, Any]) -> bool:
+    """Verify durable RSI state without accepting unsigned trusted-run state."""
+    secret = _evaluation_key()
+    signature = state.get("state_attestation_hmac_sha256")
+    if (
+        secret is None
+        or not isinstance(signature, str)
+        or not _SHA256_RE.fullmatch(signature)
+    ):
+        return False
+    payload = dict(state)
+    payload.pop("state_attestation_hmac_sha256", None)
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode()
+    expected = hmac.new(
+        secret, b"aide-rsi-state/v1\0" + encoded, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)

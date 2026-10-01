@@ -15,10 +15,12 @@ supported by the first-party tabular adapter, configure
 `entrypoint: __aide_reference__`. The adapter copies only configured public
 feature files into a strict candidate sandbox, accepts predictions keyed by
 sample ID, and scores them in a separate fixed-metric process that receives no
-candidate source. On macOS the adapter process is content-pinned and resource
-bounded; it runs outside an outer Seatbelt profile so it can launch the nested
-candidate Seatbelt sandbox. Candidate code itself runs under a deny-by-default
-Seatbelt profile. Linux uses Bubblewrap namespaces for candidate execution.
+candidate source. The content-pinned adapter process runs outside the outer OS
+sandbox on both platforms so it can launch the nested candidate sandbox. It
+inherits the evaluator resource limits and does not receive the HMAC key, but
+it has host filesystem, process, and network access and remains trusted host
+code. Candidate code itself runs under a deny-by-default Seatbelt profile on
+macOS or Bubblewrap namespaces on Linux.
 
 The reference adapter supports CSV feature and label files, JSON split manifests,
 and the fixed metrics `accuracy`, `mean_squared_error`,

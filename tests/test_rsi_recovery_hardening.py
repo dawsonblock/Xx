@@ -103,6 +103,29 @@ def test_signed_canary_reservation_records_consumed_sample_ids(tmp_path: Path):
         _used_canary_sample_ids(tmp_path)
 
 
+def test_trusted_rsi_state_is_signed_and_detects_tampering(tmp_path: Path):
+    path = tmp_path / "state.json"
+    store = RSIStateStore(path, require_attestation=True)
+    store.write(phase="CANARY_RUNNING", current_round=2, pending_digest="a" * 64)
+    signed_state = json.loads(path.read_text())
+    assert store.load()["pending_digest"] == "a" * 64
+    assert signed_state["state_attestation_hmac_sha256"]
+
+    signed_state["pending_digest"] = "b" * 64
+    path.write_text(json.dumps(signed_state))
+    with pytest.raises(ValueError, match="invalid host attestation"):
+        store.load()
+
+
+def test_trusted_rsi_state_rejects_unsigned_legacy_state(tmp_path: Path):
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "phase": "CANARY_RUNNING", "current_round": 2})
+    )
+    with pytest.raises(ValueError, match="missing its host attestation"):
+        RSIStateStore(path, require_attestation=True).load()
+
+
 def test_committed_world_republishes_best_solution_after_interruption(tmp_path: Path):
     round_log = tmp_path / "round-000"
     round_log.mkdir()
@@ -230,7 +253,7 @@ def test_unsigned_canary_recovery_cannot_promote_substituted_policy(tmp_path: Pa
         "candidate_digest": _policy_digest(challenger),
     }
     (canary_root / "decision.json").write_text(json.dumps(decision))
-    state_store = RSIStateStore(rsi_dir / "state.json")
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
     state_store.write(
         phase="CANARY_RUNNING",
         current_round=2,
@@ -273,7 +296,7 @@ def test_canary_recovery_rejects_unsigned_decision_after_state_commit(tmp_path: 
     (canary_root / "decision.json").write_text(json.dumps(decision))
     challenger.save(rsi_dir / "incumbent_policy.json")
     challenger.save(rsi_dir / "pending_policy.json")
-    state_store = RSIStateStore(rsi_dir / "state.json")
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
     state_store.write(
         phase="IDLE",
         current_round=1,
@@ -337,7 +360,11 @@ def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: P
         )
         node = Node(
             code=code,
+            plan="recovery evidence fixture",
             step=0,
+            _term_out=[],
+            exec_time=0.0,
+            analysis="",
             is_buggy=False,
             metric=MetricValue(score, maximize=True),
             rsi_provenance=provenance,
@@ -412,7 +439,7 @@ def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: P
         }
     )
     (canary_root / "decision.json").write_text(json.dumps(decision))
-    state_store = RSIStateStore(rsi_dir / "state.json")
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
     state_store.write(
         phase="CANARY_RUNNING",
         current_round=2,

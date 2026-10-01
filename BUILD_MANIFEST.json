@@ -69,6 +69,7 @@
     "changes": [
       "full SHA-256 policy identities",
       "canary recovery bound to durable pending state, signed transaction and decision, journal digests, gate configuration, and gate recomputation",
+      "durable RSI state HMAC-authenticated whenever a trusted evaluator role is enabled",
       "trusted evidence requires existing and digest-valid candidate, prediction, and evaluation artifacts",
       "canonical evaluation sample IDs with semantic search/canary overlap rejection",
       "dataset content reverified before and after every authoritative evaluation",
@@ -78,8 +79,9 @@
       "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels"
     ],
     "validation": {
-      "full_project_pytest": "151 passed, 1 skipped",
-      "focused_recovery_and_evaluator_pytest": "36 passed",
+      "full_project_pytest": "153 passed, 1 skipped",
+      "rsi_pytest": "102 passed, 1 skipped",
+      "focused_recovery_and_evaluator_pytest": "38 passed",
       "ruff": "passed for all changed Python source and tests",
       "black": "passed for changed Python files",
       "compileall": "passed for aide",
@@ -101,11 +103,13 @@
     "live_jev_backend": "not executed; adapter validated against typed mocks in earlier v1.3.0 validation"
   },
   "known_limitations": [
-    "task-specific hidden-data evaluator and data/split contract are not included; trusted evaluation remains disabled until an operator supplies and pins a reviewed bundle",
+    "first-party tabular hidden-data adapter is included; other task formats remain disabled until an operator supplies and pins a reviewed bundle",
     "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
+    "signed RSI state detects edits but does not prevent rollback of a complete older signed state and evidence snapshot without an external monotonic anchor",
     "the HMAC signer is not a dedicated UID or signing service; host process compromise can expose the symmetric key",
     "replay-world splitting is not a holdout-data boundary; validation and qualification reuse discovery scores and do not establish untouched generalization",
     "the first-party candidate/label isolation adapter supports the documented tabular format; other task formats require a separately reviewed adapter",
+    "the first-party adapter process itself runs outside the outer OS sandbox to launch the nested candidate sandbox and remains trusted host code with filesystem and network access",
     "the host trusts the task evaluator's metric implementation and does not independently recompute it from labels and predictions",
     "environment identity records platform and restricted PATH values but does not bind a container image, system libraries, GPU driver, or the contents of every executable reachable through allowed runtime paths",
     "reference live executor remains serial",

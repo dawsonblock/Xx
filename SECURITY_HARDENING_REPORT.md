@@ -4,19 +4,22 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The full local project suite passed with **151 passed, 1 skipped** on
+archive. The full local project suite passed with **153 passed, 1 skipped** on
 macOS. Linux Bubblewrap execution and deployment qualification remain open.
 
 ## Promotion and recovery authority
 
-Canary recovery now requires a signed transaction and signed decision. The
+Canary recovery now requires an HMAC-authenticated durable RSI state, signed
+transaction, and signed decision. Trusted runs reject unsigned legacy state and
+any state whose signature no longer verifies. The
 transaction is bound to the durable incumbent, pending challenger, round, and
 full-width policy digests. It binds the canary gate configuration and each
 canary journal digest. Recovery loads the bound journals, validates their
 trusted evidence, recomputes the gate, and compares that result with the signed
 decision before promoting. A plain `passed: true` file cannot authorize
 promotion. The regression suite covers missing evidence, substituted
-transaction policies, modified journals, and altered gate configuration.
+transaction policies, modified journals, altered gate configuration, and edited
+or unsigned durable state.
 
 Policy identities use full SHA-256 digests. Trusted evidence checks that the
 candidate, predictions, and canonical evaluation record artifacts exist and
@@ -41,17 +44,18 @@ can fail when nested sandbox processes try to alter inherited resource limits.
 A first-party tabular evaluator adapter is included. It gives candidate code
 public feature inputs in a separate strict Seatbelt or Bubblewrap sandbox and
 scores predictions in a fixed scorer process with labels. It does not pass the
-HMAC key to the evaluator child. The adapter's nested sandbox runs outside the
-outer Seatbelt wrapper because macOS does not permit nested `sandbox-exec`; the
-adapter is content-pinned, resource-limited by the outer wrapper, and does not
-hold the signing key. Candidate execution still occurs in the strict inner
-sandbox.
+HMAC key to the evaluator child. The adapter process runs outside the outer OS
+sandbox on both platforms so it can launch its nested candidate sandbox. It is
+content-pinned and resource-limited by the wrapper, but has host filesystem,
+process, and network access; it remains trusted host code. Candidate execution
+still occurs in the strict inner sandbox.
 
 Operator-supplied evaluator bundles remain responsible for isolating their
 candidate execution from labels. The generic trusted evaluator cannot make an
 unsafe in-process `exec(candidate)` implementation safe. The first-party
 adapter currently supports its documented tabular input contract; other task
-formats require a reviewed adapter.
+formats require a reviewed adapter. The reference adapter's own process is in
+the trusted computing base because it runs outside the OS sandbox.
 
 ## Migration and remaining limits
 
@@ -64,15 +68,17 @@ The HMAC key remains a host-held symmetric secret, not a hardware-backed or
 separate-service signing key. Same-host compromise can expose it. Dataset
 rehashing detects changes at authoritative evaluation boundaries but does not
 provide an immutable filesystem snapshot against a concurrent privileged host
-actor. Linux Bubblewrap confinement and resource limits need integration
+actor. HMAC state authentication detects edits but cannot prevent rollback of a
+complete older signed state and evidence snapshot without an external monotonic
+anchor. Linux Bubblewrap confinement and resource limits need integration
 testing on the deployment host. Separate untouched validation and one-shot
 qualification datasets are still outside this branch's guarantees.
 
 ## Validation performed
 
-- Full project: `151 passed, 1 skipped`.
-- Focused recovery, trusted evaluator, and first-party adapter: `36 passed`.
-- RSI suite: `100 passed, 1 skipped`.
+- Full project: `153 passed, 1 skipped`.
+- Focused recovery, trusted evaluator, and first-party adapter: `38 passed`.
+- RSI suite: `102 passed, 1 skipped`.
 - `python -m compileall -q aide`: passed.
 - Black on changed Python files: passed.
 - Ruff on changed Python source and tests: passed.

@@ -10,9 +10,9 @@ adapter. This is source branch validation, not release qualification.
 
 Validation on the local macOS host:
 
-- RSI test files: **100 passed, 1 skipped**.
-- Focused recovery, trusted-evaluator, and reference-evaluator tests: **36 passed**.
-- Full project suite: **151 passed, 1 skipped**.
+- RSI test files: **102 passed, 1 skipped**.
+- Focused recovery, trusted-evaluator, and reference-evaluator tests: **38 passed**.
+- Full project suite: **153 passed, 1 skipped**.
 - `python -m compileall -q aide`: passed.
 - Black: passed for modified Python files.
 - Ruff: passed for all changed Python source and test files.

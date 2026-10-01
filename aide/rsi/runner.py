@@ -622,7 +622,6 @@ def run_rsi() -> None:
     base_workspace = Path(cfg.workspace_dir)
     rsi_dir = base_log / "rsi"
     pool = ReplayWorldPool(rsi_dir / "worlds")
-    state_store = RSIStateStore(rsi_dir / "state.json")
     trusted_evaluator = create_trusted_evaluator(
         trusted_cfg,
         task_description=task_desc,
@@ -632,6 +631,12 @@ def run_rsi() -> None:
         cfg.rsi.canary_evaluator,
         task_description=task_desc,
         artifact_root=rsi_dir / "artifacts",
+    )
+    state_store = RSIStateStore(
+        rsi_dir / "state.json",
+        require_attestation=(
+            trusted_evaluator is not None or canary_evaluator is not None
+        ),
     )
     _validate_trusted_evaluator_roles(trusted_evaluator, canary_evaluator, task_metric)
     incumbent_path = rsi_dir / "incumbent_policy.json"

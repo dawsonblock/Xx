@@ -7,7 +7,7 @@ does not change `VERSION`, `setup.py`, or the distribution metadata.
 
 The new code uses full SHA-256 policy identities and rejects unsigned canary
 transactions and decisions. Existing state files use shortened policy digests,
-and earlier canary JSON has no trusted reservation signature. The runner fails
+and earlier state and canary JSON have no host HMAC signature. The runner fails
 closed on those records and does not migrate a pending challenger or recover a
 previous unsigned promotion. Preserve the old log directory for audit, and use
 a new log directory and split epoch for a run under this hardening branch.
