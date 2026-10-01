@@ -1,0 +1,39 @@
+name: Linux Bubblewrap
+
+on:
+  pull_request:
+    paths:
+      - aide/rsi/reference_evaluator.py
+      - tests/test_rsi_reference_evaluator.py
+      - .github/workflows/linux-bubblewrap.yml
+  push:
+    branches: [main, fix/aide-rsi-authority-closure]
+    paths:
+      - aide/rsi/reference_evaluator.py
+      - tests/test_rsi_reference_evaluator.py
+      - .github/workflows/linux-bubblewrap.yml
+
+permissions:
+  contents: read
+
+jobs:
+  confinement:
+    name: Reference evaluator confinement
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Bubblewrap and test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          python -m pip install pytest
+      - name: Require Bubblewrap
+        run: command -v bwrap
+      - name: Run Linux candidate isolation tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q tests/test_rsi_reference_evaluator.py

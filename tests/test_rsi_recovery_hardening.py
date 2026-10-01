@@ -1,6 +1,8 @@
 import hashlib
 import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -123,12 +125,86 @@ def test_rsi_writer_lock_is_exclusive_and_released(tmp_path: Path):
     from aide.rsi.state import rsi_writer_lock
 
     path = tmp_path / "writer.lock"
-    with rsi_writer_lock(path):
-        with pytest.raises(RuntimeError, match="another RSI controller"):
-            with rsi_writer_lock(path):
-                pass
+    with (
+        rsi_writer_lock(path),
+        pytest.raises(RuntimeError, match="another RSI controller"),
+        rsi_writer_lock(path),
+    ):
+        pass
     with rsi_writer_lock(path):
         pass
+
+
+def test_external_state_anchor_rejects_rollback_and_deletion(tmp_path: Path):
+    checkpoints = {}
+    token = "anchor-test-token"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.headers.get("Authorization") != f"Bearer {token}":
+                self.send_error(401)
+                return
+            checkpoint = checkpoints.get(self.path)
+            if checkpoint is None:
+                self.send_error(404)
+                return
+            body = json.dumps(checkpoint).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_PUT(self):
+            if self.headers.get("Authorization") != f"Bearer {token}":
+                self.send_error(401)
+                return
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            previous = checkpoints.get(self.path)
+            previous_revision = 0 if previous is None else previous["revision"]
+            previous_digest = None if previous is None else previous["sha256"]
+            if (
+                request["previous_revision"] != previous_revision
+                or request["previous_sha256"] != previous_digest
+                or request["revision"] != previous_revision + 1
+            ):
+                self.send_error(409)
+                return
+            checkpoints[self.path] = {
+                "revision": request["revision"],
+                "sha256": request["sha256"],
+            }
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, _format, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}"
+        path = tmp_path / "state.json"
+        store = RSIStateStore(
+            path,
+            require_attestation=True,
+            anchor_url=url,
+            anchor_token=token,
+            anchor_id="experiment-1",
+        )
+        store.write(phase="LIVE_RUNNING", current_round=1)
+        older_snapshot = path.read_bytes()
+        store.write(phase="LIVE_RUNNING", current_round=2)
+        path.write_bytes(older_snapshot)
+        with pytest.raises(ValueError, match="external anchor"):
+            store.load()
+        path.unlink()
+        with pytest.raises(ValueError, match="anchored RSI state is missing"):
+            store.load()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_trusted_rsi_state_is_signed_and_detects_tampering(tmp_path: Path):
@@ -409,8 +485,10 @@ def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: P
 
     gate = RealCanaryGate(
         max_normalized_regression=1.0,
+        max_single_pair_regression=1.0,
         min_valid=1,
         min_pass_fraction=0.5,
+        min_pairs=1,
         score_scale_floor=1.0,
         artifact_root=artifact_root,
         require_artifacts=True,
@@ -429,15 +507,7 @@ def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: P
     )
     transaction_path = canary_root / "transaction.json"
     transaction_path.write_text(json.dumps(transaction))
-    gate_config = {
-        "max_normalized_regression": gate.max_normalized_regression,
-        "min_valid": gate.min_valid,
-        "min_pass_fraction": gate.min_pass_fraction,
-        "score_scale_floor": gate.score_scale_floor,
-        "require_artifacts": gate.require_artifacts,
-        "expected_evaluation_identity": gate.expected_evaluation_identity,
-        "promotion_block_reason": gate.promotion_block_reason,
-    }
+    gate_config = gate.authority_config()
     journal_path = canary_root / "rep-00" / "challenger" / "journal.json"
     incumbent_journal_path = canary_root / "rep-00" / "incumbent" / "journal.json"
     decision = sign_canary_decision(

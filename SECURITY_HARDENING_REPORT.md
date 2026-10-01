@@ -5,9 +5,9 @@
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
 archive. The branch's pre-follow-up full local project suite passed with **153
-passed, 1 skipped** on macOS. This follow-up reran the RSI suite and
-hardening-focused tests, not the full project suite. Linux Bubblewrap execution
-and deployment qualification remain open.
+passed, 1 skipped** on macOS; after this follow-up, the full project suite
+passed with **162 passed, 1 skipped**. Linux Bubblewrap execution passed in a
+privileged container, while deployment qualification remains open.
 
 ## Promotion and recovery authority
 
@@ -38,11 +38,15 @@ cannot restore retired IDs. The reference candidate workspace is read-only;
 Linux writable `/tmp` is a sized tmpfs, stdout is capped, and the adapter records
 the nested process group so outer timeout cleanup can kill it on macOS too.
 
-The canary aggregation remains a repeated paired heuristic over best outcomes,
-not a confidence interval or formal statistical promotion test. The generic
-operator evaluator supports ID-based overlap checks only. The cumulative
-consumed-ID list grows with canary use; an authenticated append-only ledger is a
-future storage improvement.
+Canary promotion now requires five paired repeats, a deterministic 95% lower
+percentile bootstrap bound over per-repeat normalized best-score differences,
+a nonnegative median effect by default, a minimum passing fraction, and a
+worst-pair regression ceiling. This quantifies repeat-to-repeat rollout
+variation; it is not a per-sample confidence interval and does not establish
+generalization beyond the retired canary shard. The generic operator evaluator
+supports ID-based overlap checks only. The cumulative consumed-ID list grows
+with canary use; an authenticated append-only ledger is a future storage
+improvement.
 
 ## Evaluator integrity and isolation
 
@@ -81,19 +85,26 @@ rehashing detects changes at authoritative evaluation boundaries but does not
 provide an immutable filesystem snapshot against a concurrent privileged host
 actor. HMAC state authentication detects edits but cannot prevent rollback of a
 complete older signed state and evidence snapshot without an external monotonic
-anchor. No external monotonic service or hardware counter is configured here.
-Linux Bubblewrap confinement and resource limits need integration testing on
-the deployment host. Separate untouched validation and one-shot qualification
-datasets are still outside this branch's guarantees.
+anchor. The external-anchor client and protocol test are implemented, but no
+independently operated monotonic service is configured here. The Linux
+Bubblewrap reference evaluator passed in a privileged Linux Docker container;
+unprivileged namespace execution was blocked by this host's container policy.
+A GitHub-hosted Linux VM workflow now runs the real isolation tests. Deployment
+qualification and separate untouched validation and one-shot qualification
+datasets remain open.
 
 ## Validation performed
 
-- Full project: `153 passed, 1 skipped`.
-- Focused recovery, trusted evaluator, and first-party adapter after this
-  follow-up: `45 passed`.
-- RSI suite after this follow-up: `109 passed, 1 skipped`.
+- Full project after this follow-up: `162 passed, 1 skipped`.
+- Recovery, evaluator, canary statistics, and first-party adapter tests:
+  `56 passed`.
+- RSI suite after this follow-up: `111 passed, 1 skipped`.
+- Linux first-party adapter and Bubblewrap tests in a privileged Docker
+  container: `4 passed`.
+- Package source distribution: passed at v1.3.5.
 - `python -m compileall -q aide`: passed.
 - Black on changed Python files: passed.
 - Ruff on changed Python source and tests: passed.
 - First-party candidate isolation exercised with macOS Seatbelt.
-- Linux Bubblewrap execution not exercised on this host.
+- Linux Bubblewrap execution passed in the privileged Linux container; this
+  macOS host cannot provide unprivileged namespaces directly.

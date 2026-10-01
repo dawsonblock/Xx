@@ -238,15 +238,7 @@ def _recover_canary_transaction(
         != hashlib.sha256(transaction_path.read_bytes()).hexdigest()
     ):
         raise ValueError("canary transaction digest does not match attested decision")
-    gate_config = {
-        "max_normalized_regression": canary_gate.max_normalized_regression,
-        "min_valid": canary_gate.min_valid,
-        "min_pass_fraction": canary_gate.min_pass_fraction,
-        "score_scale_floor": canary_gate.score_scale_floor,
-        "require_artifacts": canary_gate.require_artifacts,
-        "expected_evaluation_identity": canary_gate.expected_evaluation_identity,
-        "promotion_block_reason": canary_gate.promotion_block_reason,
-    }
+    gate_config = canary_gate.authority_config()
     gate_config_digest = _stable_digest(gate_config)
     if decision.get("gate_config_sha256") != gate_config_digest:
         raise ValueError("canary gate configuration changed since decision")
@@ -655,6 +647,9 @@ def _run_rsi_unlocked() -> None:
         require_attestation=(
             trusted_evaluator is not None or canary_evaluator is not None
         ),
+        anchor_url=os.environ.get("AIDE_RSI_STATE_ANCHOR_URL"),
+        anchor_token=os.environ.get("AIDE_RSI_STATE_ANCHOR_TOKEN"),
+        anchor_id=os.environ.get("AIDE_RSI_STATE_ANCHOR_ID"),
     )
     _validate_trusted_evaluator_roles(trusted_evaluator, canary_evaluator, task_metric)
     incumbent_path = rsi_dir / "incumbent_policy.json"
@@ -721,6 +716,11 @@ def _run_rsi_unlocked() -> None:
         max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
         min_valid=cfg.rsi.canary.min_valid,
         min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+        min_pairs=cfg.rsi.canary.min_pairs,
+        confidence_level=cfg.rsi.canary.confidence_level,
+        bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
+        min_effect_size=cfg.rsi.canary.min_effect_size,
+        max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
         score_scale_floor=cfg.rsi.canary.score_scale_floor,
         artifact_root=rsi_dir / "artifacts",
         require_artifacts=True,
@@ -970,15 +970,7 @@ def _run_rsi_unlocked() -> None:
                         (canary_root / "transaction.json").read_bytes()
                     ).hexdigest(),
                     "gate_config_sha256": _stable_digest(
-                        {
-                            "max_normalized_regression": canary_gate.max_normalized_regression,
-                            "min_valid": canary_gate.min_valid,
-                            "min_pass_fraction": canary_gate.min_pass_fraction,
-                            "score_scale_floor": canary_gate.score_scale_floor,
-                            "require_artifacts": canary_gate.require_artifacts,
-                            "expected_evaluation_identity": canary_gate.expected_evaluation_identity,
-                            "promotion_block_reason": canary_gate.promotion_block_reason,
-                        }
+                        canary_gate.authority_config()
                     ),
                     "journal_evidence": [
                         {

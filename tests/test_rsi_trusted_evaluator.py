@@ -13,17 +13,17 @@ from aide.journal import Node
 from aide.rsi.artifacts import store_candidate
 from aide.rsi.canary import RealCanaryGate
 from aide.rsi.evidence import has_trusted_evaluation
+from aide.rsi.reference_evaluator import sample_content_sha256
 from aide.rsi.runner import (
     _stored_evaluator_identity,
     _validate_trusted_evaluator_roles,
 )
-from aide.rsi.reference_evaluator import sample_content_sha256
 from aide.rsi.trusted_evaluator import (
     REFERENCE_EVALUATOR_ENTRYPOINT,
     TrustedEvaluator,
     TrustedEvaluatorError,
-    _stable_digest,
     _kill_process_group,
+    _stable_digest,
     canonical_evaluation_sample_ids,
     evaluation_sample_overlap,
     file_sha256,

@@ -1,0 +1,2 @@
+include SECURITY_HARDENING_REPORT.md
+recursive-include docs *.md

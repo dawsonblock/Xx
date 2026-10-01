@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 from typing import Any
 
 from .evidence import has_trusted_evaluation
@@ -26,6 +27,7 @@ class CanarySeriesResult:
     median_normalized_delta: float
     candidate_median_best: float | None
     incumbent_median_best: float | None
+    lower_confidence_bound: float | None
     reason: str
     pairs: tuple[CanaryResult, ...]
 
@@ -36,6 +38,7 @@ class CanarySeriesResult:
             "median_normalized_delta": self.median_normalized_delta,
             "candidate_median_best": self.candidate_median_best,
             "incumbent_median_best": self.incumbent_median_best,
+            "lower_confidence_bound": self.lower_confidence_bound,
             "reason": self.reason,
             "pairs": [asdict(x) for x in self.pairs],
         }
@@ -55,6 +58,11 @@ class RealCanaryGate:
         max_normalized_regression: float = 0.05,
         min_valid: int = 1,
         min_pass_fraction: float = 0.66,
+        min_pairs: int = 5,
+        confidence_level: float = 0.95,
+        bootstrap_samples: int = 10000,
+        min_effect_size: float = 0.0,
+        max_single_pair_regression: float = 0.25,
         score_scale_floor: float = 1.0,
         artifact_root: str | Path | None = None,
         require_artifacts: bool = False,
@@ -62,13 +70,60 @@ class RealCanaryGate:
         promotion_block_reason: str | None = None,
     ):
         self.max_normalized_regression = float(max_normalized_regression)
+        if (
+            not math.isfinite(self.max_normalized_regression)
+            or self.max_normalized_regression < 0
+        ):
+            raise ValueError("max_normalized_regression must be finite and nonnegative")
         self.min_valid = max(1, int(min_valid))
-        self.min_pass_fraction = min(1.0, max(0.0, float(min_pass_fraction)))
-        self.score_scale_floor = max(1e-9, float(score_scale_floor))
+        self.min_pass_fraction = float(min_pass_fraction)
+        if (
+            not math.isfinite(self.min_pass_fraction)
+            or not 0 <= self.min_pass_fraction <= 1
+        ):
+            raise ValueError("min_pass_fraction must be in [0, 1]")
+        self.min_pairs = max(1, int(min_pairs))
+        self.confidence_level = float(confidence_level)
+        if not 0.5 < self.confidence_level < 1.0:
+            raise ValueError("confidence_level must be in (0.5, 1)")
+        self.bootstrap_samples = int(bootstrap_samples)
+        if not 100 <= self.bootstrap_samples <= 1_000_000:
+            raise ValueError("bootstrap_samples must be in [100, 1000000]")
+        self.min_effect_size = float(min_effect_size)
+        self.max_single_pair_regression = float(max_single_pair_regression)
+        if not math.isfinite(self.min_effect_size):
+            raise ValueError("min_effect_size must be finite")
+        if (
+            not math.isfinite(self.max_single_pair_regression)
+            or self.max_single_pair_regression < self.max_normalized_regression
+        ):
+            raise ValueError(
+                "max_single_pair_regression must be finite and at least the series regression margin"
+            )
+        self.score_scale_floor = float(score_scale_floor)
+        if not math.isfinite(self.score_scale_floor) or self.score_scale_floor <= 0:
+            raise ValueError("score_scale_floor must be finite and positive")
         self.artifact_root = Path(artifact_root) if artifact_root is not None else None
         self.require_artifacts = bool(require_artifacts)
         self.expected_evaluation_identity = dict(expected_evaluation_identity or {})
         self.promotion_block_reason = promotion_block_reason
+
+    def authority_config(self) -> dict[str, Any]:
+        """Return every setting that can affect a promotion decision."""
+        return {
+            "max_normalized_regression": self.max_normalized_regression,
+            "min_valid": self.min_valid,
+            "min_pass_fraction": self.min_pass_fraction,
+            "min_pairs": self.min_pairs,
+            "confidence_level": self.confidence_level,
+            "bootstrap_samples": self.bootstrap_samples,
+            "min_effect_size": self.min_effect_size,
+            "max_single_pair_regression": self.max_single_pair_regression,
+            "score_scale_floor": self.score_scale_floor,
+            "require_artifacts": self.require_artifacts,
+            "expected_evaluation_identity": self.expected_evaluation_identity,
+            "promotion_block_reason": self.promotion_block_reason,
+        }
 
     @staticmethod
     def _journal_scores(
@@ -194,6 +249,7 @@ class RealCanaryGate:
                 -math.inf,
                 None,
                 None,
+                None,
                 "no paired canary repetitions",
                 results,
             )
@@ -204,16 +260,57 @@ class RealCanaryGate:
         ivals = [r.incumbent_best for r in results if r.incumbent_best is not None]
         cmed = median(cvals) if cvals else None
         imed = median(ivals) if ivals else None
+        finite_deltas = all(math.isfinite(delta) for delta in deltas)
+        lower_bound = None
+        if finite_deltas and len(deltas) >= self.min_pairs:
+            rng = random.Random(0)
+            bootstrap_means = sorted(
+                mean(rng.choices(deltas, k=len(deltas)))
+                for _ in range(self.bootstrap_samples)
+            )
+            lower_index = int(
+                (1.0 - self.confidence_level) * (self.bootstrap_samples - 1)
+            )
+            lower_bound = bootstrap_means[lower_index]
+        enough_pairs = len(deltas) >= self.min_pairs
+        worst_pair_ok = (
+            finite_deltas and min(deltas) >= -self.max_single_pair_regression
+        )
+        pass_fraction_ok = pass_fraction >= self.min_pass_fraction
+        effect_ok = med_delta >= self.min_effect_size
+        confidence_ok = (
+            lower_bound is not None and lower_bound >= -self.max_normalized_regression
+        )
         passed = (
-            pass_fraction >= self.min_pass_fraction
-            and med_delta >= -self.max_normalized_regression
+            enough_pairs
+            and worst_pair_ok
+            and pass_fraction_ok
+            and effect_ok
+            and confidence_ok
         )
         if passed:
-            reason = "repeated paired canary passed aggregate regression gate"
-        elif pass_fraction < self.min_pass_fraction:
+            reason = "paired canary passed bootstrap non-inferiority gate"
+        elif not enough_pairs:
+            reason = "too few paired canary repetitions for confidence gate"
+        elif not finite_deltas:
+            reason = "one or more canary pairs lack trusted valid outcomes"
+        elif not worst_pair_ok:
+            reason = "worst paired canary regression exceeded limit"
+        elif not pass_fraction_ok:
             reason = "too few paired canary repetitions passed"
+        elif not effect_ok:
+            reason = "median paired canary effect did not meet minimum"
+        elif not confidence_ok:
+            reason = "bootstrap confidence bound did not meet regression margin"
         else:
             reason = "median paired canary regression exceeded limit"
         return CanarySeriesResult(
-            passed, pass_fraction, med_delta, cmed, imed, reason, results
+            passed,
+            pass_fraction,
+            med_delta,
+            cmed,
+            imed,
+            lower_bound,
+            reason,
+            results,
         )

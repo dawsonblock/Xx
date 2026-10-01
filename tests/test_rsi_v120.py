@@ -11,7 +11,7 @@ from aide.rsi.qualification import QualificationGate
 from aide.rsi.sandbox import SandboxLimits, SecureInterpreter
 from aide.rsi.split import WorldSplit
 from aide.rsi.support import ReplaySupportIndex
-from aide.rsi.types import Observation, PolicyGenome, ReplayNode, ReplayWorld, ROOT_ID
+from aide.rsi.types import ROOT_ID, Observation, PolicyGenome, ReplayNode, ReplayWorld
 
 _TEST_ATTESTATION_KEY = "test-only-hmac-key-with-at-least-32-bytes"
 
@@ -117,16 +117,39 @@ class Journal:
 
 
 def test_repeated_canary_requires_pass_fraction():
-    gate = RealCanaryGate(max_normalized_regression=0.05, min_pass_fraction=0.66)
+    gate = RealCanaryGate(
+        max_normalized_regression=0.05, min_pass_fraction=0.66, min_pairs=3
+    )
     pairs = [
         (Journal(1.2), Journal(1.0)),
         (Journal(1.1), Journal(1.0)),
-        (Journal(0.7), Journal(1.0)),
+        (Journal(0.94), Journal(1.0)),
     ]
     result = gate.evaluate_series(pairs)
     assert result.passed
     assert result.pass_fraction == pytest.approx(2 / 3)
+    assert result.lower_confidence_bound is not None
+    assert result.lower_confidence_bound >= -gate.max_normalized_regression
     assert len(result.pairs) == 3
+
+
+def test_canary_confidence_gate_rejects_too_few_pairs_and_uncertainty():
+    pairs = [(Journal(1.1), Journal(1.0)) for _ in range(3)]
+    insufficient = RealCanaryGate().evaluate_series(pairs)
+    assert not insufficient.passed
+    assert insufficient.lower_confidence_bound is None
+    assert "too few paired" in insufficient.reason
+
+    noisy_pairs = [
+        (Journal(1.4), Journal(1.0)),
+        (Journal(1.3), Journal(1.0)),
+        (Journal(0.8), Journal(1.0)),
+        (Journal(1.2), Journal(1.0)),
+        (Journal(0.9), Journal(1.0)),
+    ]
+    uncertain = RealCanaryGate().evaluate_series(noisy_pairs)
+    assert not uncertain.passed
+    assert uncertain.lower_confidence_bound < -0.05
 
 
 class FakeEvaluator:

@@ -75,7 +75,29 @@ them. Rotate to a fresh, disjoint canary shard before further promotion.
 An exclusive per-log-directory writer lock prevents concurrent RSI controllers
 from producing conflicting transitions. Signed state detects edits, but a full
 rollback to an older valid experiment snapshot still requires an external
-monotonic checkpoint to detect.
+monotonic checkpoint to detect. The optional external anchor client is enabled
+with `AIDE_RSI_STATE_ANCHOR_URL`, `AIDE_RSI_STATE_ANCHOR_TOKEN`, and a stable
+`AIDE_RSI_STATE_ANCHOR_ID`; it fails closed on anchor outages or mismatches.
+See [the anchor protocol](STATE_ANCHOR_PROTOCOL.md) for the required server
+semantics. This repository supplies the client and protocol tests, not a
+deployed checkpoint service.
+
+## Canary promotion statistics
+
+Promotion requires at least five paired canary repetitions by default. The
+gate bootstraps the per-repeat normalized difference between the challenger
+and incumbent best scores, then requires its configured lower confidence bound
+to stay above the regression margin. It also requires the configured median
+effect size and passing fraction, and rejects a worst-pair regression beyond
+its ceiling. The default confidence level is 95%, median effect floor is zero,
+and worst-pair regression ceiling is 0.25 normalized units. Recovery signs and
+recomputes these settings with the decision.
+
+This interval describes variation across paired rollout repetitions. It is not
+a per-sample bootstrap and does not establish task-population generalization;
+the same retired canary shard is evaluated within a transaction. Independent
+generalization still depends on fresh, representative canary shards and a
+task-specific statistical design.
 
 Replay development, validation, and qualification worlds are trajectory splits,
 not independent data holds. Replay qualification reuses measured scores and
