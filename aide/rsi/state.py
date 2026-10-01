@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import re
+import ssl
 import stat
 import tempfile
-import urllib.error
-import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
 if os.name == "nt":
     import msvcrt
@@ -31,17 +31,22 @@ VALID_PHASES = {
 }
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
 class _RemoteStateAnchor:
     """Small HTTPS client for an operator-managed monotonic checkpoint service."""
 
-    def __init__(self, base_url: str, token: str, anchor_id: str):
-        parsed = urlparse(base_url)
-        if parsed.scheme != "https" and parsed.hostname not in {
+    _MAX_RESPONSE_BYTES = 64 * 1024
+
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        anchor_id: str,
+        tls_certificate_sha256: str | None = None,
+    ):
+        parsed = urlsplit(base_url)
+        if parsed.scheme.lower() not in {"https", "http"}:
+            raise ValueError("state anchor URL must use HTTPS or loopback HTTP")
+        if parsed.scheme.lower() != "https" and parsed.hostname not in {
             "127.0.0.1",
             "localhost",
             "::1",
@@ -54,12 +59,18 @@ class _RemoteStateAnchor:
             or parsed.query
             or parsed.fragment
             or not token
+            or not re.fullmatch(r"[!-~]+", token)
         ):
             raise ValueError("state anchor requires a URL and bearer token")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", anchor_id):
             raise ValueError("state anchor ID contains unsupported characters")
         scheme = parsed.scheme.lower()
-        hostname = (parsed.hostname or "").lower()
+        raw_hostname = parsed.hostname or ""
+        hostname = (
+            raw_hostname.lower()
+            if ":" in raw_hostname
+            else raw_hostname.encode("idna").decode("ascii").lower()
+        )
         port = parsed.port
         if port == (443 if scheme == "https" else 80):
             port = None
@@ -67,28 +78,77 @@ class _RemoteStateAnchor:
         netloc = host if port is None else f"{host}:{port}"
         path = parsed.path.rstrip("/")
         self.base_url = f"{scheme}://{netloc}{path}"
-        self.authority_sha256 = hashlib.sha256(
-            self.base_url.encode("utf-8")
-        ).hexdigest()
-        self.url = self.base_url + "/v1/checkpoints/" + anchor_id
+        if tls_certificate_sha256 is not None:
+            tls_certificate_sha256 = tls_certificate_sha256.lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", tls_certificate_sha256):
+                raise ValueError("state anchor TLS certificate pin must be SHA-256")
+        if scheme == "https" and tls_certificate_sha256 is None:
+            raise ValueError(
+                "HTTPS state anchoring requires an out-of-band TLS certificate SHA-256 pin"
+            )
+        if scheme != "https" and tls_certificate_sha256 is not None:
+            raise ValueError("TLS certificate pin is only valid for HTTPS anchors")
+        self.tls_certificate_sha256 = tls_certificate_sha256
+        authority = json.dumps(
+            {
+                "base_url": self.base_url,
+                "tls_certificate_sha256": self.tls_certificate_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.authority_sha256 = hashlib.sha256(authority).hexdigest()
+        self.request_path = path + "/v1/checkpoints/" + anchor_id
         self.token = token
-        self.opener = urllib.request.build_opener(_NoRedirect())
+
+    def _request(self, method: str, body: bytes | None = None) -> tuple[int, bytes]:
+        parsed = urlsplit(self.base_url)
+        hostname = parsed.hostname or ""
+        if parsed.scheme == "https":
+            connection: http.client.HTTPConnection = http.client.HTTPSConnection(
+                hostname,
+                parsed.port,
+                timeout=5,
+                context=ssl.create_default_context(),
+            )
+        else:
+            connection = http.client.HTTPConnection(hostname, parsed.port, timeout=5)
+        try:
+            connection.connect()
+            if parsed.scheme == "https":
+                sock = connection.sock
+                if sock is None:
+                    raise RuntimeError("state anchor TLS connection has no socket")
+                certificate = sock.getpeercert(binary_form=True)
+                if not certificate:
+                    raise RuntimeError("state anchor did not present a TLS certificate")
+                certificate_sha256 = hashlib.sha256(certificate).hexdigest()
+                if certificate_sha256 != self.tls_certificate_sha256:
+                    raise RuntimeError("state anchor TLS certificate pin mismatch")
+            headers = {"Authorization": f"Bearer {self.token}"}
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            connection.request(method, self.request_path, body=body, headers=headers)
+            response = connection.getresponse()
+            payload = response.read(self._MAX_RESPONSE_BYTES + 1)
+            if len(payload) > self._MAX_RESPONSE_BYTES:
+                raise RuntimeError("state anchor response exceeds size limit")
+            return response.status, payload
+        except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            raise RuntimeError("state anchor could not be reached") from exc
+        finally:
+            connection.close()
 
     def read(self) -> dict[str, Any] | None:
-        request = urllib.request.Request(
-            self.url, headers={"Authorization": f"Bearer {self.token}"}
-        )
         try:
-            with self.opener.open(request, timeout=5) as response:
-                raw = json.loads(response.read())
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
+            status, payload = self._request("GET")
+            if status == 404:
                 return None
-            raise RuntimeError(
-                f"state anchor read failed with HTTP {exc.code}"
-            ) from exc
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError("state anchor could not be reached or parsed") from exc
+            if status != 200:
+                raise RuntimeError(f"state anchor read failed with HTTP {status}")
+            raw = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("state anchor returned invalid JSON") from exc
         if (
             not isinstance(raw, dict)
             or isinstance(raw.get("revision"), bool)
@@ -118,25 +178,9 @@ class _RemoteStateAnchor:
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
-        request = urllib.request.Request(
-            self.url,
-            data=body,
-            method="PUT",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with self.opener.open(request, timeout=5) as response:
-                if response.status not in (200, 201, 204):
-                    raise RuntimeError("state anchor rejected checkpoint")
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(
-                f"state anchor rejected checkpoint with HTTP {exc.code}"
-            ) from exc
-        except OSError as exc:
-            raise RuntimeError("state anchor could not be reached") from exc
+        status, _payload = self._request("PUT", body=body)
+        if status not in (200, 201, 204):
+            raise RuntimeError(f"state anchor rejected checkpoint with HTTP {status}")
 
 
 @contextmanager
@@ -190,6 +234,7 @@ class RSIStateStore:
         anchor_url: str | None = None,
         anchor_token: str | None = None,
         anchor_id: str | None = None,
+        anchor_tls_certificate_sha256: str | None = None,
     ):
         self.path = Path(path)
         self.require_attestation = bool(require_attestation)
@@ -205,7 +250,12 @@ class RSIStateStore:
             or hashlib.sha256(str(self.path.resolve()).encode("utf-8")).hexdigest()
         )
         self.anchor = (
-            _RemoteStateAnchor(anchor_url, anchor_token or "", self.anchor_id)
+            _RemoteStateAnchor(
+                anchor_url,
+                anchor_token or "",
+                self.anchor_id,
+                anchor_tls_certificate_sha256,
+            )
             if anchor_url
             else None
         )
@@ -240,6 +290,11 @@ class RSIStateStore:
             and raw.get("anchor_authority_sha256") != self.anchor.authority_sha256
         ):
             raise ValueError("RSI state does not match configured anchor authority")
+        if (
+            raw.get("anchor_tls_certificate_sha256")
+            != self.anchor.tls_certificate_sha256
+        ):
+            raise ValueError("RSI state does not match configured anchor TLS pin")
         revision = raw.get("anchor_revision")
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
             raise ValueError("RSI state has an invalid external anchor revision")
@@ -285,6 +340,13 @@ class RSIStateStore:
             raise ValueError("trusted RSI state is missing its host attestation")
         if raw.get("phase") not in VALID_PHASES:
             raise ValueError(f"invalid RSI phase: {raw.get('phase')}")
+        attempt_count = raw.get("canary_attempt_count", 0)
+        if (
+            isinstance(attempt_count, bool)
+            or not isinstance(attempt_count, int)
+            or attempt_count < 0
+        ):
+            raise ValueError("durable canary attempt count is invalid")
         self._verify_anchor(raw)
         return raw
 
@@ -294,12 +356,21 @@ class RSIStateStore:
             "anchor_required",
             "anchor_id",
             "anchor_authority_sha256",
+            "anchor_tls_certificate_sha256",
             "anchor_revision",
             "anchor_previous_revision",
             "anchor_previous_sha256",
         }
         if protected_anchor_fields.intersection(updates):
             raise ValueError("external anchor state fields are controller-managed")
+        current_attempt_count = raw.get("canary_attempt_count", 0)
+        next_attempt_count = updates.get("canary_attempt_count", current_attempt_count)
+        if (
+            isinstance(next_attempt_count, bool)
+            or not isinstance(next_attempt_count, int)
+            or next_attempt_count < current_attempt_count
+        ):
+            raise ValueError("canary attempt count cannot decrease or be invalid")
         raw.update(updates)
         raw.setdefault("schema_version", 1)
         previous_revision = int(raw.get("anchor_revision", 0))
@@ -315,6 +386,7 @@ class RSIStateStore:
                 anchor_required=True,
                 anchor_id=self.anchor_id,
                 anchor_authority_sha256=self.anchor.authority_sha256,
+                anchor_tls_certificate_sha256=self.anchor.tls_certificate_sha256,
                 anchor_revision=previous_revision + 1,
                 anchor_previous_revision=previous_revision,
                 anchor_previous_sha256=previous_digest,

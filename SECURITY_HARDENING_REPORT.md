@@ -4,11 +4,10 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The latest full local project run passed with **173 passed, 1
-skipped** on macOS after the canary crash, rotation, anchor, and sample-identity
-fixes. The nested outer-timeout test passes locally and on a GitHub-hosted
-macOS runner. The current Linux Bubblewrap, Windows writer-lock, and linter
-workflows also passed on commit `18167f8`. Deployment qualification remains
+archive. The current source has **178 passed, 1 skipped** in the full local
+suite, **127 passed, 1 skipped** in RSI tests, and **57 passed** in the focused
+recovery/evaluator suite on macOS. Hosted macOS, Linux, Windows, and linter
+reruns for this source revision are pending. Deployment qualification remains
 open.
 
 ## Promotion and recovery authority
@@ -50,22 +49,31 @@ before signing the new shard identity into state. A per-log-directory exclusive
 lock prevents simultaneous controllers; its Windows implementation uses
 `msvcrt` rather than importing POSIX-only `fcntl`.
 
-The optional state anchor is sticky once enrolled. Signed state binds a
-normalized anchor URL hash and rejects launches that omit or replace that
-authority. This pins the endpoint string, not the service's cryptographic key;
-DNS, TLS, and anchor-service administration remain deployment trust
-assumptions. The reference candidate workspace is read-only; Linux writable
+The optional state anchor is sticky once enrolled. Signed state binds the
+normalized anchor URL and, for HTTPS, an out-of-band leaf-certificate SHA-256
+pin. The client verifies the standard TLS chain, hostname, and configured pin
+before sending the bearer credential. Missing or changed pins fail closed;
+certificate renewal requires explicit operator migration. Loopback HTTP is
+limited to protocol tests. The reference candidate workspace is read-only; Linux writable
 `/tmp` is a sized tmpfs, stdout is capped, and the adapter records the nested
 process group so outer timeout cleanup can kill it on macOS too. An integration
 test forces an outer evaluator timeout while the nested candidate sleeps and
 verifies the candidate process group is gone.
 
-Canary promotion now requires five paired repeats, a deterministic 95% lower
-percentile bootstrap bound over per-repeat normalized best-score differences,
-a nonnegative median effect by default, a minimum passing fraction, and a
-worst-pair regression ceiling. This quantifies repeat-to-repeat rollout
-variation; it is not a per-sample confidence interval and does not establish
-generalization beyond the retired canary shard. The generic operator evaluator
+Canary promotion retains the deterministic 95% bootstrap non-inferiority bound,
+minimum passing fraction, and worst-pair regression ceiling. It now also uses a
+one-sided exact paired sign test with alpha spending
+`alpha_i = experiment_alpha / (i * (i + 1))`; the monotonic attempt index is
+stored in authenticated state and bound into each signed transaction, decision,
+and gate configuration. Repeats grow as the per-attempt alpha shrinks (six
+pairs at attempt one, seven at attempt two with the default 0.05 budget). The
+spending schedule sums to the configured experiment alpha if each attempt's
+sign-test p-value is valid. That requires independent paired rollout outcomes;
+the current runner does not establish cross-task or seed independence, so this
+is an implemented statistical control with an explicit qualification boundary,
+not a claim of proven end-to-end false-promotion control. It measures repeated
+rollout behavior and does not establish generalization beyond retired canary
+shards. The generic operator evaluator
 supports ID-based overlap checks only because it has no canonical sample
 content model. The cumulative consumed-ID and content-hash lists grow with
 canary use; an authenticated append-only ledger is a future storage
@@ -120,10 +128,14 @@ datasets remain open.
 
 ## Validation performed
 
-- Full local project suite with current source changes: `173 passed, 1 skipped`
+- Full local project suite with current source changes: `178 passed, 1 skipped`
   on macOS.
-- RSI test files with current source changes: `122 passed, 1 skipped` on macOS.
-- Focused recovery and trusted-evaluator suites: `53 passed` on macOS.
+- RSI test files with current source changes: `127 passed, 1 skipped` on macOS.
+- Focused recovery and trusted-evaluator suites: `57 passed` on macOS.
+- A 100-iteration interrupted-canary simulation preserved retired IDs and
+  content hashes after deleting each transaction file.
+- Sequential alpha spending, expanding paired-run minimums, mismatched-attempt
+  recovery, and HTTPS certificate-pin-before-credential behavior are covered.
 - Nested reference-candidate outer-timeout integration: passed on the local
   macOS host and GitHub-hosted macOS.
 - Linux first-party adapter and Bubblewrap tests in a privileged Docker
@@ -132,9 +144,11 @@ datasets remain open.
   remains `1.3.5`.
 - `python -m compileall -q aide`: passed.
 - Black on changed Python files: passed.
-- Ruff on changed Python source and tests: passed.
+- Ruff on changed RSI security source and tests: passed. The changed config
+  module was checked with its pre-existing local-version findings excluded.
 - First-party candidate isolation exercised with macOS Seatbelt.
 - Linux Bubblewrap execution passed in the privileged Linux container; this
   macOS host cannot provide unprivileged namespaces directly.
-- GitHub-hosted macOS nested-timeout, Linux Bubblewrap, Windows state-lock, and
-  linter workflows passed on commit `18167f8` ([macOS](https://github.com/dawsonblock/Xx/actions/runs/36841501712), [Linux](https://github.com/dawsonblock/Xx/actions/runs/36841501818), [Windows](https://github.com/dawsonblock/Xx/actions/runs/36841501831), [linter](https://github.com/dawsonblock/Xx/actions/runs/36841501730)).
+- GitHub-hosted platform and linter workflows from commit `18167f8` passed, but
+  they predate the sequential-alpha and TLS-pin changes. Reruns for the current
+  source commit are pending.

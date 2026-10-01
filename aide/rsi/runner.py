@@ -353,6 +353,15 @@ def _recover_canary_transaction(
             raise ValueError(
                 "canary transaction shard is not authorized by durable state"
             )
+    if canary_gate.promotion_attempt_index is not None:
+        attempt_index = canary_gate.promotion_attempt_index
+        if (
+            transaction.get("promotion_attempt_index") != attempt_index
+            or state.get("canary_attempt_count") != attempt_index
+        ):
+            raise ValueError(
+                "canary promotion attempt is not authorized by durable state"
+            )
     incumbent = PolicyGenome.from_dict(transaction["incumbent"])
     challenger = PolicyGenome.from_dict(transaction["challenger"])
     if _policy_digest(incumbent) != transaction.get("incumbent_digest"):
@@ -363,6 +372,10 @@ def _recover_canary_transaction(
         raise ValueError("canary decision does not match its incumbent transaction")
     if decision.get("candidate_digest") != transaction["candidate_digest"]:
         raise ValueError("canary decision does not match its challenger transaction")
+    if canary_gate.promotion_attempt_index is not None and (
+        decision.get("promotion_attempt_index") != canary_gate.promotion_attempt_index
+    ):
+        raise ValueError("canary decision has a different promotion attempt index")
     if phase == "IDLE":
         # Only reconcile the crash window after the durable state commit. Old or
         # unrelated transaction files must never gain authority from their names.
@@ -888,6 +901,9 @@ def _run_rsi_unlocked() -> None:
         anchor_url=os.environ.get("AIDE_RSI_STATE_ANCHOR_URL"),
         anchor_token=os.environ.get("AIDE_RSI_STATE_ANCHOR_TOKEN"),
         anchor_id=os.environ.get("AIDE_RSI_STATE_ANCHOR_ID"),
+        anchor_tls_certificate_sha256=os.environ.get(
+            "AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256"
+        ),
     )
     _validate_trusted_evaluator_roles(trusted_evaluator, canary_evaluator, task_metric)
     incumbent_path = rsi_dir / "incumbent_policy.json"
@@ -945,7 +961,7 @@ def _run_rsi_unlocked() -> None:
             raise ValueError(
                 "trusted evaluator identity is missing from an existing RSI run"
             )
-        state = state_store.write(**identity_updates)
+        state = state_store.write(**identity_updates, canary_attempt_count=0)
     elif stored_evaluator_identity == configured_evaluator_identity:
         stored_shard = state.get("canary_shard_identity")
         stored_epoch = state.get("canary_shard_epoch")
@@ -979,6 +995,18 @@ def _run_rsi_unlocked() -> None:
             "trusted evaluator authority changed for an existing RSI run; "
             "start a fresh experiment and split epoch"
         )
+    if "canary_attempt_count" not in state:
+        # Preserve a conservative attempt index when opening state written by
+        # an earlier schema. A completed outer round could have contained one
+        # canary; a pristine state has no current round and starts at zero.
+        legacy_round = state.get("current_round")
+        if isinstance(legacy_round, int) and not isinstance(legacy_round, bool):
+            legacy_attempt_count = max(0, legacy_round + 1)
+        elif existing_worlds:
+            legacy_attempt_count = max(0, int(state.get("next_round", 0)))
+        else:
+            legacy_attempt_count = 0
+        state = state_store.write(canary_attempt_count=legacy_attempt_count)
     canary_block_reason = None
     if trusted_evaluator is None or canary_evaluator is None:
         canary_block_reason = "promotion requires separately configured trusted search and canary evaluators"
@@ -1026,27 +1054,44 @@ def _run_rsi_unlocked() -> None:
             and not active
         ):
             canary_block_reason = "canary sample shard has already been consumed"
-    canary_gate = RealCanaryGate(
-        max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
-        min_valid=cfg.rsi.canary.min_valid,
-        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
-        min_pairs=cfg.rsi.canary.min_pairs,
-        confidence_level=cfg.rsi.canary.confidence_level,
-        bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
-        min_effect_size=cfg.rsi.canary.min_effect_size,
-        max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
-        score_scale_floor=cfg.rsi.canary.score_scale_floor,
-        artifact_root=rsi_dir / "artifacts",
-        require_artifacts=True,
-        expected_evaluation_identity=(
-            {
-                **canary_evaluator._identity_fields(),
-                "trusted_evaluator_identity": canary_evaluator.identity,
-            }
-            if canary_evaluator is not None
-            else {}
-        ),
-        promotion_block_reason=canary_block_reason,
+    canary_attempt_count = state.get("canary_attempt_count", 0)
+    if (
+        isinstance(canary_attempt_count, bool)
+        or not isinstance(canary_attempt_count, int)
+        or canary_attempt_count < 0
+    ):
+        raise ValueError("durable canary attempt count is invalid")
+
+    def build_canary_gate(attempt_index: int | None) -> RealCanaryGate:
+        return RealCanaryGate(
+            max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
+            min_valid=cfg.rsi.canary.min_valid,
+            min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+            min_pairs=cfg.rsi.canary.min_pairs,
+            confidence_level=cfg.rsi.canary.confidence_level,
+            bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
+            min_effect_size=cfg.rsi.canary.min_effect_size,
+            max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
+            score_scale_floor=cfg.rsi.canary.score_scale_floor,
+            artifact_root=rsi_dir / "artifacts",
+            require_artifacts=True,
+            expected_evaluation_identity=(
+                {
+                    **canary_evaluator._identity_fields(),
+                    "trusted_evaluator_identity": canary_evaluator.identity,
+                }
+                if canary_evaluator is not None
+                else {}
+            ),
+            promotion_block_reason=canary_block_reason,
+            promotion_attempt_index=attempt_index,
+            experiment_alpha=(
+                cfg.rsi.canary.experiment_alpha if attempt_index is not None else None
+            ),
+        )
+
+    canary_gate = build_canary_gate(
+        canary_attempt_count if canary_attempt_count > 0 else None
     )
     try:
         state = _recover_canary_transaction(
@@ -1164,7 +1209,13 @@ def _run_rsi_unlocked() -> None:
             canary_budget = min(
                 int(cfg.rsi.steps_per_round), max(1, int(cfg.rsi.canary.attempts))
             )
-            canary_repeats = max(1, int(cfg.rsi.canary.repeats))
+            # The signed counter covers completed and aborted reservations. It
+            # is migrated conservatively from the last completed round above.
+            promotion_attempt_index = int(state.get("canary_attempt_count", 0)) + 1
+            active_canary_gate = build_canary_gate(promotion_attempt_index)
+            canary_repeats = max(
+                1, int(cfg.rsi.canary.repeats), active_canary_gate.min_pairs
+            )
             canary_root = base_log / f"round-{outer:03d}" / "canary"
             canary_sample_ids = (
                 sorted(canary_evaluator.evaluation_sample_ids)
@@ -1202,6 +1253,7 @@ def _run_rsi_unlocked() -> None:
                 consumed_canary_sample_ids=sorted(consumed),
                 consumed_canary_sample_content_sha256=sorted(consumed_content),
                 consumed_canary_public_input_sha256=sorted(consumed_public),
+                canary_attempt_count=promotion_attempt_index,
             )
             _write_json(
                 canary_root / "transaction.json",
@@ -1219,6 +1271,7 @@ def _run_rsi_unlocked() -> None:
                         "canary_authority_identity": canary_evaluator.authority_identity,
                         "canary_shard_identity": canary_evaluator.identity,
                         "canary_shard_epoch": canary_epoch,
+                        "promotion_attempt_index": promotion_attempt_index,
                     }
                 ),
             )
@@ -1308,7 +1361,7 @@ def _run_rsi_unlocked() -> None:
                     )
                 paired_journals.append((challenger_journal, incumbent_journal))
 
-            result = canary_gate.evaluate_series(paired_journals)
+            result = active_canary_gate.evaluate_series(paired_journals)
             canary_payload = result.to_dict()
             canary_payload.update(
                 {
@@ -1316,13 +1369,14 @@ def _run_rsi_unlocked() -> None:
                     "incumbent_digest": _policy_digest(incumbent),
                     "budget_each": canary_budget,
                     "repeats": canary_repeats,
+                    "promotion_attempt_index": promotion_attempt_index,
                     "execution_order": "alternating",
                     "gate_result": result.to_dict(),
                     "transaction_sha256": hashlib.sha256(
                         (canary_root / "transaction.json").read_bytes()
                     ).hexdigest(),
                     "gate_config_sha256": _stable_digest(
-                        canary_gate.authority_config()
+                        active_canary_gate.authority_config()
                     ),
                     "journal_evidence": [
                         {
@@ -1343,6 +1397,7 @@ def _run_rsi_unlocked() -> None:
             )
             signed_canary_payload = sign_canary_decision(canary_payload)
             _write_json(canary_root / "decision.json", signed_canary_payload)
+            canary_gate = active_canary_gate
             if result.passed:
                 incumbent = pending
                 incumbent.save(incumbent_path)

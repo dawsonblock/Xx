@@ -5,25 +5,34 @@
 Package metadata remains 1.3.5. This branch adds canary recovery authority
 closure, full-width policy identities, candidate-visible sample-content
 identity, one-use canary reservations that burn interrupted shards, sticky
-external anchor authority, rotating canary shard epochs, a portable writer
-lock, per-evaluation dataset rehashing, artifact-backed evidence checks,
+external anchor authority with HTTPS certificate pinning, rotating canary shard
+epochs, sequential alpha spending over signed promotion attempts, a portable
+writer lock, per-evaluation dataset rehashing, artifact-backed evidence checks,
 evaluator process and descriptor ceilings, and the first-party tabular adapter.
 This is source branch validation, not release qualification.
 
 Validation on the local macOS host:
 
-- RSI test files: **122 passed, 1 skipped**.
-- Focused recovery and trusted-evaluator tests: **53 passed**.
-- Full project suite: **173 passed, 1 skipped**.
+- RSI test files: **127 passed, 1 skipped**.
+- Focused recovery and trusted-evaluator tests: **57 passed**.
+- Full project suite: **178 passed, 1 skipped**.
 - `python -m compileall -q aide`: passed.
 - `python setup.py -q sdist`: passed; `python setup.py --version` returned
   `1.3.5`.
 - Black: passed for modified Python files.
-- Ruff: passed for all changed Python source and test files.
+- Ruff: passed for changed RSI security source and tests. The config module was
+  checked with its pre-existing local-version findings excluded.
 - The first-party candidate boundary and outer-timeout cleanup ran under macOS
   Seatbelt.
+- A 100-attempt interrupted-canary simulation retained all retired sample
+  identities after reservation-file deletion.
+- Sequential alpha-spending and dynamically increasing minimum paired runs
+  passed deterministic gate tests.
+- HTTPS anchor pin tests confirmed a wrong certificate is rejected before the
+  bearer credential is sent.
 
-GitHub Actions checked commit `18167f8` on the platform-specific paths:
+Hosted validation for this source revision is pending. GitHub Actions checked
+the prior implementation commit `18167f8` on the platform-specific paths:
 
 - [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36841501712): passed.
 - [Linux Bubblewrap isolation](https://github.com/dawsonblock/Xx/actions/runs/36841501818): passed.

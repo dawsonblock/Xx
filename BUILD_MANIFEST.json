@@ -80,18 +80,22 @@
       "Windows CI smoke test for state import and exclusive writer lock",
       "trusted evaluator RLIMIT_NPROC and RLIMIT_NOFILE ceilings",
       "correct 128 MiB minimum memory validation",
-      "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels"
+      "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels",
+      "HTTPS state anchors require an out-of-band TLS leaf-certificate SHA-256 pin, verified before bearer credentials are sent",
+      "sequential canary promotion uses a durable attempt index and a summable exact sign-test alpha-spending schedule",
+      "canary repetition count grows to meet the current sequential sign-test threshold",
+      "100-attempt interrupted-canary recovery test preserves retired sample identities after reservation deletion"
     ],
     "validation": {
-      "full_project_pytest": "173 passed, 1 skipped (macOS local)",
-      "rsi_pytest": "122 passed, 1 skipped (macOS local)",
-      "focused_recovery_and_evaluator_pytest": "53 passed",
+      "full_project_pytest": "178 passed, 1 skipped (macOS local)",
+      "rsi_pytest": "127 passed, 1 skipped (macOS local)",
+      "focused_recovery_and_evaluator_pytest": "57 passed (macOS local)",
       "source_distribution_build": "passed for current source; setup.py --version remains 1.3.5",
-      "ruff": "passed for modified RSI security source and tests; config.py has pre-existing findings under the local newer Ruff release",
+      "ruff": "passed for modified RSI security source and tests; aide/utils/config.py checked with pre-existing local-version findings excluded",
       "black": "passed for changed Python files",
-      "compileall": "passed for aide",
-      "platform_scope": "macOS local full suite, hosted macOS nested-timeout, Linux Bubblewrap, and Windows writer-lock checks passed on commit 18167f8",
-      "hosted_workflows": {
+      "compileall": "passed for aide and tests",
+      "platform_scope": "current source local validation passed; hosted platform checks pending for the current source revision; older workflow links apply to 18167f8 only",
+      "previous_commit_hosted_workflows": {
         "macos_nested_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36841501712",
         "linux_bubblewrap": "https://github.com/dawsonblock/Xx/actions/runs/36841501818",
         "windows_state_lock": "https://github.com/dawsonblock/Xx/actions/runs/36841501831",
@@ -127,6 +131,8 @@
     "replay cannot generate unseen branch outcomes",
     "JEV is advisory/shadow by default",
     "Linux Bubblewrap evaluator confinement and resource limits must be integration-tested on the deployment host",
-    "separate validation and one-shot qualification datasets are not implemented; replay qualification uses the same pinned search measurements"
+    "separate validation and one-shot qualification datasets are not implemented; replay qualification uses the same pinned search measurements",
+    "sequential alpha spending assumes valid per-attempt paired sign-test p-values; independence across rollout seeds and tasks has not been qualified",
+    "HTTPS anchor certificate renewal requires an explicit pin migration; the repository does not provide an anchor service"
   ]
 }

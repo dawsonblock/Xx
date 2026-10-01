@@ -31,7 +31,18 @@ authority changes fail closed.
 Once a run uses external state anchoring, every later launch must provide the
 same anchor authority URL and ID. Disabling or replacing that anchor is
 rejected. Older anchored state without a signed authority URL hash requires an
-explicit operator migration.
+explicit operator migration. HTTPS anchors now also require the exact
+out-of-band TLS leaf-certificate fingerprint through
+`AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256`; certificate renewal requires an
+explicit operator pin migration.
+
+The canary attempt index is HMAC-authenticated and monotonic. Upgrading a run
+without that field seeds it conservatively from its last completed round; a
+fresh experiment begins at zero. Each reserved canary increments the index
+before evaluation. The default 0.05 family-wise budget uses
+`alpha_i = 0.05 / (i * (i + 1))`, and the runner adds paired repeats as needed
+for the exact sign-test resolution. A full signed-directory rollback can also
+roll back this index unless an external monotonic anchor is configured.
 
 ## Evaluator configuration
 

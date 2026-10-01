@@ -87,30 +87,37 @@ from producing conflicting transitions. Signed state detects edits, but a full
 rollback to an older valid experiment snapshot still requires an external
 monotonic checkpoint to detect. The optional external anchor client is enabled
 with `AIDE_RSI_STATE_ANCHOR_URL`, `AIDE_RSI_STATE_ANCHOR_TOKEN`, and a stable
-`AIDE_RSI_STATE_ANCHOR_ID`; the first anchored state pins a normalized anchor
-URL SHA-256. Later launches require that same anchor configuration and fail
-closed if it is absent or changed. This URL pin does not cryptographically pin
-the service's signing key or protect against DNS/TLS authority compromise.
+`AIDE_RSI_STATE_ANCHOR_ID`. HTTPS anchors also require an out-of-band leaf
+certificate fingerprint in `AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256`. The client
+checks the standard TLS chain and hostname, then verifies this exact pin before
+sending the bearer token. The first anchored state binds the normalized URL
+and pin, and later launches fail closed if either is absent or changed. Pin
+renewal requires operator action; loopback HTTP remains for protocol tests
+only.
 See [the anchor protocol](STATE_ANCHOR_PROTOCOL.md) for the required server
 semantics. This repository supplies the client and protocol tests, not a
 deployed checkpoint service.
 
 ## Canary promotion statistics
 
-Promotion requires at least five paired canary repetitions by default. The
-gate bootstraps the per-repeat normalized difference between the challenger
-and incumbent best scores, then requires its configured lower confidence bound
-to stay above the regression margin. It also requires the configured median
-effect size and passing fraction, and rejects a worst-pair regression beyond
-its ceiling. The default confidence level is 95%, median effect floor is zero,
-and worst-pair regression ceiling is 0.25 normalized units. Recovery signs and
-recomputes these settings with the decision.
+Promotion uses paired canary repetitions. A one-sided exact sign test spends
+the experiment-wide alpha budget as `alpha_i = alpha / (i * (i + 1))`, where
+the authenticated durable canary-attempt index `i` increases for each reserved
+shard. With the default 0.05 budget, at least six all-positive pairs are needed
+at attempt one and seven at attempt two; the runner expands the configured
+repeat count as needed. A deterministic bootstrap lower bound still enforces
+the non-inferiority margin. The default bootstrap confidence level is 95%, the
+median effect floor is zero, and the worst-pair regression ceiling is 0.25
+normalized units. Recovery signs and recomputes every gate setting with the
+decision.
 
-This interval describes variation across paired rollout repetitions. It is not
-a per-sample bootstrap and does not establish task-population generalization;
-the same retired canary shard is evaluated within a transaction. Independent
-generalization still depends on fresh, representative canary shards and a
-task-specific statistical design.
+The alpha schedule controls sequential false positives only when each attempt's
+sign-test assumptions hold, including independent paired rollout outcomes. The
+bootstrap describes variation across those rollout repetitions; neither method
+estimates task-population uncertainty or establishes generalization. The same
+retired canary shard is evaluated within a transaction. Multi-task and
+seed-level independence still require qualification on fresh representative
+shards.
 
 Replay development, validation, and qualification worlds are trajectory splits,
 not independent data holds. Replay qualification reuses measured scores and

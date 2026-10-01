@@ -110,7 +110,7 @@ Passing replay grants only `pending` status.
 
 ## Repeated paired online canary
 
-A pending challenger and incumbent run multiple fresh paired canaries with equal budgets and the incumbent-selected resource grid. Execution order alternates across repetitions. Promotion requires the configured fraction of pairs to pass and the median normalized delta to remain within the regression envelope.
+A pending challenger and incumbent run fresh paired canaries with equal budgets and the incumbent-selected resource grid. Execution order alternates across repetitions. A deterministic bootstrap lower bound enforces non-inferiority, while a one-sided exact sign test spends a total experiment alpha budget across sequential promotions. The signed attempt index determines the per-attempt alpha and minimum pair count; the runner increases repeats as the budget shrinks. Valid family-wise control depends on independent paired rollout outcomes and is not a claim of task-population generalization.
 
 Canary traces are evidence only and are not inserted into the discovery replay pool.
 

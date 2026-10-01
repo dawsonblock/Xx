@@ -152,6 +152,46 @@ def test_canary_confidence_gate_rejects_too_few_pairs_and_uncertainty():
     assert uncertain.lower_confidence_bound < -0.05
 
 
+def test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales():
+    first = RealCanaryGate(
+        min_pairs=5,
+        bootstrap_samples=1000,
+        experiment_alpha=0.05,
+        promotion_attempt_index=1,
+    )
+    assert first.min_pairs == 6
+    first_result = first.evaluate_series(
+        [(Journal(1.2), Journal(1.0)) for _ in range(first.min_pairs)]
+    )
+    assert first_result.passed
+    assert first_result.sign_test_p_value == pytest.approx(1 / 64)
+    assert first_result.sequential_alpha == pytest.approx(0.025)
+    assert first_result.promotion_attempt_index == 1
+
+    second = RealCanaryGate(
+        min_pairs=5,
+        bootstrap_samples=1000,
+        experiment_alpha=0.05,
+        promotion_attempt_index=2,
+    )
+    assert second.min_pairs == 7
+    six_pair_result = second.evaluate_series(
+        [(Journal(1.2), Journal(1.0)) for _ in range(6)]
+    )
+    assert not six_pair_result.passed
+    assert "too few paired" in six_pair_result.reason
+    second_result = second.evaluate_series(
+        [(Journal(1.2), Journal(1.0)) for _ in range(second.min_pairs)]
+    )
+    assert second_result.passed
+    assert second_result.sign_test_p_value == pytest.approx(1 / 128)
+    assert second_result.sign_test_p_value <= second_result.sequential_alpha
+
+    spent = sum(0.05 / (attempt * (attempt + 1)) for attempt in range(1, 100_001))
+    assert spent < 0.05
+    assert first.authority_config() != second.authority_config()
+
+
 class FakeEvaluator:
     def pareto_fitness(self, policy, worlds, beta_grid):
         # Candidate with higher exploit_weight wins on +1 worlds and loses badly

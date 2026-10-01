@@ -8,6 +8,7 @@ variables in the trusted AIDE host process:
 AIDE_RSI_STATE_ANCHOR_URL=https://anchor.example.internal
 AIDE_RSI_STATE_ANCHOR_TOKEN=<scoped bearer credential>
 AIDE_RSI_STATE_ANCHOR_ID=<stable experiment identifier>
+AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256=<64 lowercase hex certificate digest>
 ```
 
 An anchor requires HMAC-authenticated RSI state. The anchor ID must remain the
@@ -15,16 +16,21 @@ same if the experiment directory moves. The service must authorize that ID to
 this experiment and must not let the client delete, reset, or freely create
 replacement IDs. Keep its database and credentials outside the experiment
 directory and under a separate administrative boundary. Loopback HTTP is
-accepted for local protocol tests; deployed endpoints must use HTTPS.
+accepted for local protocol tests; deployed endpoints must use HTTPS and an
+out-of-band SHA-256 pin of the anchor's leaf TLS certificate. The client
+validates the normal TLS chain and hostname, then checks the exact certificate
+pin before sending the bearer credential. HTTPS without the pin fails at
+startup. Certificate renewal requires an explicit pin migration; the client
+does not learn a replacement certificate from the network.
 
 The first anchored state signs `anchor_required: true` and a SHA-256 identity
-of the normalized base URL. Every later load requires the anchor configuration
-to remain present and match that identity; removing the URL or pointing it at a
-replacement endpoint fails closed. Previously anchored state from the older
-schema, which did not store an authority identity, must be reviewed and
-re-enrolled rather than silently trusted. The URL hash is an endpoint pin, not a
-cryptographic service-key pin; protect DNS, TLS, and anchor administration as
-part of the deployment trust boundary.
+of the normalized base URL and configured TLS certificate pin. Every later
+load requires the anchor configuration to remain present and match that
+identity; removing the URL or TLS pin or pointing it at a replacement endpoint
+fails closed. Previously anchored state from the older schema, which did not
+store a TLS pin, must be reviewed and re-enrolled rather than silently trusted.
+For local loopback HTTP tests there is no TLS pin; do not use that mode for
+deployed promotion authority.
 
 ## API
 

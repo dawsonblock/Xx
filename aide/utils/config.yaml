@@ -169,6 +169,8 @@ rsi:
     min_effect_size: 0.0
     max_single_pair_regression: 0.25
     min_valid: 1
+    # Total one-sided sign-test error budget across sequential promotions.
+    experiment_alpha: 0.05
     # Absolute score scale used when incumbent scores are close to zero.
     score_scale_floor: 1.0
   # Optional LocalJevFabric/SystemOne advisory layer.  JEV never receives

@@ -30,6 +30,9 @@ class CanarySeriesResult:
     lower_confidence_bound: float | None
     reason: str
     pairs: tuple[CanaryResult, ...]
+    sign_test_p_value: float | None = None
+    sequential_alpha: float | None = None
+    promotion_attempt_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +42,9 @@ class CanarySeriesResult:
             "candidate_median_best": self.candidate_median_best,
             "incumbent_median_best": self.incumbent_median_best,
             "lower_confidence_bound": self.lower_confidence_bound,
+            "sign_test_p_value": self.sign_test_p_value,
+            "sequential_alpha": self.sequential_alpha,
+            "promotion_attempt_index": self.promotion_attempt_index,
             "reason": self.reason,
             "pairs": [asdict(x) for x in self.pairs],
         }
@@ -68,6 +74,8 @@ class RealCanaryGate:
         require_artifacts: bool = False,
         expected_evaluation_identity: dict[str, Any] | None = None,
         promotion_block_reason: str | None = None,
+        promotion_attempt_index: int | None = None,
+        experiment_alpha: float | None = None,
     ):
         self.max_normalized_regression = float(max_normalized_regression)
         if (
@@ -107,10 +115,38 @@ class RealCanaryGate:
         self.require_artifacts = bool(require_artifacts)
         self.expected_evaluation_identity = dict(expected_evaluation_identity or {})
         self.promotion_block_reason = promotion_block_reason
+        if (promotion_attempt_index is None) != (experiment_alpha is None):
+            raise ValueError(
+                "promotion_attempt_index and experiment_alpha must be configured together"
+            )
+        self.promotion_attempt_index: int | None = None
+        self.experiment_alpha: float | None = None
+        self.sequential_alpha: float | None = None
+        if promotion_attempt_index is not None:
+            if (
+                isinstance(promotion_attempt_index, bool)
+                or not isinstance(promotion_attempt_index, int)
+                or not 1 <= promotion_attempt_index <= 1_000_000_000
+            ):
+                raise ValueError("promotion_attempt_index must be a positive integer")
+            experiment_alpha = float(experiment_alpha)
+            if not math.isfinite(experiment_alpha) or not 0 < experiment_alpha < 1:
+                raise ValueError("experiment_alpha must be finite and in (0, 1)")
+            self.promotion_attempt_index = promotion_attempt_index
+            self.experiment_alpha = experiment_alpha
+            # This alpha-spending sequence sums to experiment_alpha over an
+            # unbounded number of promotions: alpha_i = alpha / (i * (i + 1)).
+            self.sequential_alpha = experiment_alpha / (
+                promotion_attempt_index * (promotion_attempt_index + 1)
+            )
+            exact_sign_pairs = max(1, math.ceil(math.log2(1.0 / self.sequential_alpha)))
+            while 2.0**-exact_sign_pairs > self.sequential_alpha:
+                exact_sign_pairs += 1
+            self.min_pairs = max(self.min_pairs, exact_sign_pairs)
 
     def authority_config(self) -> dict[str, Any]:
         """Return every setting that can affect a promotion decision."""
-        return {
+        config = {
             "max_normalized_regression": self.max_normalized_regression,
             "min_valid": self.min_valid,
             "min_pass_fraction": self.min_pass_fraction,
@@ -124,6 +160,13 @@ class RealCanaryGate:
             "expected_evaluation_identity": self.expected_evaluation_identity,
             "promotion_block_reason": self.promotion_block_reason,
         }
+        if self.promotion_attempt_index is not None:
+            config.update(
+                promotion_attempt_index=self.promotion_attempt_index,
+                experiment_alpha=self.experiment_alpha,
+                sequential_alpha=self.sequential_alpha,
+            )
+        return config
 
     @staticmethod
     def _journal_scores(
@@ -252,6 +295,9 @@ class RealCanaryGate:
                 None,
                 "no paired canary repetitions",
                 results,
+                None,
+                self.sequential_alpha,
+                self.promotion_attempt_index,
             )
         pass_fraction = sum(1 for r in results if r.passed) / len(results)
         deltas = [r.normalized_delta for r in results]
@@ -261,6 +307,13 @@ class RealCanaryGate:
         cmed = median(cvals) if cvals else None
         imed = median(ivals) if ivals else None
         finite_deltas = all(math.isfinite(delta) for delta in deltas)
+        sign_test_p_value = None
+        if finite_deltas:
+            positive_pairs = sum(delta > 0.0 for delta in deltas)
+            sign_test_p_value = sum(
+                math.comb(len(deltas), k)
+                for k in range(positive_pairs, len(deltas) + 1)
+            ) / (2 ** len(deltas))
         lower_bound = None
         if finite_deltas and len(deltas) >= self.min_pairs:
             rng = random.Random(0)
@@ -281,12 +334,16 @@ class RealCanaryGate:
         confidence_ok = (
             lower_bound is not None and lower_bound >= -self.max_normalized_regression
         )
+        sequential_alpha_ok = self.sequential_alpha is None or (
+            sign_test_p_value is not None and sign_test_p_value <= self.sequential_alpha
+        )
         passed = (
             enough_pairs
             and worst_pair_ok
             and pass_fraction_ok
             and effect_ok
             and confidence_ok
+            and sequential_alpha_ok
         )
         if passed:
             reason = "paired canary passed bootstrap non-inferiority gate"
@@ -302,6 +359,8 @@ class RealCanaryGate:
             reason = "median paired canary effect did not meet minimum"
         elif not confidence_ok:
             reason = "bootstrap confidence bound did not meet regression margin"
+        elif not sequential_alpha_ok:
+            reason = "paired sign test exceeded the experiment alpha-spending budget"
         else:
             reason = "median paired canary regression exceeded limit"
         return CanarySeriesResult(
@@ -313,4 +372,7 @@ class RealCanaryGate:
             lower_bound,
             reason,
             results,
+            sign_test_p_value,
+            self.sequential_alpha,
+            self.promotion_attempt_index,
         )

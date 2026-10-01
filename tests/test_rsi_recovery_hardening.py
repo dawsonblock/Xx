@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from aide.journal import Journal, Node
+from aide.rsi import state as rsi_state_module
 from aide.rsi.artifacts import (
     candidate_digest,
     store_candidate,
@@ -152,6 +153,16 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
     )
 
 
+def test_signed_canary_attempt_counter_is_monotonic(tmp_path: Path):
+    store = RSIStateStore(tmp_path / "state.json", require_attestation=True)
+    store.write(canary_attempt_count=4)
+    assert store.load()["canary_attempt_count"] == 4
+    with pytest.raises(ValueError, match="cannot decrease"):
+        store.write(canary_attempt_count=3)
+    with pytest.raises(ValueError, match="cannot decrease"):
+        store.write(canary_attempt_count=True)
+
+
 def test_rsi_writer_lock_is_exclusive_and_released(tmp_path: Path):
     from aide.rsi.state import rsi_writer_lock
 
@@ -292,11 +303,75 @@ def test_external_anchor_is_sticky_and_bound_to_normalized_authority(tmp_path: P
                 anchor_url="https://replacement.invalid",
                 anchor_token=token,
                 anchor_id="sticky-experiment",
+                anchor_tls_certificate_sha256="0" * 64,
             ).load()
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_https_anchor_pins_certificate_before_sending_credentials(monkeypatch):
+    certificate = b"pinned anchor certificate"
+    certificate_sha256 = hashlib.sha256(certificate).hexdigest()
+    requests = []
+
+    class FakeSocket:
+        def getpeercert(self, *, binary_form):
+            assert binary_form is True
+            return certificate
+
+    class FakeResponse:
+        status = 200
+
+        def read(self, _limit):
+            return b'{"revision":1,"sha256":"' + b"a" * 64 + b'"}'
+
+    class FakeHTTPSConnection:
+        def __init__(self, *_args, **_kwargs):
+            self.sock = None
+
+        def connect(self):
+            self.sock = FakeSocket()
+
+        def request(self, method, path, *, body, headers):
+            requests.append((method, path, body, headers))
+
+        def getresponse(self):
+            return FakeResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        rsi_state_module.http.client,
+        "HTTPSConnection",
+        FakeHTTPSConnection,
+    )
+    with pytest.raises(ValueError, match="out-of-band TLS certificate"):
+        rsi_state_module._RemoteStateAnchor(
+            "https://anchor.example", "credential", "experiment"
+        )
+
+    untrusted = rsi_state_module._RemoteStateAnchor(
+        "https://anchor.example",
+        "credential",
+        "experiment",
+        "0" * 64,
+    )
+    with pytest.raises(RuntimeError, match="certificate pin mismatch"):
+        untrusted.read()
+    assert requests == []
+
+    trusted = rsi_state_module._RemoteStateAnchor(
+        "https://anchor.example",
+        "credential",
+        "experiment",
+        certificate_sha256,
+    )
+    assert trusted.read() == {"revision": 1, "sha256": "a" * 64}
+    assert requests[0][3]["Authorization"] == "Bearer credential"
+    assert trusted.authority_sha256 != untrusted.authority_sha256
 
 
 def test_incomplete_canary_recovery_burns_shard_and_clears_pending(tmp_path: Path):
@@ -340,6 +415,124 @@ def test_incomplete_canary_recovery_burns_shard_and_clears_pending(tmp_path: Pat
     assert recovered["consumed_canary_public_input_sha256"] == ["a" * 64]
     assert recovered["last_canary"]["status"] == "aborted"
     assert not (rsi_dir / "pending_policy.json").exists()
+
+
+def test_recovery_rejects_canary_from_another_sequential_attempt(tmp_path: Path):
+    rsi_dir = tmp_path / "rsi"
+    canary_root = tmp_path / "round-000" / "canary"
+    rsi_dir.mkdir(parents=True)
+    canary_root.mkdir(parents=True)
+    incumbent = PolicyGenome(beta=0.2)
+    challenger = PolicyGenome(beta=0.8)
+    incumbent.save(rsi_dir / "incumbent_policy.json")
+    challenger.save(rsi_dir / "pending_policy.json")
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
+    state_store.write(
+        phase="CANARY_RUNNING",
+        current_round=0,
+        next_round=0,
+        incumbent_digest=_policy_digest(incumbent),
+        pending_digest=_policy_digest(challenger),
+        canary_attempt_count=2,
+    )
+    (canary_root / "transaction.json").write_text(
+        json.dumps(
+            sign_canary_transaction(
+                {
+                    "round": 0,
+                    "repeats": 1,
+                    "incumbent": incumbent.to_dict(),
+                    "challenger": challenger.to_dict(),
+                    "incumbent_digest": _policy_digest(incumbent),
+                    "candidate_digest": _policy_digest(challenger),
+                    "evaluation_sample_ids": [],
+                    "evaluation_sample_content_sha256": [],
+                    "evaluation_sample_public_input_sha256": [],
+                    "promotion_attempt_index": 1,
+                }
+            )
+        )
+    )
+    (canary_root / "decision.json").write_text("{}")
+
+    with pytest.raises(ValueError, match="promotion attempt is not authorized"):
+        _recover_canary_transaction(
+            state=state_store.load(),
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            canary_gate=RealCanaryGate(
+                promotion_attempt_index=2,
+                experiment_alpha=0.05,
+            ),
+        )
+
+
+def test_long_sequence_of_interrupted_canaries_never_restores_retired_samples(
+    tmp_path: Path,
+):
+    rsi_dir = tmp_path / "logs" / "rsi"
+    base_log = rsi_dir.parent
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
+    gate = RealCanaryGate()
+    retired_ids: set[str] = set()
+    retired_content: set[str] = set()
+    retired_public: set[str] = set()
+
+    for attempt in range(1, 101):
+        sample_id = f"canary-sample-{attempt:03d}"
+        content_hash = f"{attempt:064x}"
+        public_hash = f"{attempt + 1000:064x}"
+        retired_ids.add(sample_id)
+        retired_content.add(content_hash)
+        retired_public.add(public_hash)
+        challenger = PolicyGenome(beta=0.5)
+        challenger.save(rsi_dir / "pending_policy.json")
+        canary_root = base_log / f"round-{attempt - 1:03d}" / "canary"
+        canary_root.mkdir(parents=True)
+        transaction_path = canary_root / "transaction.json"
+        transaction_path.write_text(
+            json.dumps(
+                sign_canary_transaction(
+                    {
+                        "round": attempt - 1,
+                        "evaluation_sample_ids": [sample_id],
+                        "evaluation_sample_content_sha256": [content_hash],
+                        "evaluation_sample_public_input_sha256": [public_hash],
+                    }
+                )
+            )
+        )
+        state = state_store.write(
+            phase="CANARY_RUNNING",
+            current_round=attempt - 1,
+            next_round=attempt - 1,
+            pending_digest="c" * 64,
+            canary_attempt_count=attempt,
+            consumed_canary_sample_ids=sorted(retired_ids),
+            consumed_canary_sample_content_sha256=sorted(retired_content),
+            consumed_canary_public_input_sha256=sorted(retired_public),
+        )
+
+        recovered = _recover_canary_transaction(
+            state=state,
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            canary_gate=gate,
+        )
+        assert recovered["phase"] == "IDLE"
+        assert recovered["canary_attempt_count"] == attempt
+        assert recovered["last_canary"]["status"] == "aborted"
+        assert not (rsi_dir / "pending_policy.json").exists()
+
+        # Removing all per-round evidence still cannot resurrect the reserved
+        # candidate-visible content because authenticated state holds retirement.
+        transaction_path.unlink()
+        recovered_ids, recovered_content, recovered_public = _used_canary_retirements(
+            base_log, state_store.load()
+        )
+        assert recovered_ids == retired_ids
+        assert recovered_content == retired_content
+        assert recovered_public == retired_public
     assert (canary_root / "aborted.json").is_file()
 
 

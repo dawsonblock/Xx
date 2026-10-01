@@ -116,6 +116,9 @@ class RSICanaryConfig:
     max_normalized_regression: float = 0.05
     min_valid: int = 1
     score_scale_floor: float = 1.0
+    # Family-wise false-positive budget for sequential promotions. Spending is
+    # durably indexed by canary attempt in authenticated experiment state.
+    experiment_alpha: float = 0.05
 
 
 @dataclass
