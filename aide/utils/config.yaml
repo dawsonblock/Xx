@@ -154,6 +154,8 @@ rsi:
     max_memory_mb: 4096
     max_processes: 2048
     max_open_files: 256
+    # Increment exactly once for each fresh canary data/split shard.
+    shard_epoch: 0
   canary:
     attempts: 4
     # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to

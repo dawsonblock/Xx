@@ -54,8 +54,8 @@ def _policy_digest(genome: PolicyGenome | None) -> str | None:
 
 def _used_canary_retirements(
     base_log: Path, durable_state: dict[str, Any] | None = None
-) -> tuple[set[str], set[str]]:
-    """Recover consumed IDs and content identities from state and reservations."""
+) -> tuple[set[str], set[str], set[str]]:
+    """Recover IDs, full records, and candidate-visible identities."""
     sample_ids = (durable_state or {}).get("consumed_canary_sample_ids", [])
     if not isinstance(sample_ids, list) or any(
         not isinstance(sample_id, str) or not sample_id for sample_id in sample_ids
@@ -73,6 +73,15 @@ def _used_canary_retirements(
     ):
         raise ValueError("durable canary content retirement set is invalid")
     used_content: set[str] = set(content_hashes)
+    public_hashes = (durable_state or {}).get("consumed_canary_public_input_sha256", [])
+    if not isinstance(public_hashes, list) or any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+        for value in public_hashes
+    ):
+        raise ValueError("durable canary public-input retirement set is invalid")
+    used_public: set[str] = set(public_hashes)
     for path in base_log.glob("round-*/canary/transaction.json"):
         if path.is_symlink() or not path.is_file():
             raise ValueError("canary transaction must be a regular file")
@@ -99,7 +108,20 @@ def _used_canary_retirements(
         ):
             raise ValueError("canary reservation ledger has invalid content hashes")
         used_content.update(transaction_content)
-    return used, used_content
+        transaction_public = transaction.get(
+            "evaluation_sample_public_input_sha256", []
+        )
+        if not isinstance(transaction_public, list) or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(char not in "0123456789abcdef" for char in value)
+            for value in transaction_public
+        ):
+            raise ValueError(
+                "canary reservation ledger has invalid public-input hashes"
+            )
+        used_public.update(transaction_public)
+    return used, used_content, used_public
 
 
 def _used_canary_sample_ids(
@@ -114,10 +136,58 @@ def _canary_shard_overlaps_retired(
     content_hashes: set[str] | frozenset[str] | None,
     used_ids: set[str],
     used_content_hashes: set[str],
+    public_input_hashes: set[str] | frozenset[str] | None = None,
+    used_public_input_hashes: set[str] | None = None,
 ) -> bool:
     return bool(
-        set(sample_ids) & used_ids or (set(content_hashes or ()) & used_content_hashes)
+        set(sample_ids) & used_ids
+        or (set(content_hashes or ()) & used_content_hashes)
+        or (set(public_input_hashes or ()) & set(used_public_input_hashes or ()))
     )
+
+
+def _validate_canary_shard_rotation(
+    *,
+    state: dict[str, Any],
+    canary_evaluator,
+    shard_identity: str | None,
+    shard_epoch: int,
+    base_log: Path,
+) -> None:
+    """Validate one explicit, monotonic rotation to a fresh canary shard."""
+    stored_identity = state.get("canary_shard_identity")
+    stored_epoch = state.get("canary_shard_epoch")
+    if isinstance(stored_epoch, bool) or not isinstance(stored_epoch, int):
+        raise TypeError("durable canary shard epoch must be an integer")
+    if stored_identity == shard_identity:
+        if shard_epoch != stored_epoch:
+            raise ValueError("canary shard_epoch changed without rotating the shard")
+        return
+    stored_authorities = _stored_evaluator_identity(state)
+    if not isinstance(stored_authorities, dict) or stored_authorities.get(
+        "canary"
+    ) != getattr(canary_evaluator, "authority_identity", None):
+        raise ValueError("canary evaluator authority changed during shard rotation")
+    if state.get("phase") == "CANARY_RUNNING":
+        raise ValueError(
+            "cannot rotate canary shards while a canary transaction is active"
+        )
+    if shard_identity is None or canary_evaluator is None:
+        raise ValueError("canary shard rotation requires an enabled canary evaluator")
+    if shard_epoch != stored_epoch + 1:
+        raise ValueError("a fresh canary shard requires shard_epoch to increase by one")
+    retired_ids, retired_full, retired_public = _used_canary_retirements(
+        base_log, state
+    )
+    if _canary_shard_overlaps_retired(
+        canary_evaluator.evaluation_sample_ids or (),
+        canary_evaluator.evaluation_sample_content_sha256,
+        retired_ids,
+        retired_full,
+        canary_evaluator.evaluation_sample_public_input_sha256,
+        retired_public,
+    ):
+        raise ValueError("new canary shard reuses retired evaluation samples")
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -207,6 +277,16 @@ def _recover_canary_transaction(
     transaction_path = canary_root / "transaction.json"
     decision_path = canary_root / "decision.json"
     if not (transaction_path.exists() and decision_path.exists()):
+        if phase == "CANARY_RUNNING":
+            return _abort_canary_recovery(
+                state=state,
+                state_store=state_store,
+                rsi_dir=rsi_dir,
+                round_no=round_no,
+                reason="incomplete_canary_burned_shard",
+                transaction_present=transaction_path.is_file(),
+                decision_present=decision_path.is_file(),
+            )
         return state
     if transaction_path.is_symlink() or decision_path.is_symlink():
         raise ValueError("canary recovery evidence must be regular files")
@@ -216,6 +296,63 @@ def _recover_canary_transaction(
         raise TypeError("invalid canary recovery record")
     if not has_valid_canary_transaction(transaction):
         raise ValueError("canary transaction has no valid host attestation")
+    transaction_sample_ids = transaction.get("evaluation_sample_ids", [])
+    transaction_full_hashes = transaction.get("evaluation_sample_content_sha256", [])
+    transaction_public_hashes = transaction.get(
+        "evaluation_sample_public_input_sha256", []
+    )
+    if not isinstance(transaction_sample_ids, list) or any(
+        not isinstance(value, str) or not value for value in transaction_sample_ids
+    ):
+        raise ValueError("canary transaction has invalid evaluation sample IDs")
+    for name, values in (
+        ("full-record", transaction_full_hashes),
+        ("public-input", transaction_public_hashes),
+    ):
+        if not isinstance(values, list) or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(char not in "0123456789abcdef" for char in value)
+            for value in values
+        ):
+            raise ValueError(f"canary transaction has invalid {name} sample hashes")
+    if not set(transaction_sample_ids) <= set(
+        state.get("consumed_canary_sample_ids", [])
+    ):
+        raise ValueError("canary transaction samples were not durably reserved")
+    if not set(transaction_full_hashes) <= set(
+        state.get("consumed_canary_sample_content_sha256", [])
+    ):
+        raise ValueError("canary transaction record hashes were not durably reserved")
+    if not set(transaction_public_hashes) <= set(
+        state.get("consumed_canary_public_input_sha256", [])
+    ):
+        raise ValueError("canary transaction public inputs were not durably reserved")
+    transaction_shard_fields = {
+        "canary_authority_identity",
+        "canary_shard_identity",
+        "canary_shard_epoch",
+    }
+    present_shard_fields = transaction_shard_fields.intersection(transaction)
+    if present_shard_fields and present_shard_fields != transaction_shard_fields:
+        raise ValueError("canary transaction has incomplete shard identity")
+    if present_shard_fields:
+        stored_authorities = _stored_evaluator_identity(state)
+        expected_identity = canary_gate.expected_evaluation_identity.get(
+            "trusted_evaluator_identity"
+        )
+        if (
+            not isinstance(stored_authorities, dict)
+            or transaction["canary_authority_identity"]
+            != stored_authorities.get("canary")
+            or transaction["canary_shard_identity"]
+            != state.get("canary_shard_identity")
+            or transaction["canary_shard_identity"] != expected_identity
+            or transaction["canary_shard_epoch"] != state.get("canary_shard_epoch")
+        ):
+            raise ValueError(
+                "canary transaction shard is not authorized by durable state"
+            )
     incumbent = PolicyGenome.from_dict(transaction["incumbent"])
     challenger = PolicyGenome.from_dict(transaction["challenger"])
     if _policy_digest(incumbent) != transaction.get("incumbent_digest"):
@@ -250,8 +387,8 @@ def _recover_canary_transaction(
             raise ValueError("canary challenger is not authorized by durable state")
         incumbent_path = rsi_dir / "incumbent_policy.json"
         pending_path = rsi_dir / "pending_policy.json"
-        if not incumbent_path.is_file() or not pending_path.is_file():
-            raise ValueError("authorized canary policies are missing during recovery")
+        if not incumbent_path.is_file():
+            raise ValueError("authorized incumbent policy is missing during recovery")
         stored_incumbent_digest = _policy_digest(PolicyGenome.load(incumbent_path))
         # The live writer saves the winning policy immediately before committing
         # state. A crash in that narrow window can leave either authorized policy
@@ -263,8 +400,10 @@ def _recover_canary_transaction(
             raise ValueError(
                 "durable incumbent policy does not match canary transaction"
             )
-        if (
-            _policy_digest(PolicyGenome.load(pending_path))
+        if pending_path.exists() and (
+            pending_path.is_symlink()
+            or not pending_path.is_file()
+            or _policy_digest(PolicyGenome.load(pending_path))
             != transaction["candidate_digest"]
         ):
             raise ValueError("durable pending policy does not match canary transaction")
@@ -340,6 +479,41 @@ def _recover_canary_transaction(
     )
 
 
+def _abort_canary_recovery(
+    *,
+    state: dict[str, Any],
+    state_store: RSIStateStore,
+    rsi_dir: Path,
+    round_no: int,
+    reason: str,
+    transaction_present: bool,
+    decision_present: bool,
+) -> dict[str, Any]:
+    """Retire an uncertain canary attempt and remove challenger authority."""
+    try:
+        (rsi_dir / "pending_policy.json").unlink()
+    except FileNotFoundError:
+        pass
+    aborted = {
+        "status": "aborted",
+        "reason": reason,
+        "round": round_no,
+        "transaction_present": transaction_present,
+        "decision_present": decision_present,
+    }
+    state = state_store.write(
+        phase="IDLE",
+        current_round=round_no,
+        next_round=round_no,
+        pending_digest=None,
+        last_canary=aborted,
+    )
+    _write_json(
+        rsi_dir.parent / f"round-{round_no:03d}" / "canary" / "aborted.json", aborted
+    )
+    return state
+
+
 def _node_score(node: Any) -> float | None:
     metric = getattr(node, "metric", None)
     if (
@@ -379,6 +553,24 @@ def _validate_trusted_evaluator_roles(search, canary, task_metric) -> None:
             "trusted canary evaluator must use a different pinned dataset or split"
         )
     if search is not None and canary is not None:
+        search_ids = getattr(search, "evaluation_sample_ids", None)
+        canary_ids = getattr(canary, "evaluation_sample_ids", None)
+        if (
+            search_ids is not None
+            and canary_ids is not None
+            and set(search_ids).intersection(canary_ids)
+        ):
+            raise ValueError("trusted search and canary sample IDs overlap")
+        search_public = getattr(search, "evaluation_sample_public_input_sha256", None)
+        canary_public = getattr(canary, "evaluation_sample_public_input_sha256", None)
+        if (
+            search_public is not None
+            and canary_public is not None
+            and search_public.intersection(canary_public)
+        ):
+            raise ValueError(
+                "trusted canary evaluator contains duplicate candidate-visible input"
+            )
         search_content = getattr(search, "evaluation_sample_content_sha256", None)
         canary_content = getattr(canary, "evaluation_sample_content_sha256", None)
         if (
@@ -389,6 +581,14 @@ def _validate_trusted_evaluator_roles(search, canary, task_metric) -> None:
             raise ValueError(
                 "trusted canary evaluator contains duplicate sample content"
             )
+        search_task = getattr(search, "task_sha256", None)
+        canary_task = getattr(canary, "task_sha256", None)
+        if (
+            search_task is not None
+            and canary_task is not None
+            and search_task != canary_task
+        ):
+            raise ValueError("trusted search and canary task identities differ")
 
 
 def _stored_evaluator_identity(state: dict[str, Any]) -> Any:
@@ -698,30 +898,86 @@ def _run_rsi_unlocked() -> None:
 
     state_file_exists = state_store.path.exists()
     state = state_store.load()
+    configured_canary_epoch = getattr(cfg.rsi.canary_evaluator, "shard_epoch", 0)
+    if configured_canary_epoch is None:
+        configured_canary_epoch = 0
+    if isinstance(configured_canary_epoch, bool) or not isinstance(
+        configured_canary_epoch, int
+    ):
+        raise TypeError("canary_evaluator.shard_epoch must be an integer")
+    canary_epoch = configured_canary_epoch
+    if canary_epoch < 0:
+        raise ValueError("canary_evaluator.shard_epoch must be nonnegative")
     configured_evaluator_identity = {
+        "search": trusted_evaluator.identity if trusted_evaluator is not None else None,
+        "canary": (
+            canary_evaluator.authority_identity
+            if canary_evaluator is not None
+            else None
+        ),
+    }
+    configured_canary_shard_identity = (
+        canary_evaluator.identity if canary_evaluator is not None else None
+    )
+    stored_evaluator_identity = _stored_evaluator_identity(state)
+    existing_worlds = pool.load_all()
+    legacy_current_identity = {
         "search": trusted_evaluator.identity if trusted_evaluator is not None else None,
         "canary": canary_evaluator.identity if canary_evaluator is not None else None,
     }
-    stored_evaluator_identity = _stored_evaluator_identity(state)
-    existing_worlds = pool.load_all()
-    if configured_evaluator_identity != stored_evaluator_identity:
-        legacy_canary_upgrade = (
-            state_file_exists
-            and existing_worlds
-            and stored_evaluator_identity
-            == {
-                "search": configured_evaluator_identity["search"],
-                "canary": None,
-            }
-            and configured_evaluator_identity["canary"] is not None
-        )
-        if (state_file_exists or existing_worlds) and not legacy_canary_upgrade:
+    legacy_canary_upgrade = (
+        state_file_exists
+        and bool(existing_worlds)
+        and stored_evaluator_identity
+        == {
+            "search": configured_evaluator_identity["search"],
+            "canary": None,
+        }
+        and configured_evaluator_identity["canary"] is not None
+    )
+    identity_updates = {
+        "trusted_evaluator_identity": configured_evaluator_identity,
+        "canary_shard_identity": configured_canary_shard_identity,
+        "canary_shard_epoch": canary_epoch,
+    }
+    if stored_evaluator_identity is None:
+        if state_file_exists or existing_worlds:
             raise ValueError(
-                "trusted evaluator identity changed for an existing RSI run; "
-                "start a fresh experiment and split epoch"
+                "trusted evaluator identity is missing from an existing RSI run"
             )
-        state = state_store.write(
-            trusted_evaluator_identity=configured_evaluator_identity
+        state = state_store.write(**identity_updates)
+    elif stored_evaluator_identity == configured_evaluator_identity:
+        stored_shard = state.get("canary_shard_identity")
+        stored_epoch = state.get("canary_shard_epoch")
+        if "canary_shard_identity" not in state:
+            # Migrate an existing single-shard state only when it is still using
+            # the exact evaluator identity recorded by the prior schema.
+            if stored_evaluator_identity != legacy_current_identity:
+                raise ValueError(
+                    "legacy canary identity cannot be migrated after its shard changed"
+                )
+            state = state_store.write(**identity_updates)
+        elif stored_shard != configured_canary_shard_identity:
+            _validate_canary_shard_rotation(
+                state=state,
+                canary_evaluator=canary_evaluator,
+                shard_identity=configured_canary_shard_identity,
+                shard_epoch=canary_epoch,
+                base_log=base_log,
+            )
+            state = state_store.write(**identity_updates)
+        elif canary_epoch != stored_epoch:
+            raise ValueError("canary shard_epoch changed without rotating the shard")
+    elif legacy_canary_upgrade:
+        # The previous schema stored a full canary identity where this schema
+        # stores stable evaluator authority plus a separately rotating shard.
+        state = state_store.write(**identity_updates)
+    elif stored_evaluator_identity == legacy_current_identity:
+        state = state_store.write(**identity_updates)
+    else:
+        raise ValueError(
+            "trusted evaluator authority changed for an existing RSI run; "
+            "start a fresh experiment and split epoch"
         )
     canary_block_reason = None
     if trusted_evaluator is None or canary_evaluator is None:
@@ -738,6 +994,14 @@ def _run_rsi_unlocked() -> None:
     ):
         canary_block_reason = "search and canary evaluation samples overlap"
     elif (
+        trusted_evaluator.evaluation_sample_public_input_sha256 is not None
+        and canary_evaluator.evaluation_sample_public_input_sha256 is not None
+        and trusted_evaluator.evaluation_sample_public_input_sha256.intersection(
+            canary_evaluator.evaluation_sample_public_input_sha256
+        )
+    ):
+        canary_block_reason = "search and canary candidate-visible inputs overlap"
+    elif (
         trusted_evaluator.metric_id != canary_evaluator.metric_id
         or trusted_evaluator.metric_maximize != canary_evaluator.metric_maximize
         or trusted_evaluator.task_sha256 != canary_evaluator.task_sha256
@@ -746,7 +1010,9 @@ def _run_rsi_unlocked() -> None:
             "search and canary evaluators do not share task and metric identity"
         )
     if canary_evaluator is not None and canary_evaluator.evaluation_sample_ids:
-        used_ids, used_content_hashes = _used_canary_retirements(base_log, state)
+        used_ids, used_content_hashes, used_public_hashes = _used_canary_retirements(
+            base_log, state
+        )
         active = state.get("phase") == "CANARY_RUNNING"
         if (
             _canary_shard_overlaps_retired(
@@ -754,6 +1020,8 @@ def _run_rsi_unlocked() -> None:
                 canary_evaluator.evaluation_sample_content_sha256,
                 used_ids,
                 used_content_hashes,
+                canary_evaluator.evaluation_sample_public_input_sha256,
+                used_public_hashes,
             )
             and not active
         ):
@@ -780,12 +1048,28 @@ def _run_rsi_unlocked() -> None:
         ),
         promotion_block_reason=canary_block_reason,
     )
-    state = _recover_canary_transaction(
-        state=state,
-        state_store=state_store,
-        rsi_dir=rsi_dir,
-        canary_gate=canary_gate,
-    )
+    try:
+        state = _recover_canary_transaction(
+            state=state,
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            canary_gate=canary_gate,
+        )
+    except Exception as exc:
+        if state.get("phase") != "CANARY_RUNNING":
+            raise
+        # Invalid or partial signed evidence cannot authorize promotion. Burn
+        # the already-reserved shard and discard the challenger so restart never
+        # retries a result set that may have been observed.
+        state = _abort_canary_recovery(
+            state=state,
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            round_no=int(state.get("current_round", state.get("next_round", 0))),
+            reason=f"canary_recovery_rejected_{type(exc).__name__}",
+            transaction_present=False,
+            decision_present=False,
+        )
     retired_worlds = state.get("retired_qualification_worlds", [])
     if retired_worlds:
         split_manager.retire_qualification(list(retired_worlds))
@@ -877,9 +1161,6 @@ def _run_rsi_unlocked() -> None:
                 hard_max_width=cfg.rsi.hard_max_width,
                 hard_max_depth=cfg.rsi.hard_max_depth,
             )
-            state_store.write(
-                phase="CANARY_RUNNING", current_round=outer, next_round=outer
-            )
             canary_budget = min(
                 int(cfg.rsi.steps_per_round), max(1, int(cfg.rsi.canary.attempts))
             )
@@ -897,12 +1178,20 @@ def _run_rsi_unlocked() -> None:
                 and canary_evaluator.evaluation_sample_content_sha256 is not None
                 else []
             )
+            canary_public_hashes = (
+                sorted(canary_evaluator.evaluation_sample_public_input_sha256)
+                if canary_evaluator is not None
+                and canary_evaluator.evaluation_sample_public_input_sha256 is not None
+                else []
+            )
             consumed = set(state.get("consumed_canary_sample_ids", []))
             consumed.update(canary_sample_ids)
             consumed_content = set(
                 state.get("consumed_canary_sample_content_sha256", [])
             )
             consumed_content.update(canary_content_hashes)
+            consumed_public = set(state.get("consumed_canary_public_input_sha256", []))
+            consumed_public.update(canary_public_hashes)
             # Commit shard retirement to HMAC-authenticated state before any
             # evaluator can observe a canary score. Deleting transaction files
             # therefore cannot make a completed shard reusable.
@@ -912,6 +1201,7 @@ def _run_rsi_unlocked() -> None:
                 next_round=outer,
                 consumed_canary_sample_ids=sorted(consumed),
                 consumed_canary_sample_content_sha256=sorted(consumed_content),
+                consumed_canary_public_input_sha256=sorted(consumed_public),
             )
             _write_json(
                 canary_root / "transaction.json",
@@ -925,6 +1215,10 @@ def _run_rsi_unlocked() -> None:
                         "candidate_digest": _policy_digest(pending),
                         "evaluation_sample_ids": canary_sample_ids,
                         "evaluation_sample_content_sha256": canary_content_hashes,
+                        "evaluation_sample_public_input_sha256": canary_public_hashes,
+                        "canary_authority_identity": canary_evaluator.authority_identity,
+                        "canary_shard_identity": canary_evaluator.identity,
+                        "canary_shard_epoch": canary_epoch,
                     }
                 ),
             )

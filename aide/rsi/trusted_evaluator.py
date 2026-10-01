@@ -339,12 +339,16 @@ class TrustedEvaluator:
         entrypoint = str(getattr(config, "entrypoint", "evaluate.py") or "evaluate.py")
         self.reference_evaluator = entrypoint == REFERENCE_EVALUATOR_ENTRYPOINT
         self.evaluation_sample_content_sha256: frozenset[str] | None = None
+        self.evaluation_sample_public_input_sha256: frozenset[str] | None = None
         if self.reference_evaluator and self.evaluation_sample_ids is not None:
             try:
-                from .reference_evaluator import sample_content_sha256
+                from .reference_evaluator import sample_identity_sha256
 
                 pinned_config = json.loads(self.config_path.read_text(encoding="utf-8"))
-                self.evaluation_sample_content_sha256 = sample_content_sha256(
+                (
+                    self.evaluation_sample_public_input_sha256,
+                    self.evaluation_sample_content_sha256,
+                ) = sample_identity_sha256(
                     self.dataset_dir, pinned_config, self.evaluation_sample_ids
                 )
             except (
@@ -464,6 +468,7 @@ class TrustedEvaluator:
             }
         )
         self.identity = _stable_digest(self._identity_fields())
+        self.authority_identity = _stable_digest(self._authority_identity_fields())
 
     @staticmethod
     def _resolve_sandbox_backend(requested: str) -> str:
@@ -727,6 +732,17 @@ class TrustedEvaluator:
             "evaluator_config_sha256": self.config_sha256,
             "dataset_sha256": self.dataset_sha256,
             "split_sha256": self.split_sha256,
+            "environment_sha256": self.environment_sha256,
+            "metric_id": self.metric_id,
+            "metric_maximize": self.metric_maximize,
+        }
+
+    def _authority_identity_fields(self) -> dict[str, Any]:
+        """Stable evaluator/scoring authority, excluding rotating data shards."""
+        return {
+            "task_sha256": self.task_sha256,
+            "evaluator_sha256": self.evaluator_sha256,
+            "evaluator_config_sha256": self.config_sha256,
             "environment_sha256": self.environment_sha256,
             "metric_id": self.metric_id,
             "metric_maximize": self.metric_maximize,

@@ -1,5 +1,11 @@
 # Unreleased qualification manifest
 
+> Historical snapshot: the artifact digest and checksum inventory below were
+> generated from source revision `386b374a8643add87408adb30c88bf020f38ae0b`.
+> They do not cover the subsequent authority-closure fixes now on this branch.
+> The current source remains unreleased and requires a fresh build and
+> qualification manifest before any release.
+
 ## Artifact
 
 - Status: **unreleased; do not tag or publish**

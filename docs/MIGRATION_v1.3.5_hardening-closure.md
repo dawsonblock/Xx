@@ -12,13 +12,26 @@ closed on those records and does not migrate a pending challenger or recover a
 previous unsigned promotion. Preserve the old log directory for audit, and use
 a new log directory and split epoch for a run under this hardening branch.
 
-Keep the HMAC key stable for the lifetime of a hardened run. Canary sample IDs
-are now retired in HMAC-authenticated `rsi/state.json` before evaluation;
-deleting a round's `canary/transaction.json` cannot make them reusable. Do not
-restore an older version of the log directory. Configure
-canonical `evaluation_sample_ids` for both search and canary split manifests.
-Canary sample IDs are consumed as soon as a signed reservation is written,
-including when evaluation later crashes or fails.
+Keep the HMAC key stable for the lifetime of a hardened run. Canary sample IDs,
+full record hashes, and candidate-visible input hashes are retired in
+HMAC-authenticated `rsi/state.json` before evaluation; deleting a round's
+`canary/transaction.json` cannot make them reusable. If a running canary
+restarts without its complete signed decision, the shard is burned and the
+pending challenger is abandoned. Do not restore an older version of the log
+directory. Configure canonical `evaluation_sample_ids` for both search and
+canary split manifests.
+
+Canary evaluator authority is stored separately from its rotating data shard.
+To use another fresh shard in the same experiment, change the pinned canary
+split/data and increment `rsi.canary_evaluator.shard_epoch` by exactly one. The
+new shard must not overlap search samples or any retired canary ID, full record,
+or candidate-visible input hash. Skipped epochs, shard reuse, and evaluator
+authority changes fail closed.
+
+Once a run uses external state anchoring, every later launch must provide the
+same anchor authority URL and ID. Disabling or replacing that anchor is
+rejected. Older anchored state without a signed authority URL hash requires an
+explicit operator migration.
 
 ## Evaluator configuration
 

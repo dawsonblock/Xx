@@ -13,7 +13,11 @@ from aide.journal import Node
 from aide.rsi.artifacts import store_candidate
 from aide.rsi.canary import RealCanaryGate
 from aide.rsi.evidence import has_trusted_evaluation
-from aide.rsi.reference_evaluator import sample_content_sha256
+from aide.rsi.reference_evaluator import (
+    ReferenceEvaluatorError,
+    sample_content_sha256,
+    sample_identity_sha256,
+)
 from aide.rsi.runner import (
     _stored_evaluator_identity,
     _validate_trusted_evaluator_roles,
@@ -649,6 +653,9 @@ def test_reference_sample_content_detects_duplicate_rows_with_different_ids(
         metric_id="accuracy",
         metric_maximize=True,
         evaluation_sample_content_sha256=first,
+        evaluation_sample_public_input_sha256=sample_identity_sha256(
+            tmp_path, config, ("a",)
+        )[0],
     )
     canary = SimpleNamespace(
         dataset_sha256="c" * 64,
@@ -656,9 +663,113 @@ def test_reference_sample_content_detects_duplicate_rows_with_different_ids(
         metric_id="accuracy",
         metric_maximize=True,
         evaluation_sample_content_sha256=second,
+        evaluation_sample_public_input_sha256=sample_identity_sha256(
+            tmp_path, config, ("b",)
+        )[0],
     )
-    with pytest.raises(ValueError, match="duplicate sample content"):
+    with pytest.raises(ValueError, match="duplicate candidate-visible input"):
         _validate_trusted_evaluator_roles(search, canary, metric)
+
+
+def test_reference_public_identity_ignores_file_order_and_label_changes(tmp_path: Path):
+    (tmp_path / "f1.csv").write_text("id,x\na,1\nb,1\n")
+    (tmp_path / "f2.csv").write_text("id,x\na,2\nb,2\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,yes\nb,no\n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["f1.csv", "f2.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    first_public, first_full = sample_identity_sha256(tmp_path, config, ("a",))
+    reordered_public, reordered_full = sample_identity_sha256(
+        tmp_path, {**config, "public_files": ["f2.csv", "f1.csv"]}, ("a",)
+    )
+    assert first_public == reordered_public
+    assert first_full == reordered_full
+
+    (tmp_path / "labels.csv").write_text("id,label\na,changed\nb,no\n")
+    changed_public, changed_full = sample_identity_sha256(tmp_path, config, ("a",))
+    assert changed_public == first_public
+    assert changed_full != first_full
+    metric = SimpleNamespace(name="accuracy", maximize=True)
+    search = SimpleNamespace(
+        dataset_sha256="a" * 64,
+        split_sha256="b" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+        task_sha256="task",
+        evaluation_sample_public_input_sha256=first_public,
+        evaluation_sample_content_sha256=first_full,
+    )
+    canary = SimpleNamespace(
+        dataset_sha256="c" * 64,
+        split_sha256="d" * 64,
+        metric_id="accuracy",
+        metric_maximize=True,
+        task_sha256="task",
+        evaluation_sample_public_input_sha256=changed_public,
+        evaluation_sample_content_sha256=changed_full,
+    )
+    with pytest.raises(ValueError, match="candidate-visible"):
+        _validate_trusted_evaluator_roles(search, canary, metric)
+
+
+def test_reference_identity_preserves_file_names_when_columns_collide(tmp_path: Path):
+    (tmp_path / "f1.csv").write_text("id,x\na,1\n")
+    (tmp_path / "f2.csv").write_text("id,x\na,2\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,yes\n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["f1.csv", "f2.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    public_both, _ = sample_identity_sha256(tmp_path, config, ("a",))
+    public_first, _ = sample_identity_sha256(
+        tmp_path, {**config, "public_files": ["f1.csv"]}, ("a",)
+    )
+    assert public_both != public_first
+
+
+def test_reference_identity_rejects_duplicate_candidate_visible_rows(tmp_path: Path):
+    (tmp_path / "features.csv").write_text("id,x\na,1\nb,1\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,yes\nb,no\n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["features.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    with pytest.raises(ReferenceEvaluatorError, match="duplicate candidate-visible"):
+        sample_identity_sha256(tmp_path, config, ("a", "b"))
+
+
+def test_reference_identity_canonicalizes_csv_numeric_and_whitespace_values(
+    tmp_path: Path,
+):
+    (tmp_path / "features.csv").write_text("id,x\na, 1.000 \n")
+    (tmp_path / "labels.csv").write_text("id,label\na, yes \n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["features.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    first_public, first_full = sample_identity_sha256(tmp_path, config, ("a",))
+    (tmp_path / "features.csv").write_text("id,x\na,1e0\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,yes\n")
+    second_public, second_full = sample_identity_sha256(tmp_path, config, ("a",))
+    assert first_public == second_public
+    assert first_full == second_full
+
+
+def test_reference_identity_rejects_duplicate_csv_columns(tmp_path: Path):
+    (tmp_path / "features.csv").write_text("id,x,x\na,1,2\n")
+    (tmp_path / "labels.csv").write_text("id,label\na,yes\n")
+    config = {
+        "labels_file": "labels.csv",
+        "public_files": ["features.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    with pytest.raises(ReferenceEvaluatorError, match="duplicate columns"):
+        sample_identity_sha256(tmp_path, config, ("a",))
 
 
 def test_canary_evaluator_must_use_the_same_metric():
@@ -704,6 +815,23 @@ def test_evaluator_identity_binds_task_description_and_pinned_inputs(
     evaluator, _, _ = _make_evaluator(tmp_path, monkeypatch)
     assert evaluator.task_sha256 == _stable_digest({"Task goal": "test"})
     assert evaluator.identity == _stable_digest(evaluator._identity_fields())
+
+
+def test_evaluator_authority_identity_is_stable_across_split_rotation(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, _, config = _make_evaluator(tmp_path, monkeypatch)
+    next_split = tmp_path / "split-next.json"
+    next_split.write_text('{"partition":"qualification-v2"}\n')
+    config.split_manifest = str(next_split)
+    config.split_sha256 = file_sha256(next_split)
+    rotated = TrustedEvaluator(
+        config,
+        task_description={"Task goal": "test"},
+        artifact_root=evaluator.artifact_root,
+    )
+    assert rotated.identity != evaluator.identity
+    assert rotated.authority_identity == evaluator.authority_identity
 
 
 @pytest.mark.parametrize(

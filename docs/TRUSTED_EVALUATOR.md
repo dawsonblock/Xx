@@ -45,10 +45,13 @@ metric, result, and evaluation-record digest. Qualification, publication, and
 canary gates require the candidate, prediction, and evaluation objects to exist
 and match their hashes.
 
-Canary reservation records bind both policy digests, round, sample IDs, and
-repeat count under the host HMAC. This reservation is written before execution,
-so a shard remains consumed after a crash. A decision HMAC binds the reservation
-file hash, gate settings, paired journal hashes, and the computed gate result.
+Canary reservation records bind both policy digests, round, shard authority,
+shard identity, shard epoch, sample IDs, candidate-visible sample hashes, and
+repeat count under the host HMAC. The signed state retires those identities
+before evaluation. If a restart finds a running canary without both its signed
+reservation and decision, it abandons the challenger and burns the reserved
+shard; it never reruns that shard. A decision HMAC binds the reservation file
+hash, gate settings, paired journal hashes, and the computed gate result.
 Recovery checks that transaction policies match durable incumbent and pending
 state, verifies every signature and journal hash, and recomputes the gate before
 promotion. A plain `passed: true` record has no promotion authority.
@@ -61,23 +64,33 @@ not protected from compromise of the AIDE process or its account.
 
 ## Split independence and reuse
 
-When search and canary share a dataset, the evaluator requires canonical sample
-IDs and checks set intersection after Unicode NFC normalization, trimming, and
-duplicate rejection. For the first-party tabular adapter it also hashes the
-canonical feature row and label without the partition-local sample ID, then
-rejects content duplicates across evaluator roles. Custom evaluator formats
-receive ID-based checks only unless their adapter implements an equivalent
-content identity. Different JSON formatting or different split-file hashes do
-not establish sample independence. Canary IDs are committed to HMAC-authenticated
-durable state before evaluation, so deleting reservation files cannot restore
-them. Rotate to a fresh, disjoint canary shard before further promotion.
+Search and canary sample IDs are normalized with Unicode NFC and checked for
+overlap. The first-party tabular adapter also computes two identities without
+the partition-local sample ID: a candidate-visible hash over sorted relative
+file names, sorted columns, and canonical cell values, plus a full record hash
+that also binds the label. Candidate-visible hashes are checked across search
+and canary data and retired in signed state, so changing labels cannot conceal
+reused candidate inputs. Duplicate candidate-visible rows within a shard are
+rejected. Custom evaluator formats receive ID-based checks only unless their
+adapter implements equivalent content identities.
+
+Rotate a canary by changing its pinned split/data and incrementing
+`rsi.canary_evaluator.shard_epoch` by exactly one. The stable evaluator authority
+identity excludes the rotating dataset and split, while the full shard identity
+is recorded in signed state and each transaction. The runner rejects a changed
+authority, a skipped/reused epoch, overlap with search samples, or reuse of
+retired IDs and content hashes. The shard epoch is committed only after those
+checks pass.
 
 An exclusive per-log-directory writer lock prevents concurrent RSI controllers
 from producing conflicting transitions. Signed state detects edits, but a full
 rollback to an older valid experiment snapshot still requires an external
 monotonic checkpoint to detect. The optional external anchor client is enabled
 with `AIDE_RSI_STATE_ANCHOR_URL`, `AIDE_RSI_STATE_ANCHOR_TOKEN`, and a stable
-`AIDE_RSI_STATE_ANCHOR_ID`; it fails closed on anchor outages or mismatches.
+`AIDE_RSI_STATE_ANCHOR_ID`; the first anchored state pins a normalized anchor
+URL SHA-256. Later launches require that same anchor configuration and fail
+closed if it is absent or changed. This URL pin does not cryptographically pin
+the service's signing key or protect against DNS/TLS authority compromise.
 See [the anchor protocol](STATE_ANCHOR_PROTOCOL.md) for the required server
 semantics. This repository supplies the client and protocol tests, not a
 deployed checkpoint service.

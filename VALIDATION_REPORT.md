@@ -3,21 +3,28 @@
 ## Unreleased hardening closure branch
 
 Package metadata remains 1.3.5. This branch adds canary recovery authority
-closure, full-width policy identities, semantic sample disjointness, one-use
-canary reservations, per-evaluation dataset rehashing, artifact-backed evidence
-checks, evaluator process and descriptor ceilings, and the first-party tabular
-adapter. This is source branch validation, not release qualification.
+closure, full-width policy identities, candidate-visible sample-content
+identity, one-use canary reservations that burn interrupted shards, sticky
+external anchor authority, rotating canary shard epochs, a portable writer
+lock, per-evaluation dataset rehashing, artifact-backed evidence checks,
+evaluator process and descriptor ceilings, and the first-party tabular adapter.
+This is source branch validation, not release qualification.
 
 Validation on the local macOS host:
 
-- RSI test files: **102 passed, 1 skipped**.
-- Focused recovery, trusted-evaluator, and reference-evaluator tests: **38 passed**.
-- Full project suite: **153 passed, 1 skipped**.
+- RSI test files: **122 passed, 1 skipped**.
+- Focused recovery and trusted-evaluator tests: **53 passed**.
+- Full project suite: **173 passed, 1 skipped**.
 - `python -m compileall -q aide`: passed.
+- `python setup.py -q sdist`: passed; `python setup.py --version` returned
+  `1.3.5`.
 - Black: passed for modified Python files.
 - Ruff: passed for all changed Python source and test files.
-- The first-party candidate boundary ran under macOS Seatbelt.
-- Linux Bubblewrap execution was not run on this macOS host.
+- The first-party candidate boundary and outer-timeout cleanup ran under macOS
+  Seatbelt.
+- The previous revision's Linux Bubblewrap workflow passed; the current source
+  must pass the post-push workflow before its Linux behavior is considered
+  qualified. Windows writer-lock execution was not run on a Windows host.
 
 The remainder of this file records the v1.3.5 baseline and must not be read as
 validation of the unreleased changes above.

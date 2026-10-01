@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,20 @@ def _canonical_id(value: Any) -> str:
     return unicodedata.normalize("NFC", value.strip())
 
 
+def _canonical_cell(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ReferenceEvaluatorError("CSV cells must be present strings")
+    normalized = unicodedata.normalize("NFC", value.strip())
+    try:
+        number = Decimal(normalized)
+    except InvalidOperation:
+        return "text:" + normalized
+    if number.is_finite():
+        number = number.normalize()
+        return "number:" + (format(number, "f") if number else "0")
+    return "text:" + normalized
+
+
 def _sample_ids(split_path: Path) -> tuple[str, ...]:
     try:
         raw = json.loads(split_path.read_text(encoding="utf-8"))
@@ -85,38 +100,59 @@ def _sample_ids(split_path: Path) -> tuple[str, ...]:
     return result
 
 
-def sample_content_sha256(
+def sample_identity_sha256(
     dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
-) -> frozenset[str]:
-    """Hash each tabular feature/label record without its partition-local ID."""
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return public-input and full-record hashes, independent of IDs and list order."""
     scoring = config.get("scoring", {})
     if not isinstance(scoring, dict):
         raise ReferenceEvaluatorError("scoring must be an object")
-    id_column = scoring.get("id_column", "id")
-    label_column = scoring.get("label_column", "label")
+    id_column = unicodedata.normalize("NFC", scoring.get("id_column", "id"))
+    label_column = unicodedata.normalize("NFC", scoring.get("label_column", "label"))
     labels_relative = _safe_relative(config.get("labels_file"), field="labels_file")
     labels_path = (dataset_root / labels_relative).resolve(strict=True)
     if not labels_path.is_file() or not labels_path.is_relative_to(dataset_root):
         raise ReferenceEvaluatorError("labels_file must be a dataset file")
     try:
         with labels_path.open("r", newline="", encoding="utf-8") as stream:
-            label_rows = list(csv.DictReader(stream))
+            reader = csv.DictReader(stream)
+            headers = reader.fieldnames or []
+            normalized_headers = [
+                unicodedata.normalize("NFC", name) for name in headers
+            ]
+            if (
+                not headers
+                or len(set(normalized_headers)) != len(normalized_headers)
+                or id_column not in normalized_headers
+                or label_column not in normalized_headers
+            ):
+                raise ReferenceEvaluatorError("trusted label file has invalid columns")
+            id_header = headers[normalized_headers.index(id_column)]
+            label_header = headers[normalized_headers.index(label_column)]
+            label_rows = list(reader)
         label_by_id: dict[str, str] = {}
         for row in label_rows:
-            sample_id = _canonical_id(row[id_column])
+            if None in row or any(value is None for value in row.values()):
+                raise ReferenceEvaluatorError("trusted label file has malformed rows")
+            sample_id = _canonical_id(row[id_header])
             if sample_id in label_by_id:
                 raise ReferenceEvaluatorError(
                     "trusted label file contains duplicate IDs"
                 )
-            label_by_id[sample_id] = row[label_column]
-        feature_rows: dict[str, dict[str, str]] = {}
+            label_by_id[sample_id] = _canonical_cell(row[label_header])
+        feature_rows: dict[str, dict[str, dict[str, str]]] = {}
         public_files = config.get("public_files")
         if not isinstance(public_files, list) or not public_files:
             raise ReferenceEvaluatorError(
                 "public_files must list at least one feature file"
             )
+        seen_paths: set[str] = set()
         for value in public_files:
             relative = _safe_relative(value, field="public_files entry")
+            canonical_path = unicodedata.normalize("NFC", relative.as_posix())
+            if canonical_path in seen_paths:
+                raise ReferenceEvaluatorError("public_files contains duplicate paths")
+            seen_paths.add(canonical_path)
             feature_path = (dataset_root / relative).resolve(strict=True)
             if not feature_path.is_file() or not feature_path.is_relative_to(
                 dataset_root
@@ -130,25 +166,38 @@ def sample_content_sha256(
                 )
             seen_in_file: set[str] = set()
             with feature_path.open("r", newline="", encoding="utf-8") as stream:
-                for row in csv.DictReader(stream):
-                    sample_id = _canonical_id(row[id_column])
+                reader = csv.DictReader(stream)
+                if not reader.fieldnames:
+                    raise ReferenceEvaluatorError("public feature file has no header")
+                normalized_headers = [
+                    unicodedata.normalize("NFC", name) if name is not None else ""
+                    for name in reader.fieldnames
+                ]
+                if (
+                    any(not name for name in normalized_headers)
+                    or len(set(normalized_headers)) != len(normalized_headers)
+                    or id_column not in normalized_headers
+                ):
+                    raise ReferenceEvaluatorError(
+                        "public feature file has invalid or duplicate columns"
+                    )
+                id_header = reader.fieldnames[normalized_headers.index(id_column)]
+                for row in reader:
+                    if None in row or any(value is None for value in row.values()):
+                        raise ReferenceEvaluatorError(
+                            "public feature file has malformed rows"
+                        )
+                    sample_id = _canonical_id(row[id_header])
                     if sample_id in seen_in_file:
                         raise ReferenceEvaluatorError(
                             "public feature file contains duplicate IDs"
                         )
                     seen_in_file.add(sample_id)
-                    if sample_id in feature_rows:
-                        feature_rows[sample_id].update(
-                            {
-                                key: value
-                                for key, value in row.items()
-                                if key != id_column
-                            }
-                        )
-                    else:
-                        feature_rows[sample_id] = {
-                            key: value for key, value in row.items() if key != id_column
-                        }
+                    feature_rows.setdefault(sample_id, {})[canonical_path] = {
+                        unicodedata.normalize("NFC", key): _canonical_cell(value)
+                        for key, value in row.items()
+                        if key != id_header
+                    }
     except (OSError, UnicodeDecodeError, csv.Error, KeyError) as exc:
         raise ReferenceEvaluatorError(
             "sample content could not be canonicalized"
@@ -157,23 +206,48 @@ def sample_content_sha256(
         feature_rows
     ):
         raise ReferenceEvaluatorError("sample content is missing pinned IDs")
-    result = set()
+    public_hashes: set[str] = set()
+    full_hashes: set[str] = set()
     for sample_id in sample_ids:
-        canonical_features = {
-            unicodedata.normalize("NFC", key): unicodedata.normalize("NFC", value)
-            for key, value in feature_rows[sample_id].items()
+        public_payload = {
+            "files": {
+                filename: {
+                    column: feature_rows[sample_id][filename][column]
+                    for column in sorted(feature_rows[sample_id][filename])
+                }
+                for filename in sorted(feature_rows[sample_id])
+            }
         }
-        canonical = json.dumps(
+        canonical_public = json.dumps(
+            public_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        public_digest = hashlib.sha256(canonical_public.encode("utf-8")).hexdigest()
+        public_hashes.add(public_digest)
+        canonical_full = json.dumps(
             {
-                "features": canonical_features,
-                "label": unicodedata.normalize("NFC", label_by_id[sample_id]),
+                "public_input_sha256": public_digest,
+                "label": label_by_id[sample_id],
             },
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
         )
-        result.add(hashlib.sha256(canonical.encode("utf-8")).hexdigest())
-    return frozenset(result)
+        full_hashes.add(hashlib.sha256(canonical_full.encode("utf-8")).hexdigest())
+    if len(public_hashes) != len(sample_ids):
+        raise ReferenceEvaluatorError(
+            "evaluation shard contains duplicate candidate-visible rows"
+        )
+    return frozenset(public_hashes), frozenset(full_hashes)
+
+
+def sample_content_sha256(
+    dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
+) -> frozenset[str]:
+    """Compatibility helper returning full feature-and-label identities."""
+    return sample_identity_sha256(dataset_root, config, sample_ids)[1]
 
 
 def _safe_relative(value: Any, *, field: str) -> Path:

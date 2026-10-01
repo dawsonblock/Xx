@@ -142,6 +142,9 @@ class RSITrustedEvaluatorConfig:
     max_memory_mb: int = 4096
     max_processes: int = 2048
     max_open_files: int = 256
+    # Monotonically increase when rotating the canary data/split within one
+    # experiment. Search evaluator epochs are ignored.
+    shard_epoch: int = 0
 
 
 @dataclass

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +12,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .evidence import has_valid_rsi_state, sign_rsi_state
 
@@ -54,7 +58,19 @@ class _RemoteStateAnchor:
             raise ValueError("state anchor requires a URL and bearer token")
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", anchor_id):
             raise ValueError("state anchor ID contains unsupported characters")
-        self.url = base_url.rstrip("/") + "/v1/checkpoints/" + anchor_id
+        scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+        if port == (443 if scheme == "https" else 80):
+            port = None
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        netloc = host if port is None else f"{host}:{port}"
+        path = parsed.path.rstrip("/")
+        self.base_url = f"{scheme}://{netloc}{path}"
+        self.authority_sha256 = hashlib.sha256(
+            self.base_url.encode("utf-8")
+        ).hexdigest()
+        self.url = self.base_url + "/v1/checkpoints/" + anchor_id
         self.token = token
         self.opener = urllib.request.build_opener(_NoRedirect())
 
@@ -132,15 +148,34 @@ def rsi_writer_lock(path: str | Path):
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     fd = os.open(lock_path, flags, 0o600)
+    locked = False
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise RuntimeError("RSI writer lock must be a regular file")
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            if os.name == "nt":
+                # msvcrt locks a byte range. Ensure byte zero exists, then lock
+                # that stable range for the lifetime of the controller.
+                if os.fstat(fd).st_size == 0:
+                    os.write(fd, b"\0")
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except OSError as exc:
             raise RuntimeError("another RSI controller holds the writer lock") from exc
         yield
     finally:
+        if locked:
+            try:
+                if os.name == "nt":
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
         os.close(fd)
 
 
@@ -176,10 +211,35 @@ class RSIStateStore:
         )
 
     def _verify_anchor(self, raw: dict[str, Any]) -> None:
+        anchored = bool(
+            raw.get("anchor_required")
+            or "anchor_id" in raw
+            or "anchor_authority_sha256" in raw
+            or "anchor_revision" in raw
+        )
+        if anchored and self.anchor is None:
+            raise ValueError(
+                "anchored RSI state requires its configured external anchor"
+            )
         if self.anchor is None:
             return
+        if not anchored:
+            if self.anchor.read() is not None:
+                raise ValueError(
+                    "unanchored RSI state conflicts with an existing external anchor"
+                )
+            return
+        if anchored and not raw.get("anchor_authority_sha256"):
+            raise ValueError(
+                "anchored RSI state must be migrated to a pinned anchor authority"
+            )
         if raw.get("anchor_id") != self.anchor_id:
             raise ValueError("RSI state does not match configured external anchor")
+        if (
+            anchored
+            and raw.get("anchor_authority_sha256") != self.anchor.authority_sha256
+        ):
+            raise ValueError("RSI state does not match configured anchor authority")
         revision = raw.get("anchor_revision")
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
             raise ValueError("RSI state has an invalid external anchor revision")
@@ -230,17 +290,31 @@ class RSIStateStore:
 
     def write(self, **updates: Any) -> dict[str, Any]:
         raw = self.load()
+        protected_anchor_fields = {
+            "anchor_required",
+            "anchor_id",
+            "anchor_authority_sha256",
+            "anchor_revision",
+            "anchor_previous_revision",
+            "anchor_previous_sha256",
+        }
+        if protected_anchor_fields.intersection(updates):
+            raise ValueError("external anchor state fields are controller-managed")
         raw.update(updates)
         raw.setdefault("schema_version", 1)
         previous_revision = int(raw.get("anchor_revision", 0))
-        previous_digest = (
-            hashlib.sha256(self.path.read_bytes()).hexdigest()
-            if self.anchor is not None and self.path.exists()
-            else None
-        )
+        previous_digest = None
+        if (
+            self.anchor is not None
+            and self.path.exists()
+            and raw.get("anchor_required")
+        ):
+            previous_digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
         if self.anchor is not None:
             raw.update(
+                anchor_required=True,
                 anchor_id=self.anchor_id,
+                anchor_authority_sha256=self.anchor.authority_sha256,
                 anchor_revision=previous_revision + 1,
                 anchor_previous_revision=previous_revision,
                 anchor_previous_sha256=previous_digest,

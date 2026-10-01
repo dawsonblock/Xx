@@ -4,12 +4,12 @@
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
 Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The latest full local project run passed with **164 passed, 1
-skipped** on macOS after capping process and descriptor limits to host hard
-ceilings. The nested outer-timeout
-test passes locally and on a GitHub-hosted macOS runner. Linux Bubblewrap
-execution passed in a privileged container and in GitHub Actions, while
-deployment qualification remains open.
+archive. The latest full local project run passed with **173 passed, 1
+skipped** on macOS after the canary crash, rotation, anchor, and sample-identity
+fixes. The nested outer-timeout test passes locally and on a GitHub-hosted
+macOS runner. The prior Linux Bubblewrap workflow passed before these latest
+edits and must rerun against this commit. Windows lock execution has not been
+exercised on a Windows host. Deployment qualification remains open.
 
 ## Promotion and recovery authority
 
@@ -31,18 +31,34 @@ match their recorded content digests before publication, qualification, or
 canary acceptance. The HMAC covers the canonical evaluation record bytes and
 the artifact identity.
 
-Canary decisions use canonical evaluation sample IDs. The first-party tabular
-adapter also rejects matching canonical feature-row-plus-label hashes even when
-duplicate examples use different IDs. Canary IDs and available content hashes
-are committed to HMAC-authenticated durable state before evaluation and are
-included in signed reservation transactions. Deleting a round transaction
-cannot restore retired identities or permit the same tabular rows under new
-IDs. A per-log-directory exclusive lock prevents simultaneous controllers. The
-reference candidate workspace is read-only; Linux writable `/tmp` is a sized
-tmpfs, stdout is capped, and the adapter records the nested process group so
-outer timeout cleanup can kill it on macOS too. An integration test now forces
-an outer evaluator timeout while the nested candidate sleeps and verifies the
-candidate process group is gone.
+Canary reservations use canonical IDs, candidate-visible input hashes, and full
+record hashes. The first-party tabular adapter preserves sorted file names and
+column names, canonicalizes CSV scalar values, and rejects duplicate
+candidate-visible rows within a shard. Search/canary overlap checks ignore
+labels when comparing candidate-visible inputs, so relabeling cannot hide
+reused features. IDs and hashes are committed to HMAC-authenticated state
+before evaluation and included in signed transactions; deleting a reservation
+cannot restore retired identities. A running canary without a complete signed
+decision burns its shard and abandons its pending challenger. Recovery rejects
+incomplete or inconsistent evidence instead of rerunning the evaluation.
+
+Canary evaluator authority is separate from the rotating shard identity. An
+operator can install a new disjoint split within the same experiment by
+incrementing `rsi.canary_evaluator.shard_epoch` by one. The runner checks
+authority continuity and disjointness against search and retired canary data
+before signing the new shard identity into state. A per-log-directory exclusive
+lock prevents simultaneous controllers; its Windows implementation uses
+`msvcrt` rather than importing POSIX-only `fcntl`.
+
+The optional state anchor is sticky once enrolled. Signed state binds a
+normalized anchor URL hash and rejects launches that omit or replace that
+authority. This pins the endpoint string, not the service's cryptographic key;
+DNS, TLS, and anchor-service administration remain deployment trust
+assumptions. The reference candidate workspace is read-only; Linux writable
+`/tmp` is a sized tmpfs, stdout is capped, and the adapter records the nested
+process group so outer timeout cleanup can kill it on macOS too. An integration
+test forces an outer evaluator timeout while the nested candidate sleeps and
+verifies the candidate process group is gone.
 
 Canary promotion now requires five paired repeats, a deterministic 95% lower
 percentile bootstrap bound over per-repeat normalized best-score differences,
@@ -104,19 +120,23 @@ datasets remain open.
 
 ## Validation performed
 
-- Full local project suite after host-limit handling: `164 passed, 1 skipped`
+- Full local project suite with current source changes: `173 passed, 1 skipped`
   on macOS.
-- Recovery and trusted-evaluator focused suites: `44 passed`.
+- RSI test files with current source changes: `122 passed, 1 skipped` on macOS.
+- Focused recovery and trusted-evaluator suites: `53 passed` on macOS.
 - Nested reference-candidate outer-timeout integration: passed on the local
   macOS host and GitHub-hosted macOS.
 - Linux first-party adapter and Bubblewrap tests in a privileged Docker
   container: `4 passed`.
-- Package source distribution: passed at v1.3.5.
+- Package source distribution: passed for the current source; `setup.py --version`
+  remains `1.3.5`.
 - `python -m compileall -q aide`: passed.
 - Black on changed Python files: passed.
 - Ruff on changed Python source and tests: passed.
 - First-party candidate isolation exercised with macOS Seatbelt.
 - Linux Bubblewrap execution passed in the privileged Linux container; this
   macOS host cannot provide unprivileged namespaces directly.
-- GitHub Linux Bubblewrap workflow passed on the authority-closure branch; the
-  macOS nested-timeout hosted workflow passed after host-limit handling.
+- GitHub Linux Bubblewrap workflow passed on the preceding authority-closure
+  revision; rerun is pending for the current edits. The macOS nested-timeout
+  hosted workflow passed on the preceding revision, and the current local full
+  suite passed its timeout test.

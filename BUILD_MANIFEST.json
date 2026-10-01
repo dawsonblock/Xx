@@ -71,21 +71,26 @@
       "canary recovery bound to durable pending state, signed transaction and decision, journal digests, gate configuration, and gate recomputation",
       "durable RSI state HMAC-authenticated whenever a trusted evaluator role is enabled",
       "trusted evidence requires existing and digest-valid candidate, prediction, and evaluation artifacts",
-      "canonical evaluation sample IDs with semantic search/canary overlap rejection",
+      "canonical evaluation sample IDs and separate candidate-visible/full-record hashes with order-independent tabular identity",
       "dataset content reverified before and after every authoritative evaluation",
-      "one-use signed canary reservations with interrupted-transaction resume",
+      "one-use signed canary reservations that burn interrupted shards and abandon incomplete challengers",
+      "stable canary evaluator authority with explicit monotonic shard epochs for repeated promotions",
+      "sticky external state-anchor URL authority pinned by authenticated durable state",
+      "cross-platform exclusive RSI writer lock using flock on POSIX and msvcrt on Windows",
+      "Windows CI smoke test for state import and exclusive writer lock",
       "trusted evaluator RLIMIT_NPROC and RLIMIT_NOFILE ceilings",
       "correct 128 MiB minimum memory validation",
       "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels"
     ],
     "validation": {
-      "full_project_pytest": "153 passed, 1 skipped",
-      "rsi_pytest": "102 passed, 1 skipped",
-      "focused_recovery_and_evaluator_pytest": "38 passed",
-      "ruff": "passed for all changed Python source and tests",
+      "full_project_pytest": "173 passed, 1 skipped (macOS local)",
+      "rsi_pytest": "122 passed, 1 skipped (macOS local)",
+      "focused_recovery_and_evaluator_pytest": "53 passed",
+      "source_distribution_build": "passed for current source; setup.py --version remains 1.3.5",
+      "ruff": "passed for modified RSI security source and tests; config.py has pre-existing findings under the local newer Ruff release",
       "black": "passed for changed Python files",
       "compileall": "passed for aide",
-      "platform_scope": "macOS Seatbelt and first-party candidate isolation exercised; Linux Bubblewrap execution not exercised"
+      "platform_scope": "current source passed the macOS local full suite; hosted Linux Bubblewrap and Windows writer-lock reruns are pending"
     },
     "migration": "Existing unsigned v1.3.5 canary transactions cannot be trusted for recovery; start with a fresh RSI log directory and a fresh canary split epoch. See docs/MIGRATION_v1.3.5_hardening-closure.md.",
     "security_report": "SECURITY_HARDENING_REPORT.md"
@@ -105,7 +110,7 @@
   "known_limitations": [
     "first-party tabular hidden-data adapter is included; other task formats remain disabled until an operator supplies and pins a reviewed bundle",
     "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
-    "signed RSI state detects edits but does not prevent rollback of a complete older signed state and evidence snapshot without an external monotonic anchor",
+    "signed RSI state detects edits but does not prevent rollback of a complete older signed state and evidence snapshot unless the sticky external monotonic anchor is configured",
     "the HMAC signer is not a dedicated UID or signing service; host process compromise can expose the symmetric key",
     "replay-world splitting is not a holdout-data boundary; validation and qualification reuse discovery scores and do not establish untouched generalization",
     "the first-party candidate/label isolation adapter supports the documented tabular format; other task formats require a separately reviewed adapter",

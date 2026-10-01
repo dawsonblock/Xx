@@ -17,6 +17,15 @@ replacement IDs. Keep its database and credentials outside the experiment
 directory and under a separate administrative boundary. Loopback HTTP is
 accepted for local protocol tests; deployed endpoints must use HTTPS.
 
+The first anchored state signs `anchor_required: true` and a SHA-256 identity
+of the normalized base URL. Every later load requires the anchor configuration
+to remain present and match that identity; removing the URL or pointing it at a
+replacement endpoint fails closed. Previously anchored state from the older
+schema, which did not store an authority identity, must be reviewed and
+re-enrolled rather than silently trusted. The URL hash is an endpoint pin, not a
+cryptographic service-key pin; protect DNS, TLS, and anchor administration as
+part of the deployment trust boundary.
+
 ## API
 
 `GET /v1/checkpoints/{anchor_id}` returns the latest checkpoint:

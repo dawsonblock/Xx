@@ -28,6 +28,7 @@ from aide.rsi.runner import (
     _stable_digest,
     _used_canary_retirements,
     _used_canary_sample_ids,
+    _validate_canary_shard_rotation,
 )
 from aide.rsi.sandbox import SandboxLimits, SecureInterpreter
 from aide.rsi.state import RSIStateStore
@@ -116,6 +117,7 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
     state_store.write(
         consumed_canary_sample_ids=["canary-A"],
         consumed_canary_sample_content_sha256=[content_hash],
+        consumed_canary_public_input_sha256=["b" * 64],
     )
     transaction_path = base_log / "round-001" / "canary" / "transaction.json"
     transaction_path.parent.mkdir(parents=True)
@@ -125,6 +127,7 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
                 {
                     "evaluation_sample_ids": ["canary-A"],
                     "evaluation_sample_content_sha256": [content_hash],
+                    "evaluation_sample_public_input_sha256": ["b" * 64],
                 }
             )
         )
@@ -133,12 +136,16 @@ def test_signed_state_keeps_canary_samples_retired_after_reservation_deletion(
     assert _used_canary_retirements(base_log, state_store.load()) == (
         {"canary-A"},
         {content_hash},
+        {"b" * 64},
     )
     transaction_path.unlink()
     assert _used_canary_sample_ids(base_log, state_store.load()) == {"canary-A"}
-    used_ids, used_content = _used_canary_retirements(base_log, state_store.load())
+    used_ids, used_content, used_public = _used_canary_retirements(
+        base_log, state_store.load()
+    )
     assert used_ids == {"canary-A"}
     assert used_content == {content_hash}
+    assert used_public == {"b" * 64}
     # A row duplicated under a newly assigned ID remains retired by content.
     assert _canary_shard_overlaps_retired(
         {"renamed-canary-row"}, {content_hash}, used_ids, used_content
@@ -229,6 +236,162 @@ def test_external_state_anchor_rejects_rollback_and_deletion(tmp_path: Path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_external_anchor_is_sticky_and_bound_to_normalized_authority(tmp_path: Path):
+    checkpoints = {}
+    token = "anchor-test-token"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            checkpoint = checkpoints.get(self.path)
+            if checkpoint is None:
+                self.send_error(404)
+                return
+            body = json.dumps(checkpoint).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_PUT(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            checkpoints[self.path] = {
+                "revision": request["revision"],
+                "sha256": request["sha256"],
+            }
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, _format, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}"
+        path = tmp_path / "state.json"
+        store = RSIStateStore(
+            path,
+            require_attestation=True,
+            anchor_url=url,
+            anchor_token=token,
+            anchor_id="sticky-experiment",
+        )
+        store.write(phase="LIVE_RUNNING", current_round=1)
+        raw = json.loads(path.read_text())
+        assert raw["anchor_required"] is True
+        assert len(raw["anchor_authority_sha256"]) == 64
+        with pytest.raises(ValueError, match="requires its configured external anchor"):
+            RSIStateStore(path, require_attestation=True).load()
+        with pytest.raises(ValueError, match="configured anchor authority"):
+            RSIStateStore(
+                path,
+                require_attestation=True,
+                anchor_url="https://replacement.invalid",
+                anchor_token=token,
+                anchor_id="sticky-experiment",
+            ).load()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_incomplete_canary_recovery_burns_shard_and_clears_pending(tmp_path: Path):
+    rsi_dir = tmp_path / "rsi"
+    canary_root = tmp_path / "round-003" / "canary"
+    canary_root.mkdir(parents=True)
+    incumbent = PolicyGenome(beta=0.2)
+    challenger = PolicyGenome(beta=0.8)
+    incumbent.save(rsi_dir / "incumbent_policy.json")
+    challenger.save(rsi_dir / "pending_policy.json")
+    transaction = sign_canary_transaction(
+        {
+            "round": 3,
+            "evaluation_sample_ids": ["one-use-3"],
+            "evaluation_sample_public_input_sha256": ["a" * 64],
+        }
+    )
+    (canary_root / "transaction.json").write_text(json.dumps(transaction))
+    state_store = RSIStateStore(rsi_dir / "state.json", require_attestation=True)
+    state_store.write(
+        phase="CANARY_RUNNING",
+        current_round=3,
+        next_round=3,
+        incumbent_digest=_policy_digest(incumbent),
+        pending_digest=_policy_digest(challenger),
+        consumed_canary_sample_ids=["one-use-3"],
+        consumed_canary_public_input_sha256=["a" * 64],
+    )
+
+    recovered = _recover_canary_transaction(
+        state=state_store.load(),
+        state_store=state_store,
+        rsi_dir=rsi_dir,
+        canary_gate=RealCanaryGate(
+            artifact_root=rsi_dir / "artifacts", require_artifacts=True
+        ),
+    )
+    assert recovered["phase"] == "IDLE"
+    assert recovered["pending_digest"] is None
+    assert recovered["consumed_canary_sample_ids"] == ["one-use-3"]
+    assert recovered["consumed_canary_public_input_sha256"] == ["a" * 64]
+    assert recovered["last_canary"]["status"] == "aborted"
+    assert not (rsi_dir / "pending_policy.json").exists()
+    assert (canary_root / "aborted.json").is_file()
+
+
+def test_canary_shard_rotation_requires_next_epoch_and_unretired_samples(
+    tmp_path: Path,
+):
+    state = {
+        "phase": "IDLE",
+        "trusted_evaluator_identity": {
+            "search": "search-authority",
+            "canary": "authority",
+        },
+        "canary_shard_identity": "shard-1",
+        "canary_shard_epoch": 1,
+        "consumed_canary_sample_ids": ["old-id"],
+        "consumed_canary_sample_content_sha256": [],
+        "consumed_canary_public_input_sha256": ["b" * 64],
+    }
+    evaluator = type(
+        "Evaluator",
+        (),
+        {
+            "evaluation_sample_ids": ("fresh-id",),
+            "evaluation_sample_content_sha256": frozenset({"c" * 64}),
+            "evaluation_sample_public_input_sha256": frozenset({"d" * 64}),
+            "authority_identity": "authority",
+        },
+    )()
+    _validate_canary_shard_rotation(
+        state=state,
+        canary_evaluator=evaluator,
+        shard_identity="shard-2",
+        shard_epoch=2,
+        base_log=tmp_path,
+    )
+    with pytest.raises(ValueError, match="increase by one"):
+        _validate_canary_shard_rotation(
+            state=state,
+            canary_evaluator=evaluator,
+            shard_identity="shard-2",
+            shard_epoch=3,
+            base_log=tmp_path,
+        )
+    evaluator.evaluation_sample_public_input_sha256 = frozenset({"b" * 64})
+    with pytest.raises(ValueError, match="reuses retired"):
+        _validate_canary_shard_rotation(
+            state=state,
+            canary_evaluator=evaluator,
+            shard_identity="shard-2",
+            shard_epoch=2,
+            base_log=tmp_path,
+        )
 
 
 def test_trusted_rsi_state_is_signed_and_detects_tampering(tmp_path: Path):
@@ -388,6 +551,7 @@ def test_unsigned_canary_recovery_cannot_promote_substituted_policy(tmp_path: Pa
         next_round=2,
         incumbent_digest=_policy_digest(authorized_incumbent),
         pending_digest=_policy_digest(authorized_pending),
+        consumed_canary_sample_ids=["canary-1"],
     )
 
     gate = RealCanaryGate(artifact_root=rsi_dir / "artifacts", require_artifacts=True)
@@ -568,7 +732,11 @@ def test_canary_recovery_recomputes_signed_evidence_before_promotion(tmp_path: P
         next_round=2,
         incumbent_digest=_policy_digest(incumbent),
         pending_digest=_policy_digest(challenger),
+        consumed_canary_sample_ids=["sample-1"],
     )
+    # Simulate a crash after the winning incumbent file and pending-policy
+    # cleanup were written but before the final durable state transition.
+    (rsi_dir / "pending_policy.json").unlink()
 
     recovered = _recover_canary_transaction(
         state=state_store.load(),
