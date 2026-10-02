@@ -1,6 +1,7 @@
 name: macOS nested candidate timeout
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - aide/rsi/reference_evaluator.py
