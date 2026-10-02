@@ -4,8 +4,8 @@
 
 This is the current validation record for the unreleased branch
 `fix/aide-rsi-authority-closure`. The qualified code snapshot is commit
-`6342e665e684891c66c891db4dbcf51bafc1612d`, Git tree
-`6a9eb8a29d72781e47902fee11c0bbec7403dc56`, with package metadata still at
+`095c810b18dfc731f14f543bdbe13e30f3f9f830`, Git tree
+`e12bc9ad1f6c1c815e19f9cd69975dd7d3604384`, with package metadata still at
 `1.3.5`. It is not a v1.4.0 release. The canonical source, TCB, statistical
 artifact, and test identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json)
 and [`TCB_MANIFEST.json`](TCB_MANIFEST.json).

@@ -1671,8 +1671,8 @@
   "python_version": "3.12.0",
   "qualification_type": "synthetic statistical calibration; not real-task qualification",
   "release_freeze_manifest_available": true,
-  "release_freeze_source_snapshot_sha256": "8947f6152fcd716e77eef74816154509b450976cfa23477943c79ce954241fcc",
-  "release_freeze_tcb_manifest_sha256": "9513cd29295c43d6022403c265117525525d9cfb5746c9409a78d20bfcaab0f8",
+  "release_freeze_source_snapshot_sha256": "96a8d63eab04d25e0a38966b770074f0d0ca4722eb7286ba6b42f150a010f6d8",
+  "release_freeze_tcb_manifest_sha256": "742c5b775e828d785f89001e4896a7cd7c05388e771576b4869a19b98f5f1d2e",
   "runs_per_task": 5,
   "schema_version": 2,
   "seed": 20261001,
@@ -1858,7 +1858,7 @@
       "wilson_95_low": 0.03959482746331551
     }
   },
-  "source_commit": "6342e665e684891c66c891db4dbcf51bafc1612d",
+  "source_commit": "095c810b18dfc731f14f543bdbe13e30f3f9f830",
   "source_file_manifest_sha256": "6f345c074401a4e75f7ac85e4b1ac39c320b8229975af5b1be4b7727695d475e",
   "source_files_sha256": {
     "aide/rsi/canary.py": "697890a39946a36f104580866d0bff5213c47c8719f62e9d35387377430a2b71",
@@ -1876,7 +1876,7 @@
     "tools/qualify_canary_statistics.py": "8375303fa75418a2db83faee0d2a815c7ed5aaad5857a5713eff67c88f0b517d"
   },
   "source_git_identity_available": true,
-  "source_git_tree": "6a9eb8a29d72781e47902fee11c0bbec7403dc56",
+  "source_git_tree": "e12bc9ad1f6c1c815e19f9cd69975dd7d3604384",
   "spending_rule": "alpha_i = alpha / (i * (i + 1))",
   "synthetic_lineage_stress": {
     "alpha_remaining": 9.980039920159681e-05,
