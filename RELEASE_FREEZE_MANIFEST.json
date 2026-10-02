@@ -11,55 +11,55 @@
   },
   "dependency_manifest_sha256": "83fe5ee4d929a49424139c60891bc7f12ffa395f55cea78833d70b854c2ab3f7",
   "hosted_workflow_runs": {
-    "artifact_sha256": "ca12456670d90b99827fd673dd32c65c95288fdde5b26a38e9d187f7a5eba9e8",
+    "artifact_sha256": "bf807ef57b51205d9a3ad2c17a36ecbc924dfe31ee1a6700767c9b3d413b9cca",
     "qualified_code_commit": "f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60",
     "qualified_source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
     "runs": {
       "linter": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073431578,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074003037,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073431578"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074003037"
       },
       "linux_bubblewrap": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073466228,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074199871,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073466228"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074199871"
       },
       "macos_nested_candidate_timeout": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073467955,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074200147,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073467955"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074200147"
       },
       "macos_seatbelt": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073467509,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074200626,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073467509"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074200626"
       },
       "package_completeness": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073431645,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074003113,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073431645"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074003113"
       },
       "windows_rsi_state_lock": {
         "conclusion": "success",
-        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
-        "run_id": 37073466895,
+        "head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931",
+        "run_id": 37074200418,
         "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
-        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073466895"
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37074200418"
       }
     },
     "schema_version": 1,
-    "workflow_head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b"
+    "workflow_head_sha": "9e9d2a787472a12722d34d93f920ad6945bfb931"
   },
   "limitations": [
     "the hashed requirements-rsi-ci lock covers Python 3.12 security/statistical CI only; optional full AIDE research dependencies are outside this lock",
