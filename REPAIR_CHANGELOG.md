@@ -56,8 +56,10 @@ changes after the frozen pre-repair snapshot.
 - After the V4 power curve showed 4.2% estimated power for a 0.02 effect at 20
   independent families, raise the production minimum to 40 tasks and 40
   independent families under `MULTITASK_PROMOTION_PROTOCOL_V5`. Keep the
-  20- and 30-family curves as explicitly ineligible comparison cases. At 40
-  families, estimated power for 0.02 was 42.4%; at 60 it was 70.3%, so the
+  20- and 30-family curves as explicitly ineligible comparison cases. The V5
+  campaign estimated 4.36% power for a 0.02 effect at 20 families, 42.32% at
+  40, and 69.60% at 60. For a 0.03 effect, power was 88.46% at 40 and 95.52%
+  at 60, so the
   report recommends larger panels for subtle effects and does not claim high
   power at the minimum.
 

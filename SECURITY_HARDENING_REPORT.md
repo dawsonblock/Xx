@@ -20,6 +20,8 @@ Runs reduce to one median effect per task. Related tasks reduce to one median fa
 
 The synthetic campaign models within-task and within-family correlation, heteroscedasticity, heavy-tailed noise, ties, shared paired environment effects, and order-sensitive first/second-run, time, load, cache, provider, and family effects. Sequence nuisance magnitudes are swept across `0.01`, `0.05`, `0.10`, and `0.25`. Synthetic calibration cannot prove that real task families are independent or representative. Real null, degraded, and planted-improvement panels remain required.
 
+The V5 release-scale local campaign used 20,000 familywise null lineages and observed 910 false promotions (4.55%; 95% Wilson interval 4.27%–4.85%), below the configured family alpha of 5%. All 25 correlation cells and all 32 sequence-scenario/magnitude checks passed their calibration limits. The calibrated minimum panel was raised to 40 independent families because estimated power for a 0.02 effect was 4.36% at 20 families, 42.32% at 40, and 69.60% at 60. At 40 families, estimated power for a 0.03 effect was 88.46%. This remains synthetic evidence and does not establish real-task independence, real workload power, or generalization.
+
 ## Persistent state and promotion authority
 
 Promotion recovery verifies HMAC-authenticated durable state, the signed canary reservation, policy identities, panel and protocol digests, statistical attempt and alpha records, journal content hashes, and trusted evaluation artifacts. It recomputes the gate before changing the incumbent. An incomplete canary burns its panel and abandons its pending challenger. Signed state records retired panel, task, sample-ID, public-input, and full-record identities.

@@ -25,7 +25,8 @@ promotion. Regression tests ensure legacy settings cannot change the V5
 protocol digest while decision or signed-result fields remain bound.
 
 The minimum was raised to 40 families after the model-based power curves
-estimated 4.2% power for a 0.02 effect at 20 families, 42.4% at 40, and 70.3%
+estimated 4.36% power for a 0.02 effect at 20 families, 42.32% at 40, and
+69.60% at 60. For a 0.03 effect, estimated power was 88.46% at 40 and 95.52%
 at 60. The 20- and 30-family curves remain in the report as below-minimum
 comparisons. The default still has limited power for subtle effects; larger
 panels are recommended when the experiment needs to detect improvements near

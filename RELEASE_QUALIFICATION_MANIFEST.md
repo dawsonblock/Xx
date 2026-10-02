@@ -15,7 +15,7 @@ The active machine-readable identities are:
 - [`TCB_MANIFEST.json`](TCB_MANIFEST.json): security and authority code, tests, workflows, config, and build inputs.
 - [`BUILD_MANIFEST.json`](BUILD_MANIFEST.json): package and qualification state.
 
-All manifests must be regenerated after the final source commit. The freeze must report that the hashed source matches its Git commit before hosted evidence can be attached.
+The V5 code and statistical artifact identify code commit `3bebc16fc075e3d4441fd82eb3151b240161c897`. Regenerate all manifests after the release-record commit; the freeze must report that its hashed source matches its Git commit before hosted evidence can be attached.
 
 ## Repair scope
 
@@ -25,17 +25,17 @@ The current change set separates host paths from outer-sandbox paths in `Trusted
 
 | Gate | Required evidence | Current state |
 |---|---|---|
-| Local focused evaluator/statistics/recovery tests | Current repair JUnit artifact | See `qualification/repair-1.3.6/pytest-junit.xml` after local run |
-| Full local suite | Current repair JUnit artifact | See `qualification/repair-1.3.6/pytest-junit.xml` after local run |
+| Local focused multi-task/statistics/anchor tests | Native arm64 Python 3.12 lock environment | PASS: 42 tests |
+| Full local suite | [`qualification/repair-1.3.6/pytest-junit.xml`](qualification/repair-1.3.6/pytest-junit.xml) | PASS: 225 passed, 1 skipped |
 | Linux Bubblewrap first-party E2E | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
 | macOS Seatbelt and nested candidate cleanup | Hosted runs on repair source commit | NOT_RUN until hosted CI completes |
 | Windows state and order-invariant tests | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
 | Linter and package completeness | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
-| Null, nuisance-order, power, and synthetic lineage campaign | Current protocol/source-matched artifact | See `qualification/repair-1.3.6/multitask-statistical-qualification.json` after run |
+| Null, nuisance-order, power, and synthetic lineage campaign | [`qualification/repair-1.3.6/multitask-statistical-qualification.json`](qualification/repair-1.3.6/multitask-statistical-qualification.json) | PASS: 20,000 familywise lineages, 25 correlation cells, 32 sequence-bias checks, 500 synthetic attempts; 4.55% null familywise rate (95% Wilson 4.27%–4.85%) |
 | Frozen real-task null/degraded/improvement controls | Complete trusted evaluation and promotion path | NOT_RUN; no qualification corpus is present |
 | External monotonic anchor rollback campaign | Separately administered service and destructive host rollback | NOT_RUN; no external service is deployed |
 
-The current clean lock install is qualified only on the local Python 3.12/macOS environment. The lock covers the security/statistical CI and packaging toolchain, not every optional AIDE research dependency. Hosted qualification is required to confirm the lock across supported CI platforms.
+The clean hash-lock install passed in a fresh native arm64 macOS Python 3.12.0 environment with 67 distributions; see [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json). This qualifies only that local platform. The lock covers the security/statistical CI and packaging toolchain, not every optional AIDE research dependency. Hosted qualification is required to confirm the lock across supported CI platforms.
 
 ## Reproducible commands
 
