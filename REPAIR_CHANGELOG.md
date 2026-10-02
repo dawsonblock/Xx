@@ -53,6 +53,13 @@ changes after the frozen pre-repair snapshot.
 - Make the release manifest require the full 20,000-lineage null run, 25
   correlation cells, all nuisance-bias sweeps, 5,000-replicate power curves at
   20–60 independent families, and a 500-attempt synthetic lineage stress.
+- After the V4 power curve showed 4.2% estimated power for a 0.02 effect at 20
+  independent families, raise the production minimum to 40 tasks and 40
+  independent families under `MULTITASK_PROMOTION_PROTOCOL_V5`. Keep the
+  20- and 30-family curves as explicitly ineligible comparison cases. At 40
+  families, estimated power for 0.02 was 42.4%; at 60 it was 70.3%, so the
+  report recommends larger panels for subtle effects and does not claim high
+  power at the minimum.
 
 ## Reproducibility and release-record changes
 

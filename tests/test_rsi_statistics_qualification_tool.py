@@ -52,8 +52,8 @@ def test_calibration_tool_supports_source_archives_without_git_metadata(
         campaigns=20,
         attempts=2,
         power_replicates=10,
-        tasks=40,
-        task_families=20,
+        tasks=80,
+        task_families=40,
         runs_per_task=4,
         lineage_attempts=3,
         seed=20261002,
@@ -68,8 +68,8 @@ def test_calibration_harness_reports_family_correlations_and_lineage():
         campaigns=50,
         attempts=3,
         power_replicates=10,
-        tasks=40,
-        task_families=20,
+        tasks=80,
+        task_families=40,
         runs_per_task=4,
         lineage_attempts=5,
         seed=20261001,
@@ -83,7 +83,16 @@ def test_calibration_harness_reports_family_correlations_and_lineage():
     assert result["synthetic_lineage_stress"]["alpha_remaining"] < 0.05
     assert result["promotion_attempt_horizon"] == 500
     assert result["spending_rule"] == "alpha_i = family_alpha / 500"
-    assert result["protocol_id"] == "MULTITASK_PROMOTION_PROTOCOL_V4"
+    assert result["protocol_id"] == "MULTITASK_PROMOTION_PROTOCOL_V5"
+    assert result["minimum_production_tasks"] == 40
+    assert result["minimum_production_independent_families"] == 40
+    assert result["power_curve_family_counts_production_eligible"] == {
+        "20": False,
+        "30": False,
+        "40": True,
+        "50": True,
+        "60": True,
+    }
     assert result["runs_per_task"] == 4
     assert len(result["sequence_order_null_calibration"]) == 8
     assert result["schema_version"] == 4
@@ -135,8 +144,8 @@ def test_calibration_harness_rejects_attempts_beyond_protocol_horizon():
             campaigns=1,
             attempts=501,
             power_replicates=1,
-            tasks=40,
-            task_families=20,
+            tasks=80,
+            task_families=40,
             runs_per_task=4,
             lineage_attempts=1,
         )
@@ -239,7 +248,7 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
     monkeypatch.setattr(
         generate_release_manifests,
         "_current_statistical_protocol",
-        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V4", "b" * 64),
+        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V5", "b" * 64),
     )
     source_snapshot = generate_release_manifests._canonical_sha256(
         generate_release_manifests._file_hashes(

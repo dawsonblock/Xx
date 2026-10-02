@@ -19,7 +19,7 @@ All manifests must be regenerated after the final source commit. The freeze must
 
 ## Repair scope
 
-The current change set separates host paths from outer-sandbox paths in `TrustedEvaluator`, adds first-party reference-evaluator E2E coverage to mandatory hosted Linux and macOS workflows, canonicalizes Python runtime paths for Seatbelt, and replaces caller-ID parity ordering with a signed, canonical four-run ABBA/BAAB schedule. The task-clustered statistical protocol and calibration artifact use protocol V4. A universal hash-locked Python 3.12 CI dependency set is installed with `--require-hashes` in the relevant workflows.
+The current change set separates host paths from outer-sandbox paths in `TrustedEvaluator`, adds first-party reference-evaluator E2E coverage to mandatory hosted Linux and macOS workflows, canonicalizes Python runtime paths for Seatbelt, and replaces caller-ID parity ordering with a signed, canonical four-run ABBA/BAAB schedule. Protocol V5 raises the minimum panel to 40 independent task-family clusters after power calibration found weak sensitivity at 20. A universal hash-locked Python 3.12 CI dependency set is installed with `--require-hashes` in the relevant workflows.
 
 ## Qualification gates
 
@@ -47,7 +47,7 @@ ruff check aide/ tools/ tests/
 black --check aide/ tools/ tests/
 python tools/qualify_canary_statistics.py \
   --campaigns 20000 --attempts 500 --power-replicates 5000 \
-  --tasks 40 --task-families 20 --runs-per-task 4 \
+  --tasks 80 --task-families 40 --runs-per-task 4 \
   --lineage-attempts 500 \
   --output qualification/repair-1.3.6/multitask-statistical-qualification.json
 python tools/generate_release_manifests.py

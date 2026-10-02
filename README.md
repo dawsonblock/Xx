@@ -46,7 +46,7 @@ The main authority boundaries are:
 
 ## Statistical promotion protocol
 
-The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V4`. It treats independent task-family clusters as the inference units:
+The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V5`. It treats independent task-family clusters as the inference units:
 
 - Each task has exactly **four paired runs** using the same task, seed, and budget for incumbent and challenger.
 - Four-run execution order is fixed before observation as ABBA or BAAB. Caller-supplied replicate IDs label evidence and cannot choose which policy runs first.
@@ -54,9 +54,9 @@ The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V4`. It treats independent 
 - A one-sided exact sign test operates on family effects, with a fixed 500-attempt alpha budget and a separate practical-effect and worst-task-regression gate.
 - The complete panel, evaluator and data identities, seeds, order schedule, policy digests, and alpha allocation are reserved before canary results are read. An interrupted panel is burned and its alpha is not refunded.
 
-A panel currently requires at least 20 task records across at least 20 operator-declared independent families, with at least three balanced task strata. The declaration of family independence is an experimental assumption that must be justified by the operator. The synthetic harness tests correlated seeds, correlated tasks within a family, heavy tails, heteroscedasticity, ties, and sequence-order effects; it cannot prove independence or representativeness for real tasks.
+A panel currently requires at least 40 task records across at least 40 operator-declared independent families, with at least three balanced task strata. The minimum was raised after calibration showed only 4.2% estimated power for a 0.02 effect at 20 families, 42.4% at 40, and 70.3% at 60 in the current noise model. This remains modest power for small effects; task panels should use 60 or more independent families when feasible. The declaration of family independence is an experimental assumption that must be justified by the operator. The synthetic harness tests correlated seeds, correlated tasks within a family, heavy tails, heteroscedasticity, ties, and sequence-order effects; it cannot prove independence or representativeness for real tasks.
 
-The YAML also keeps the older single-task `evaluate_series()` controls for compatibility. Those legacy fields do not affect V4 promotion. The per-pair regression flag is recorded for audit but is not itself a promotion veto; the active score normalization, panel schedule, family-level test, alpha allocation, practical-effect threshold, and task-regression limit are bound into the V4 authority configuration.
+The YAML also keeps the older single-task `evaluate_series()` controls for compatibility. Those legacy fields do not affect V5 promotion. The per-pair regression flag is recorded for audit but is not itself a promotion veto; the active score normalization, panel schedule, family-level test, alpha allocation, practical-effect threshold, and task-regression limit are bound into the V5 authority configuration.
 
 See [Statistical Qualification](docs/STATISTICAL_QUALIFICATION.md) for the exact protocol, calibration procedure, and qualification limits.
 
@@ -175,7 +175,7 @@ Run the release-scale synthetic statistical campaign:
 ```bash
 python tools/qualify_canary_statistics.py \
   --campaigns 20000 --attempts 500 --power-replicates 5000 \
-  --tasks 40 --task-families 20 --runs-per-task 4 \
+  --tasks 80 --task-families 40 --runs-per-task 4 \
   --lineage-attempts 500 \
   --output qualification/repair-1.3.6/multitask-statistical-qualification.json
 ```

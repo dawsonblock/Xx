@@ -14,7 +14,7 @@ The reference adapter remains trusted host code. Candidate code runs in its sepa
 
 ## Canary order and inference
 
-The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V4`. Every canary task has exactly four paired incumbent/challenger runs. The scheduler canonicalizes tasks and assigns ABBA or BAAB order before any result is read. Replicate IDs are evidence labels only and cannot select order. Each task has two challenger-first and two incumbent-first pairs. The complete schedule is included in the signed transaction and checked again during recovery.
+The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V5`. Every canary task has exactly four paired incumbent/challenger runs. The scheduler canonicalizes tasks and assigns ABBA or BAAB order before any result is read. Replicate IDs are evidence labels only and cannot select order. Each task has two challenger-first and two incumbent-first pairs. The complete schedule is included in the signed transaction and checked again during recovery. Panels now require at least 40 independent task-family clusters; this floor was raised after power calibration showed weak sensitivity at 20 clusters.
 
 Runs reduce to one median effect per task. Related tasks reduce to one median family effect. Independent task-family clusters, rather than seeds or repeated runs, are the units in the exact one-sided sign test. The protocol binds minimum task/family/stratum coverage, practical-effect and regression limits, panel identity, seed schedule, evaluator/data identities, and the fixed alpha allocation `alpha_i = family_alpha / 500`. Once observations begin, an interrupted panel is burned and its alpha allocation is not refunded.
 

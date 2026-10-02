@@ -101,7 +101,7 @@ deployed checkpoint service.
 ## Canary promotion statistics
 
 General policy promotion uses an immutable multi-task `CanaryPanel`. Each panel
-contains at least 20 distinct task identities from at least 20 independent
+contains at least 40 distinct task identities from at least 40 independent
 task-family clusters, with exactly four paired runs per task. It also fixes
 at least three broad task strata, with at least three independent families per
 stratum and no stratum above half the family clusters. Incumbent and challenger are run with the same
@@ -120,7 +120,7 @@ predeclared dependence clusters and receive equal weight; strata are
 predeclared for domain balance. Panel composition, evaluator/shard identities,
 sample hashes, seed schedule, run budgets, metric definition, execution order,
 protocol digest, statistical epoch, and allocated alpha are authenticated
-before any score is observed. Protocol V4 fixes a 500-attempt Bonferroni
+before any score is observed. Protocol V5 fixes a 500-attempt Bonferroni
 horizon with `alpha_i = family_alpha / 500`; attempt 501 is rejected. A
 reservation spends alpha before execution and cannot be refunded. A missing or
 incomplete signed decision burns the panel rather than retrying it. Recovery

@@ -2,9 +2,9 @@
 
 Promotion inference uses independent task-family clusters. Seeds are paired within a task; tasks sharing a family are reduced to one median family effect. Only family effects enter the one-sided exact sign test. This is more conservative than counting each task as independent when tasks from the same family share data, prompts, scoring code, or environment. A tie at the configured practical-effect threshold counts as a non-win.
 
-`MULTITASK_PROMOTION_PROTOCOL_V4` fixes the protocol identity and records:
+`MULTITASK_PROMOTION_PROTOCOL_V5` fixes the protocol identity and records:
 
-- at least 20 distinct tasks and at least 20 independent task-family clusters;
+- at least 40 distinct tasks and at least 40 independent task-family clusters;
 - exactly 4 paired runs per task, reduced to one median task effect;
 - one median task effect per family cluster for inference;
 - at least 3 broad task strata, at least 3 independent families per stratum, and no stratum above half of the panel;
@@ -16,13 +16,20 @@ The YAML retains `attempts` and `repeats` as deprecated, unused compatibility
 fields. `min_pass_fraction`, `min_pairs`, `confidence_level`,
 `bootstrap_samples`, and `max_single_pair_regression` remain controls for
 direct legacy V1 `RealCanaryGate.evaluate_series()` callers only. None affect
-the V4 panel or promotion decision. V4 binds `min_valid`,
+the V5 panel or promotion decision. V5 binds `min_valid`,
 `score_scale_floor`, the fixed four-run schedule, task/family protocol,
 practical-effect threshold, maximum task regression, and alpha allocation.
 `max_normalized_regression` is also bound because it determines the serialized
 per-pair diagnostic flag; that flag does not independently veto panel
-promotion. Regression tests ensure legacy settings cannot change the V4
+promotion. Regression tests ensure legacy settings cannot change the V5
 protocol digest while decision or signed-result fields remain bound.
+
+The minimum was raised to 40 families after the model-based power curves
+estimated 4.2% power for a 0.02 effect at 20 families, 42.4% at 40, and 70.3%
+at 60. The 20- and 30-family curves remain in the report as below-minimum
+comparisons. The default still has limited power for subtle effects; larger
+panels are recommended when the experiment needs to detect improvements near
+0.02.
 
 `task_family` identifies a dependence cluster: every task with a plausible shared source of outcome dependence must use the same family ID. `task_stratum` records the broader domain (for example classification, forecasting, or resource-constrained search) and is used only to balance the precommitted panel. If two nominal families still share a meaningful shock, they must be merged for inference; relabeling correlated tasks cannot make them independent.
 
@@ -37,7 +44,7 @@ Run the seeded calibration harness with its release-scale defaults:
 ```sh
 python tools/qualify_canary_statistics.py \
   --campaigns 20000 --attempts 500 --power-replicates 5000 \
-  --tasks 40 --task-families 20 --runs-per-task 4 \
+  --tasks 80 --task-families 40 --runs-per-task 4 \
   --lineage-attempts 500 \
   --output qualification/repair-1.3.6/multitask-statistical-qualification.json
 ```

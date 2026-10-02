@@ -411,8 +411,18 @@ def build_manifests(
                 and artifact.get("protocol_sha256") == current_protocol_sha256
                 and artifact.get("family_alpha") == 0.05
                 and artifact.get("runs_per_task") == 4
-                and artifact.get("tasks_per_panel") == 40
-                and artifact.get("independent_task_families_per_panel") == 20
+                and artifact.get("tasks_per_panel") == 80
+                and artifact.get("independent_task_families_per_panel") == 40
+                and artifact.get("minimum_production_tasks") == 40
+                and artifact.get("minimum_production_independent_families") == 40
+                and artifact.get("power_curve_family_counts_production_eligible")
+                == {
+                    "20": False,
+                    "30": False,
+                    "40": True,
+                    "50": True,
+                    "60": True,
+                }
                 and artifact.get("power_replicates", 0) >= 5_000
                 and {1, 10, 500} <= set(artifact.get("power_attempt_indices", []))
                 and isinstance(familywise, dict)

@@ -286,7 +286,7 @@ def test_replicates_reduce_to_one_effect_per_task():
     assert all(effect.runs == 4 for effect in result.task_effects)
     assert result.positive_tasks == MULTITASK_MIN_TASKS
     assert result.positive_families == MULTITASK_MIN_TASKS
-    assert result.critical_positive_families == 19
+    assert result.critical_positive_families == 32
     assert result.p_value == pytest.approx(2**-MULTITASK_MIN_TASKS)
     assert result.passed
     decoded = CanaryPanel.from_dict(panel.to_dict())
@@ -336,12 +336,12 @@ def test_correlated_tasks_in_one_family_count_as_one_inference_unit():
     assert result.positive_tasks == MULTITASK_MIN_TASKS
     assert result.total_families == MULTITASK_MIN_TASKS
     assert result.positive_families == MULTITASK_MIN_TASKS - 1
-    assert result.critical_positive_families == 19
+    assert result.critical_positive_families == 32
 
 
 def test_panel_rejects_small_unbalanced_or_overlapping_task_sets():
     panel = _panel()
-    with pytest.raises(ValueError, match="at least 20"):
+    with pytest.raises(ValueError, match="at least 40"):
         CanaryPanel(0, panel.tasks[:1], panel.protocol_sha256)
     unbalanced = tuple(
         replace(
@@ -512,8 +512,8 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
             for index, task_id in enumerate(panel.task_ids)
         }
     )
-    assert result.critical_positive_families == 19
-    assert result.total_families == 20
+    assert result.critical_positive_families == 32
+    assert result.total_families == 40
 
     late_gate = TaskClusteredCanaryGate(
         panel=panel,
@@ -536,7 +536,7 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
             for index, task_id in enumerate(panel.task_ids)
         }
     )
-    assert late_result.critical_positive_families == 19
+    assert late_result.critical_positive_families == 32
     assert late_result.passed
 
 

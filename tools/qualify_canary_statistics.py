@@ -179,7 +179,7 @@ def _panel_family_effects_batch(
     if tasks < task_families or tasks % task_families:
         raise ValueError("tasks must divide evenly among task families")
     if runs_per_task != 4:
-        raise ValueError("protocol V4 requires exactly four paired runs per task")
+        raise ValueError("protocol V5 requires exactly four paired runs per task")
     if not 0 <= seed_correlation <= 1 or not 0 <= family_correlation <= 1:
         raise ValueError("correlations must be in [0, 1]")
     families = task_families
@@ -599,7 +599,7 @@ def _lineage_stress(*, attempts: int, alpha: float, seed: int) -> dict[str, Any]
         panel_sha = hashlib.sha256(f"panel-{attempt}".encode()).hexdigest()
         task_shas = {
             hashlib.sha256(f"task-{attempt}-{index}".encode()).hexdigest()
-            for index in range(20)
+            for index in range(MULTITASK_MIN_TASKS)
         }
         if panel_sha in consumed_panels or consumed_tasks.intersection(task_shas):
             raise AssertionError("synthetic lineage reused a reserved panel or task")
@@ -621,7 +621,10 @@ def _lineage_stress(*, attempts: int, alpha: float, seed: int) -> dict[str, Any]
             continue
 
         true_effect = rng.choice((0.0, 0.0, -0.01, 0.01, 0.02, 0.03))
-        family_effects = [true_effect + rng.gauss(0.0, 0.03) for _ in range(20)]
+        family_effects = [
+            true_effect + rng.gauss(0.0, 0.03)
+            for _ in range(MULTITASK_MIN_INDEPENDENT_FAMILIES)
+        ]
         decision = task_effect_decision(
             family_effects,
             allocated_alpha=budget.last_allocation,
@@ -681,7 +684,7 @@ def run_campaign(
     campaigns: int = 20_000,
     attempts: int = MAX_PROMOTION_ATTEMPTS,
     power_replicates: int = 5_000,
-    tasks: int = 40,
+    tasks: int = MULTITASK_MIN_TASKS * 2,
     task_families: int = MULTITASK_MIN_INDEPENDENT_FAMILIES,
     runs_per_task: int = 4,
     alpha: float = 0.05,
@@ -769,8 +772,6 @@ def run_campaign(
     )
     family_panel_power = {}
     for family_count in (20, 30, 40, 50, 60):
-        if family_count < MULTITASK_MIN_INDEPENDENT_FAMILIES:
-            continue
         family_panel_power[str(family_count)] = _power_curve(
             rng=rng,
             replicates=power_replicates,
@@ -829,6 +830,12 @@ def run_campaign(
         "numpy_version": np.__version__,
         "tasks_per_panel": tasks,
         "independent_task_families_per_panel": task_families,
+        "minimum_production_tasks": MULTITASK_MIN_TASKS,
+        "minimum_production_independent_families": MULTITASK_MIN_INDEPENDENT_FAMILIES,
+        "power_curve_family_counts_production_eligible": {
+            str(count): count >= MULTITASK_MIN_INDEPENDENT_FAMILIES
+            for count in (20, 30, 40, 50, 60)
+        },
         "runs_per_task": runs_per_task,
         "primary_independent_unit": "task_family_cluster",
         "within_task_estimator": "median paired effect",
@@ -877,7 +884,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--campaigns", type=int, default=20_000)
     parser.add_argument("--attempts", type=int, default=MAX_PROMOTION_ATTEMPTS)
     parser.add_argument("--power-replicates", type=int, default=5_000)
-    parser.add_argument("--tasks", type=int, default=40)
+    parser.add_argument("--tasks", type=int, default=MULTITASK_MIN_TASKS * 2)
     parser.add_argument(
         "--task-families", type=int, default=MULTITASK_MIN_INDEPENDENT_FAMILIES
     )
