@@ -16,6 +16,13 @@ changes after the frozen pre-repair snapshot.
 
 ## Security and evaluation changes
 
+- Preserve canonical per-sample identity records as `(sample_id,
+  public_input_sha256, sample_content_sha256)` from the reference evaluator
+  through panel construction. The signed panel, transaction, and durable
+  reservation now bind the same row associations; recovery rejects detached
+  transaction identities. Advance the panel protocol identity to V6 for this
+  serialized authority-schema change.
+
 - Split host-visible and sandbox-only evaluator paths into `HostPathSet` and
   `SandboxPathSet`. The first-party reference adapter receives real host paths
   and does not receive Bubblewrap-only namespace paths. Missing inputs fail

@@ -415,6 +415,7 @@ class RSIStateStore:
             "consumed_canary_sample_ids",
             "consumed_canary_sample_content_sha256",
             "consumed_canary_public_input_sha256",
+            "consumed_canary_sample_identity_sha256",
             "consumed_canary_panel_sha256",
             "consumed_canary_task_sha256",
         ):
@@ -561,6 +562,7 @@ class RSIStateStore:
             "consumed_canary_sample_ids",
             "consumed_canary_sample_content_sha256",
             "consumed_canary_public_input_sha256",
+            "consumed_canary_sample_identity_sha256",
             "consumed_canary_panel_sha256",
             "consumed_canary_task_sha256",
         ):

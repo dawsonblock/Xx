@@ -518,7 +518,7 @@ class RealCanaryGate:
         }
 
     def task_pair_authority_config(self) -> dict[str, Any]:
-        """Decision inputs for one signed task-pair gate in a V5 panel."""
+        """Decision inputs for one signed task-pair gate in a V6 panel."""
         return {
             **self.task_pair_policy_config(),
             "expected_evaluation_identity": self.expected_evaluation_identity,

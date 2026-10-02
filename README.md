@@ -2,7 +2,7 @@
 
 **AIDE-DREAM-RSI** combines AIDE's code-search loop with DREAM's bounded replay policy and an optional JEV advisory layer. It is a research system for evaluating changes to how an agent searches; it does not let the recursive policy rewrite its evaluator, sandbox, evidence verifier, or promotion authority.
 
-> **Current status: unreleased qualification snapshot.** The package metadata remains `1.3.5`. This repair branch updates trusted-evaluator process construction and moves canary execution to a four-run, task-family-clustered protocol. Local tests and synthetic calibration do not qualify hosted Linux Bubblewrap, external rollback anchoring, real task panels, or unattended promotion. See the [release qualification record](RELEASE_QUALIFICATION_MANIFEST.md) before operating it.
+> **Current status: unreleased qualification snapshot.** The package metadata remains `1.3.5`. The current repair adds explicit per-sample identity binding through canary panels and recovery under `MULTITASK_PROMOTION_PROTOCOL_V6`. Local tests and synthetic calibration do not qualify an independently operated rollback anchor, real task panels, or unattended promotion. See the [release qualification record](RELEASE_QUALIFICATION_MANIFEST.md) before operating it.
 
 ## What the system does
 
@@ -46,7 +46,7 @@ The main authority boundaries are:
 
 ## Statistical promotion protocol
 
-The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V5`. It treats independent task-family clusters as the inference units:
+The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V6`. It treats independent task-family clusters as the inference units and binds each sample ID to its candidate-visible and full-record hashes:
 
 - Each task has exactly **four paired runs** using the same task, seed, and budget for incumbent and challenger.
 - Four-run execution order is fixed before observation as ABBA or BAAB. Caller-supplied replicate IDs label evidence and cannot choose which policy runs first.
@@ -56,7 +56,7 @@ The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V5`. It treats independent 
 
 A panel currently requires at least 40 task records across at least 40 operator-declared independent families, with at least three balanced task strata. The minimum was raised after calibration estimated 4.36% power for a 0.02 effect at 20 families, 42.32% at 40, and 69.60% at 60. For a 0.03 effect, estimated power was 88.46% at 40 and 95.52% at 60. This remains modest power for small effects; task panels should use 60 or more independent families when feasible. The declaration of family independence is an experimental assumption that must be justified by the operator. The synthetic harness tests correlated seeds, correlated tasks within a family, heavy tails, heteroscedasticity, ties, and sequence-order effects; it cannot prove independence or representativeness for real tasks.
 
-The YAML also keeps the older single-task `evaluate_series()` controls for compatibility. Those legacy fields do not affect V5 promotion. The per-pair regression flag is recorded for audit but is not itself a promotion veto; the active score normalization, panel schedule, family-level test, alpha allocation, practical-effect threshold, and task-regression limit are bound into the V5 authority configuration.
+The YAML also keeps the older single-task `evaluate_series()` controls for compatibility. Those legacy fields do not affect V6 promotion. The per-pair regression flag is recorded for audit but is not itself a promotion veto; the active score normalization, panel schedule, family-level test, alpha allocation, practical-effect threshold, and task-regression limit are bound into the V6 authority configuration. Each per-sample ID is serialized with its public-input and full-record hashes so row identity remains explicit through signed panel and transaction recovery.
 
 See [Statistical Qualification](docs/STATISTICAL_QUALIFICATION.md) for the exact protocol, calibration procedure, and qualification limits.
 

@@ -11,7 +11,12 @@ import pytest
 
 from aide.rsi.canary import RealCanaryGate, TaskClusteredCanaryGate
 from aide.rsi.evidence import attest_evaluation
-from aide.rsi.runner import _recover_multitask_canary_transaction
+from aide.rsi.runner import (
+    _panel_sample_identity_records,
+    _recover_multitask_canary_transaction,
+    _sample_identity_record_sha256,
+    _verify_panel_sample_identity_reservation,
+)
 from aide.rsi.state import RSIStateStore
 from aide.rsi.statistics import (
     MULTITASK_MIN_TASKS,
@@ -292,6 +297,42 @@ def test_replicates_reduce_to_one_effect_per_task():
     decoded = CanaryPanel.from_dict(panel.to_dict())
     assert decoded.panel_sha256 == panel.panel_sha256
     assert decoded.tasks[0].seed_for(1) == 202
+    assert decoded.tasks[0].sample_identity_records() == [
+        {
+            "sample_id": panel.tasks[0].sample_ids[0],
+            "public_input_sha256": panel.tasks[0].public_input_sha256[0],
+            "sample_content_sha256": panel.tasks[0].sample_content_sha256[0],
+        }
+    ]
+
+
+def test_panel_deserialization_rejects_detached_sample_identity_records():
+    panel = _panel()
+    payload = panel.to_dict()
+    payload["tasks"][0]["sample_identity_records"][0]["public_input_sha256"] = _sha(
+        "detached public input"
+    )
+    with pytest.raises(ValueError, match="identity records do not match"):
+        CanaryPanel.from_dict(payload)
+
+
+def test_signed_transaction_sample_rows_match_panel_and_durable_reservation():
+    panel = _panel()
+    rows = _panel_sample_identity_records(panel)
+    state = {
+        "consumed_canary_sample_identity_sha256": sorted(
+            _sample_identity_record_sha256(row) for row in rows
+        )
+    }
+    _verify_panel_sample_identity_reservation(rows, panel, state)
+
+    swapped = [dict(row) for row in rows]
+    swapped[0]["public_input_sha256"] = _sha("remapped input")
+    with pytest.raises(ValueError, match="do not match its panel"):
+        _verify_panel_sample_identity_reservation(swapped, panel, state)
+
+    with pytest.raises(ValueError, match="not durably reserved"):
+        _verify_panel_sample_identity_reservation(rows, panel, {})
 
 
 def test_many_replicates_from_one_winning_task_cannot_grant_promotion():

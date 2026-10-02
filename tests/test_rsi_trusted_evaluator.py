@@ -16,9 +16,11 @@ from aide.rsi.evidence import has_trusted_evaluation
 from aide.rsi.reference_evaluator import (
     ReferenceEvaluatorError,
     sample_content_sha256,
+    sample_identity_records,
     sample_identity_sha256,
 )
 from aide.rsi.runner import (
+    _build_canary_panel,
     _stored_evaluator_identity,
     _validate_trusted_evaluator_roles,
 )
@@ -501,6 +503,114 @@ def test_first_party_reference_evaluator_is_wired_through_trusted_runner(
             pytest.skip(f"strict nested candidate sandbox unavailable: {exc}")
         raise
     assert result.score == pytest.approx(1.0)
+
+
+def test_canary_panel_builder_preserves_reference_sample_identity_rows(
+    tmp_path: Path, monkeypatch
+):
+    from aide.agent import TaskMetric, add_task_metric
+
+    _evaluator, _, evaluator_config = _make_evaluator(tmp_path, monkeypatch)
+    dataset = Path(evaluator_config.dataset_dir)
+    dataset.chmod(0o755)
+    labels = dataset / "labels.csv"
+    labels.chmod(0o644)
+    features = dataset / "features.csv"
+    public_data = tmp_path / "public-data"
+    public_data.mkdir()
+    (public_data / "features.csv").write_text("id,x\na,0\nz,0\n")
+    (public_data / "features.csv").chmod(0o444)
+
+    split = Path(evaluator_config.split_manifest)
+    split.write_text('{"evaluation_sample_ids":["z","a"]}\n')
+    config_path = Path(evaluator_config.config_path)
+    pinned_config = {
+        "labels_file": "labels.csv",
+        "public_files": ["features.csv"],
+        "scoring": {"id_column": "id", "label_column": "label"},
+    }
+    config_path.write_text(json.dumps(pinned_config) + "\n")
+
+    # Pick a stable pair whose hash order differs from sample-ID order. This
+    # makes independently sorting IDs and hash sets observably incorrect.
+    chosen_records = None
+    for value_a in range(1, 20):
+        for value_z in range(21, 40):
+            features.write_text(f"id,x\na,{value_a}\nz,{value_z}\n")
+            labels.write_text("id,label\na,1\nz,0\n")
+            features.chmod(0o444)
+            labels.chmod(0o444)
+            dataset.chmod(0o555)
+            records = sample_identity_records(dataset, pinned_config, ("z", "a"))
+            if tuple(item.public_input_sha256 for item in records) != tuple(
+                sorted(item.public_input_sha256 for item in records)
+            ):
+                chosen_records = records
+                break
+            dataset.chmod(0o755)
+            features.chmod(0o644)
+            labels.chmod(0o644)
+        if chosen_records is not None:
+            break
+    assert chosen_records is not None
+
+    evaluator_config.entrypoint = REFERENCE_EVALUATOR_ENTRYPOINT
+    evaluator_config.dataset_sha256 = tree_sha256(dataset)
+    evaluator_config.split_sha256 = file_sha256(split)
+    evaluator_config.config_sha256 = file_sha256(config_path)
+    evaluator_config.metric_id = "accuracy"
+    evaluator_config.metric_maximize = True
+
+    class CapturedPanel:
+        def __init__(self, *, epoch, tasks, protocol_sha256):
+            self.epoch = epoch
+            self.tasks = tuple(tasks)
+            self.protocol_sha256 = protocol_sha256
+
+    monkeypatch.setattr("aide.rsi.runner.CanaryPanel", CapturedPanel)
+    description = tmp_path / "task.txt"
+    description.write_text("Predict the hidden binary label from x.\n")
+    panel_task_config = SimpleNamespace(
+        task_id="task-01",
+        task_family="family-01",
+        task_stratum="classification",
+        task_description_file=str(description),
+        public_data_dir=str(public_data),
+        public_data_sha256=tree_sha256(public_data),
+        evaluator=evaluator_config,
+        replicate_ids=[0, 1, 2, 3],
+        replicate_seeds=[11, 22, 33, 44],
+        budget_per_run=24,
+    )
+    canary_config = SimpleNamespace(
+        experiment_alpha=0.05,
+        min_effect_size=0.0,
+        max_single_task_regression=0.25,
+        max_normalized_regression=0.05,
+        min_valid=1,
+        score_scale_floor=1.0,
+    )
+    runtime = _build_canary_panel(
+        SimpleNamespace(
+            rsi=SimpleNamespace(
+                canary_panel=[panel_task_config],
+                canary_panel_epoch=0,
+                canary=canary_config,
+            )
+        ),
+        task_metric_type=TaskMetric,
+        add_metric=add_task_metric,
+        artifact_root=tmp_path / "artifacts",
+    )
+
+    definition = runtime.panel.tasks[0]
+    assert definition.sample_ids == tuple(item.sample_id for item in chosen_records)
+    assert definition.public_input_sha256 == tuple(
+        item.public_input_sha256 for item in chosen_records
+    )
+    assert definition.sample_content_sha256 == tuple(
+        item.sample_content_sha256 for item in chosen_records
+    )
 
 
 def test_outer_timeout_kills_nested_reference_candidate(tmp_path: Path, monkeypatch):

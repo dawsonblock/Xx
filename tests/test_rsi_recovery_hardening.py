@@ -620,6 +620,18 @@ def test_trusted_rsi_state_rejects_unsigned_legacy_state(tmp_path: Path):
         RSIStateStore(path, require_attestation=True).load()
 
 
+def test_sample_identity_reservations_are_authenticated_and_monotonic(tmp_path: Path):
+    store = RSIStateStore(tmp_path / "state.json", require_attestation=True)
+    identity_digest = hashlib.sha256(b"task/sample/hash binding").hexdigest()
+    store.write(
+        phase="CANARY_RUNNING",
+        consumed_canary_sample_identity_sha256=[identity_digest],
+    )
+    assert store.load()["consumed_canary_sample_identity_sha256"] == [identity_digest]
+    with pytest.raises(ValueError, match="cannot decrease"):
+        store.write(consumed_canary_sample_identity_sha256=[])
+
+
 def test_committed_world_republishes_best_solution_after_interruption(tmp_path: Path):
     round_log = tmp_path / "round-000"
     round_log.mkdir()

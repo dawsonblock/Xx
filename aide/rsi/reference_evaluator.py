@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,22 @@ IDENTITY_KEYS = (
 
 class ReferenceEvaluatorError(RuntimeError):
     """The reference evaluator could not produce a valid prediction record."""
+
+
+@dataclass(frozen=True, slots=True)
+class SampleIdentity:
+    """Canonical per-row identity; hashes remain bound to the sample ID."""
+
+    sample_id: str
+    public_input_sha256: str
+    sample_content_sha256: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "sample_id": self.sample_id,
+            "public_input_sha256": self.public_input_sha256,
+            "sample_content_sha256": self.sample_content_sha256,
+        }
 
 
 _CANDIDATE_SEATBELT_PROFILE = """(version 1)
@@ -100,10 +117,13 @@ def _sample_ids(split_path: Path) -> tuple[str, ...]:
     return result
 
 
-def sample_identity_sha256(
+def sample_identity_records(
     dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
-) -> tuple[frozenset[str], frozenset[str]]:
-    """Return public-input and full-record hashes, independent of IDs and list order."""
+) -> tuple[SampleIdentity, ...]:
+    """Return canonical row identities without discarding ID/hash association."""
+    sample_ids = tuple(sorted(_canonical_id(value) for value in sample_ids))
+    if not sample_ids or len(sample_ids) != len(set(sample_ids)):
+        raise ReferenceEvaluatorError("sample IDs must be nonempty and unique")
     scoring = config.get("scoring", {})
     if not isinstance(scoring, dict):
         raise ReferenceEvaluatorError("scoring must be an object")
@@ -206,8 +226,8 @@ def sample_identity_sha256(
         feature_rows
     ):
         raise ReferenceEvaluatorError("sample content is missing pinned IDs")
+    identities: list[SampleIdentity] = []
     public_hashes: set[str] = set()
-    full_hashes: set[str] = set()
     for sample_id in sample_ids:
         public_payload = {
             "files": {
@@ -235,19 +255,45 @@ def sample_identity_sha256(
             separators=(",", ":"),
             ensure_ascii=False,
         )
-        full_hashes.add(hashlib.sha256(canonical_full.encode("utf-8")).hexdigest())
+        full_digest = hashlib.sha256(canonical_full.encode("utf-8")).hexdigest()
+        identities.append(
+            SampleIdentity(
+                sample_id=sample_id,
+                public_input_sha256=public_digest,
+                sample_content_sha256=full_digest,
+            )
+        )
     if len(public_hashes) != len(sample_ids):
         raise ReferenceEvaluatorError(
             "evaluation shard contains duplicate candidate-visible rows"
         )
-    return frozenset(public_hashes), frozenset(full_hashes)
+    return tuple(identities)
+
+
+def sample_identity_sha256(
+    dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Compatibility view of sample identities as separate overlap sets.
+
+    Authority-bearing callers should retain the records from
+    :func:`sample_identity_records`; these sets intentionally discard row
+    association and are only suitable for overlap checks.
+    """
+    identities = sample_identity_records(dataset_root, config, sample_ids)
+    return (
+        frozenset(item.public_input_sha256 for item in identities),
+        frozenset(item.sample_content_sha256 for item in identities),
+    )
 
 
 def sample_content_sha256(
     dataset_root: Path, config: dict[str, Any], sample_ids: tuple[str, ...]
 ) -> frozenset[str]:
     """Compatibility helper returning full feature-and-label identities."""
-    return sample_identity_sha256(dataset_root, config, sample_ids)[1]
+    return frozenset(
+        item.sample_content_sha256
+        for item in sample_identity_records(dataset_root, config, sample_ids)
+    )
 
 
 def _safe_relative(value: Any, *, field: str) -> Path:

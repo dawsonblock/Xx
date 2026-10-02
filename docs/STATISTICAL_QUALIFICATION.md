@@ -2,7 +2,7 @@
 
 Promotion inference uses independent task-family clusters. Seeds are paired within a task; tasks sharing a family are reduced to one median family effect. Only family effects enter the one-sided exact sign test. This is more conservative than counting each task as independent when tasks from the same family share data, prompts, scoring code, or environment. A tie at the configured practical-effect threshold counts as a non-win.
 
-`MULTITASK_PROMOTION_PROTOCOL_V5` fixes the protocol identity and records:
+`MULTITASK_PROMOTION_PROTOCOL_V6` fixes the protocol identity and records:
 
 - at least 40 distinct tasks and at least 40 independent task-family clusters;
 - exactly 4 paired runs per task, reduced to one median task effect;
@@ -16,13 +16,15 @@ The YAML retains `attempts` and `repeats` as deprecated, unused compatibility
 fields. `min_pass_fraction`, `min_pairs`, `confidence_level`,
 `bootstrap_samples`, and `max_single_pair_regression` remain controls for
 direct legacy V1 `RealCanaryGate.evaluate_series()` callers only. None affect
-the V5 panel or promotion decision. V5 binds `min_valid`,
+the V6 panel or promotion decision. V6 binds `min_valid`,
 `score_scale_floor`, the fixed four-run schedule, task/family protocol,
 practical-effect threshold, maximum task regression, and alpha allocation.
 `max_normalized_regression` is also bound because it determines the serialized
 per-pair diagnostic flag; that flag does not independently veto panel
-promotion. Regression tests ensure legacy settings cannot change the V5
-protocol digest while decision or signed-result fields remain bound.
+promotion. Regression tests ensure legacy settings cannot change the V6
+protocol digest while decision or signed-result fields remain bound. V6 also
+serializes each sample ID with its public-input and full-record hashes and
+rejects detached row identities during recovery.
 
 The minimum was raised to 40 families after the model-based power curves
 estimated 4.36% power for a 0.02 effect at 20 families, 42.32% at 40, and

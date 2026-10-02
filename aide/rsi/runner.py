@@ -174,6 +174,44 @@ def _panel_execution_schedule_sha256(panel: CanaryPanel) -> str:
     )
 
 
+def _panel_sample_identity_records(panel: CanaryPanel) -> list[dict[str, str]]:
+    """Flatten the panel's canonical row identities without losing ownership."""
+    return [
+        {
+            "task_id": task.task_id,
+            "task_sha256": task.task_sha256,
+            **sample_identity,
+        }
+        for task in sorted(panel.tasks, key=lambda item: item.task_id)
+        for sample_identity in task.sample_identity_records()
+    ]
+
+
+def _sample_identity_record_sha256(record: dict[str, str]) -> str:
+    return _stable_digest(
+        {
+            "domain": "aide-rsi-canary-sample-identity-reservation/v1",
+            "record": record,
+        }
+    )
+
+
+def _verify_panel_sample_identity_reservation(
+    recorded: Any, panel: CanaryPanel, durable_state: dict[str, Any]
+) -> None:
+    """Verify transaction rows and their authenticated durable reservation."""
+    expected = _panel_sample_identity_records(panel)
+    if recorded != expected:
+        raise ValueError(
+            "multi-task transaction sample identity records do not match its panel"
+        )
+    record_digests = [_sample_identity_record_sha256(record) for record in expected]
+    if not set(record_digests) <= set(
+        durable_state.get("consumed_canary_sample_identity_sha256", [])
+    ):
+        raise ValueError("canary sample identity records were not durably reserved")
+
+
 def _task_pair_gate_template(
     cfg, *, artifact_root: Path, expected_identity: dict[str, Any] | None = None
 ) -> RealCanaryGate:
@@ -269,6 +307,7 @@ def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
         if (
             evaluator.evaluation_sample_content_sha256 is None
             or evaluator.evaluation_sample_public_input_sha256 is None
+            or evaluator.evaluation_sample_identities is None
         ):
             raise ValueError(
                 f"canary panel task {task_id} requires the first-party evaluator's canonical sample identities"
@@ -279,6 +318,18 @@ def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
         # operator-assigned label, so renaming a task cannot create another
         # independent promotion unit.
         task_identity = evaluator.task_sha256
+        sample_identities = tuple(
+            sorted(
+                evaluator.evaluation_sample_identities,
+                key=lambda identity: identity.sample_id,
+            )
+        )
+        if tuple(identity.sample_id for identity in sample_identities) != tuple(
+            evaluator.evaluation_sample_ids
+        ):
+            raise ValueError(
+                f"canary panel task {task_id} sample identities do not match its pinned split"
+            )
         definition = CanaryPanelTask(
             task_id=task_id,
             task_family=task_family,
@@ -290,12 +341,12 @@ def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
             split_sha256=evaluator.split_sha256,
             metric_id=evaluator.metric_id,
             metric_maximize=evaluator.metric_maximize,
-            sample_ids=tuple(sorted(evaluator.evaluation_sample_ids)),
+            sample_ids=tuple(identity.sample_id for identity in sample_identities),
             public_input_sha256=tuple(
-                sorted(evaluator.evaluation_sample_public_input_sha256)
+                identity.public_input_sha256 for identity in sample_identities
             ),
             sample_content_sha256=tuple(
-                sorted(evaluator.evaluation_sample_content_sha256)
+                identity.sample_content_sha256 for identity in sample_identities
             ),
             replicate_ids=replicate_ids,
             replicate_seeds=replicate_seeds,
@@ -842,6 +893,9 @@ def _recover_multitask_canary_transaction(
     if not has_valid_canary_transaction(transaction):
         raise ValueError("multi-task canary transaction has no host attestation")
     panel = CanaryPanel.from_dict(transaction.get("panel"))
+    _verify_panel_sample_identity_reservation(
+        transaction.get("evaluation_sample_identity_records"), panel, state
+    )
     if (
         panel.to_dict() != canary_gate.panel.to_dict()
         or transaction.get("panel_sha256") != panel.panel_sha256
@@ -1877,6 +1931,11 @@ def _run_rsi_unlocked() -> None:
                 public_hashes = sorted(
                     canary_panel_runtime.evaluation_sample_public_input_sha256
                 )
+                sample_identity_records = _panel_sample_identity_records(panel)
+                sample_identity_digests = sorted(
+                    _sample_identity_record_sha256(record)
+                    for record in sample_identity_records
+                )
                 all_sample_ids = set(state.get("consumed_canary_sample_ids", []))
                 all_sample_ids.update(sample_ids)
                 all_content_hashes = set(
@@ -1887,6 +1946,10 @@ def _run_rsi_unlocked() -> None:
                     state.get("consumed_canary_public_input_sha256", [])
                 )
                 all_public_hashes.update(public_hashes)
+                all_sample_identity_digests = set(
+                    state.get("consumed_canary_sample_identity_sha256", [])
+                )
+                all_sample_identity_digests.update(sample_identity_digests)
                 all_panel_hashes = set(state.get("consumed_canary_panel_sha256", []))
                 all_panel_hashes.add(panel_sha256)
                 all_task_hashes = set(state.get("consumed_canary_task_sha256", []))
@@ -1904,6 +1967,9 @@ def _run_rsi_unlocked() -> None:
                     consumed_canary_sample_ids=sorted(all_sample_ids),
                     consumed_canary_sample_content_sha256=sorted(all_content_hashes),
                     consumed_canary_public_input_sha256=sorted(all_public_hashes),
+                    consumed_canary_sample_identity_sha256=sorted(
+                        all_sample_identity_digests
+                    ),
                     canary_attempt_count=active_index,
                     statistical_budget=reserved_budget.to_dict(),
                 )
@@ -1923,6 +1989,7 @@ def _run_rsi_unlocked() -> None:
                         "evaluation_sample_ids": sample_ids,
                         "evaluation_sample_content_sha256": content_hashes,
                         "evaluation_sample_public_input_sha256": public_hashes,
+                        "evaluation_sample_identity_records": sample_identity_records,
                         "task_sha256s": sorted(panel_task_hashes),
                         "seed_schedule_sha256": _panel_seed_schedule_sha256(panel),
                         "canary_execution_schedule": _panel_execution_schedule(panel),

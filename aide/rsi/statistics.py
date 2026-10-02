@@ -17,8 +17,8 @@ MAX_PROMOTION_ATTEMPTS = 500
 _MAX_ATTEMPTS = MAX_PROMOTION_ATTEMPTS
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
-MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V5"
-MULTITASK_PROTOCOL_VERSION = 5
+MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V6"
+MULTITASK_PROTOCOL_VERSION = 6
 MULTITASK_MIN_TASKS = 40
 MULTITASK_MIN_INDEPENDENT_FAMILIES = 40
 MULTITASK_MIN_STRATA = 3
@@ -246,6 +246,14 @@ class CanaryPanelTask:
         sample_order = sorted(
             range(len(self.sample_ids)), key=lambda index: self.sample_ids[index]
         )
+        sample_identity_records = [
+            {
+                "sample_id": self.sample_ids[index],
+                "public_input_sha256": self.public_input_sha256[index],
+                "sample_content_sha256": self.sample_content_sha256[index],
+            }
+            for index in sample_order
+        ]
         return {
             **asdict(self),
             "sample_ids": [self.sample_ids[index] for index in sample_order],
@@ -255,9 +263,14 @@ class CanaryPanelTask:
             "sample_content_sha256": [
                 self.sample_content_sha256[index] for index in sample_order
             ],
+            "sample_identity_records": sample_identity_records,
             "replicate_ids": list(self.replicate_ids),
             "replicate_seeds": list(self.replicate_seeds),
         }
+
+    def sample_identity_records(self) -> list[dict[str, str]]:
+        """Return the canonical, explicitly associated per-row identities."""
+        return self.to_dict()["sample_identity_records"]
 
     def seed_for(self, replicate_id: int) -> int:
         try:
@@ -393,6 +406,7 @@ class CanaryPanel:
             if not isinstance(task, dict):
                 raise TypeError("canary panel task must be an object")
             task_value = dict(task)
+            recorded_sample_identities = task_value.pop("sample_identity_records", None)
             for name in (
                 "sample_ids",
                 "public_input_sha256",
@@ -403,7 +417,12 @@ class CanaryPanel:
                 if not isinstance(task_value.get(name), list):
                     raise TypeError(f"canary panel task {name} must be a list")
                 task_value[name] = tuple(task_value[name])
-            tasks.append(CanaryPanelTask(**task_value))
+            parsed_task = CanaryPanelTask(**task_value)
+            if recorded_sample_identities != parsed_task.sample_identity_records():
+                raise ValueError(
+                    "canary panel sample identity records do not match row arrays"
+                )
+            tasks.append(parsed_task)
         result = cls(
             epoch=value["epoch"],
             tasks=tuple(tasks),

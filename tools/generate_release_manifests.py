@@ -49,6 +49,7 @@ TCB_FIXED_PATHS = {
     "tests/test_rsi_reference_evaluator.py",
     "tests/test_rsi_statistics_qualification_tool.py",
     "tests/test_rsi_trusted_evaluator.py",
+    "tests/test_rsi_recovery_hardening.py",
     "requirements-rsi-ci.in",
     "requirements-rsi-ci.lock",
     "rsi_anchor_service.py",

@@ -388,18 +388,24 @@ class TrustedEvaluator:
 
         entrypoint = str(getattr(config, "entrypoint", "evaluate.py") or "evaluate.py")
         self.reference_evaluator = entrypoint == REFERENCE_EVALUATOR_ENTRYPOINT
+        self.evaluation_sample_identities = None
         self.evaluation_sample_content_sha256: frozenset[str] | None = None
         self.evaluation_sample_public_input_sha256: frozenset[str] | None = None
         if self.reference_evaluator and self.evaluation_sample_ids is not None:
             try:
-                from .reference_evaluator import sample_identity_sha256
+                from .reference_evaluator import sample_identity_records
 
                 pinned_config = json.loads(self.config_path.read_text(encoding="utf-8"))
-                (
-                    self.evaluation_sample_public_input_sha256,
-                    self.evaluation_sample_content_sha256,
-                ) = sample_identity_sha256(
+                self.evaluation_sample_identities = sample_identity_records(
                     self.dataset_dir, pinned_config, self.evaluation_sample_ids
+                )
+                self.evaluation_sample_public_input_sha256 = frozenset(
+                    item.public_input_sha256
+                    for item in self.evaluation_sample_identities
+                )
+                self.evaluation_sample_content_sha256 = frozenset(
+                    item.sample_content_sha256
+                    for item in self.evaluation_sample_identities
                 )
             except (
                 OSError,

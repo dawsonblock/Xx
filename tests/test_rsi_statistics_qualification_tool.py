@@ -83,7 +83,7 @@ def test_calibration_harness_reports_family_correlations_and_lineage():
     assert result["synthetic_lineage_stress"]["alpha_remaining"] < 0.05
     assert result["promotion_attempt_horizon"] == 500
     assert result["spending_rule"] == "alpha_i = family_alpha / 500"
-    assert result["protocol_id"] == "MULTITASK_PROMOTION_PROTOCOL_V5"
+    assert result["protocol_id"] == "MULTITASK_PROMOTION_PROTOCOL_V6"
     assert result["minimum_production_tasks"] == 40
     assert result["minimum_production_independent_families"] == 40
     assert result["power_curve_family_counts_production_eligible"] == {
@@ -253,7 +253,7 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
     monkeypatch.setattr(
         generate_release_manifests,
         "_current_statistical_protocol",
-        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V5", "b" * 64),
+        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V6", "b" * 64),
     )
     source_snapshot = generate_release_manifests._canonical_sha256(
         generate_release_manifests._file_hashes(
