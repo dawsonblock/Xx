@@ -2,6 +2,9 @@
   "build": "AIDE-DREAM-RSI-v1.3.5",
   "distribution_name": "aideml-rsi",
   "distribution_version": "1.3.5",
+  "current_qualification_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
+  "current_qualification_manifest": "RELEASE_FREEZE_MANIFEST.json",
+  "qualification_note": "Validation blocks below are historical for earlier commits; consult RELEASE_FREEZE_MANIFEST.json for the current qualified source and result identities.",
   "base_artifact": {
     "name": "AIDE-DREAM-RSI-v1.2.0.zip",
     "sha256": "88a9fc88a3253b24e31cc4b64b4bd3ffffd8ef7bacd7ddb9b24ac326a683ee31"

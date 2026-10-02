@@ -1,5 +1,50 @@
 # Validation Report — AIDE-DREAM-RSI v1.3.5
 
+## Current statistical-authority milestone
+
+This is the current validation record for the unreleased branch
+`fix/aide-rsi-authority-closure`. The qualified code snapshot is commit
+`b349cb115f3bc8a9d3d45ad56bca174b044508c5`, Git tree
+`00be7f4473cd32dc303dac0c5275e820a192c195`, with package metadata still at
+`1.3.5`. It is not a v1.4.0 release. The canonical source, TCB, statistical
+artifact, and test identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json)
+and [`TCB_MANIFEST.json`](TCB_MANIFEST.json).
+
+Local qualification on 2026-10-01:
+
+- Full project suite: **207 passed, 1 skipped** (208 tests; JUnit artifact
+  hash is recorded in the release freeze manifest).
+- Compile check, Ruff, Black, and `git diff --check`: passed.
+- Synthetic null calibration: **674 false-promotion lineages / 20,000**
+  (3.37%); 95% Wilson interval **3.13%–3.63%**, below the experiment-wide
+  alpha of 5% for this configured 100-attempt campaign.
+- Correlation sensitivity: **25/25** seed-correlation × family-correlation
+  cells passed. Each cell used 20,000 simulated attempts; the highest observed
+  false-promotion rate was 2.235%, with a highest 95% Wilson upper bound of
+  2.449% against the first-attempt alpha allocation of 2.5%.
+- Power sensitivity: for a 0.02 effect at attempt 1, estimated power was
+  70.9%, 86.5%, and 92.5% with 20, 30, and 40 independent family clusters.
+  At attempt 100 it was 0.6%, 6.8%, and 17.8%, respectively. This shows the
+  current conservative spending schedule has low late-attempt power; these
+  curves are synthetic and are not evidence of AIDE task improvement.
+- Synthetic in-memory lineage stress: 500 panel attempts, 47 crashes after
+  reservation, 26 failed panels, 500 unique panels, and alpha remaining
+  `0.0000998004`. This exercises the in-memory budget/lineage model; it does
+  not qualify `RSIStateStore`, an external anchor, or crash behavior in a
+  deployed experiment.
+- Wheel and source distribution contents were checked; a clean wheel install
+  exercised the statistics and anchor entry points, bundled LocalJevFabric,
+  and a local anchor compare-and-swap/read smoke test.
+
+Still unqualified: hosted workflows for this code commit, an independently
+deployed external anchor and whole-directory rollback, real multi-task
+identical/degraded/stronger controls, and genuine multi-generation AIDE-RSI
+improvement. The requirements files are not a locked dependency set. Synthetic
+independence assumptions do not prove that real task-family clusters are
+independent or representative. See the machine-readable freeze for exact
+`NOT_RUN` and `NOT_CONFIRMED` statuses. Older sections below are historical
+validation for earlier commits and must not be attributed to this source.
+
 ## Unreleased hardening closure branch
 
 Package metadata remains 1.3.5. This branch adds canary recovery authority
