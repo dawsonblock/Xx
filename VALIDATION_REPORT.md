@@ -4,15 +4,15 @@
 
 This is the current validation record for the unreleased branch
 `fix/aide-rsi-authority-closure`. The qualified code snapshot is commit
-`b349cb115f3bc8a9d3d45ad56bca174b044508c5`, Git tree
-`00be7f4473cd32dc303dac0c5275e820a192c195`, with package metadata still at
+`c4603ac4128f9e45480c286457ad4a1eeac48ee4`, Git tree
+`0587067e04f7d67c1bbbf2f3d491c54ad6885173`, with package metadata still at
 `1.3.5`. It is not a v1.4.0 release. The canonical source, TCB, statistical
 artifact, and test identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json)
 and [`TCB_MANIFEST.json`](TCB_MANIFEST.json).
 
 Local qualification on 2026-10-01:
 
-- Full project suite: **207 passed, 1 skipped** (208 tests; JUnit artifact
+- Full project suite: **208 passed, 1 skipped** (209 tests; JUnit artifact
   hash is recorded in the release freeze manifest).
 - Compile check, Ruff, Black, and `git diff --check`: passed.
 - Synthetic null calibration: **674 false-promotion lineages / 20,000**
@@ -35,8 +35,11 @@ Local qualification on 2026-10-01:
 - Wheel and source distribution contents were checked; a clean wheel install
   exercised the statistics and anchor entry points, bundled LocalJevFabric,
   and a local anchor compare-and-swap/read smoke test.
+- The calibration tool also completed a reduced smoke campaign from both the
+  installed wheel and extracted source distribution without Git metadata; each
+  resolved the frozen commit/tree from its bundled release freeze.
 
-Still unqualified: hosted workflows for this code commit, an independently
+Still unqualified: hosted workflows for this latest code commit, an independently
 deployed external anchor and whole-directory rollback, real multi-task
 identical/degraded/stronger controls, and genuine multi-generation AIDE-RSI
 improvement. The requirements files are not a locked dependency set. Synthetic

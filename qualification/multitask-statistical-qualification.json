@@ -1670,9 +1670,9 @@
   "protocol_sha256": "5237f9578d0d2e31aebb4b94f10eff4b75e3ffd6dbf4c4683e7a9b45e22fa963",
   "python_version": "3.12.0",
   "qualification_type": "synthetic statistical calibration; not real-task qualification",
-  "release_freeze_manifest_available": false,
-  "release_freeze_source_snapshot_sha256": null,
-  "release_freeze_tcb_manifest_sha256": "aef08aee19e0c8f833352aa82b07580d74cd15c4d33b18d9a8f10a751942a2a8",
+  "release_freeze_manifest_available": true,
+  "release_freeze_source_snapshot_sha256": "a755c4a06fdaa837118707256841939225d984c6182415e79df73bd1a11189e8",
+  "release_freeze_tcb_manifest_sha256": "95cf98f856e4b162fe3e89da0d9731966d7a193586a35a030ed3ad2590f8dde2",
   "runs_per_task": 5,
   "schema_version": 2,
   "seed": 20261001,
@@ -1858,8 +1858,8 @@
       "wilson_95_low": 0.03959482746331551
     }
   },
-  "source_commit": "b349cb115f3bc8a9d3d45ad56bca174b044508c5",
-  "source_file_manifest_sha256": "53ddccfb4d4aa46dfe66d6ceeadbbbcadf80e7669b5939d2281f3bc9a39ac71a",
+  "source_commit": "c4603ac4128f9e45480c286457ad4a1eeac48ee4",
+  "source_file_manifest_sha256": "6f345c074401a4e75f7ac85e4b1ac39c320b8229975af5b1be4b7727695d475e",
   "source_files_sha256": {
     "aide/rsi/canary.py": "697890a39946a36f104580866d0bff5213c47c8719f62e9d35387377430a2b71",
     "aide/rsi/evidence.py": "c0622f9a34fdb7b2e331b879e5ea78bef8de8fbb13cdba5a8a34f484df5a62e4",
@@ -1872,11 +1872,11 @@
     "aide/utils/config.py": "1b62f54870064f46318d9cb8181751a87784b5f84ccdb9d48613c0bd765e2b82",
     "aide/utils/config.yaml": "fee38772fa26c44ca3f4a09cfa7260db3f6f9f269ab143ee87a26c87a34610a4",
     "rsi_anchor_service.py": "d98a0e624eca53e25ba4cf9b41f6602516a87d37604537e24db90bc1b70879d2",
-    "tools/generate_release_manifests.py": "6db33192a0166591f70d7b0ae7987934827134922ee97c042de6f17a28140f03",
+    "tools/generate_release_manifests.py": "c27883bd8841bcbd5333d1fd0fa9d1172eb789b31fbc1e9c210b682620c2943f",
     "tools/qualify_canary_statistics.py": "8375303fa75418a2db83faee0d2a815c7ed5aaad5857a5713eff67c88f0b517d"
   },
   "source_git_identity_available": true,
-  "source_git_tree": "00be7f4473cd32dc303dac0c5275e820a192c195",
+  "source_git_tree": "0587067e04f7d67c1bbbf2f3d491c54ad6885173",
   "spending_rule": "alpha_i = alpha / (i * (i + 1))",
   "synthetic_lineage_stress": {
     "alpha_remaining": 9.980039920159681e-05,

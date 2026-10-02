@@ -1,5 +1,5 @@
 {
-  "canonical_files_sha256": "1d56a7a2a820c57ef70b2e6c35b8d8dd066fcbfcb8c2051793db7fcadeec5300",
+  "canonical_files_sha256": "3a05049956f057fb61f0cb0a23fafc9007b1bf60a6b75865d489f32ab2dc6400",
   "file_count": 43,
   "files": {
     ".github/workflows/linter.yml": "618936b0635b66d63ebe02557b93660d3f8255ad3bdc4bcc1a5848175e4c88eb",
@@ -42,7 +42,7 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426",
     "rsi_anchor_service.py": "d98a0e624eca53e25ba4cf9b41f6602516a87d37604537e24db90bc1b70879d2",
     "setup.py": "66e852d0df9beff37da2a936aab7bfa2d99f378a87d285706e0babc616861a33",
-    "tools/generate_release_manifests.py": "6db33192a0166591f70d7b0ae7987934827134922ee97c042de6f17a28140f03",
+    "tools/generate_release_manifests.py": "c27883bd8841bcbd5333d1fd0fa9d1172eb789b31fbc1e9c210b682620c2943f",
     "tools/qualify_canary_statistics.py": "8375303fa75418a2db83faee0d2a815c7ed5aaad5857a5713eff67c88f0b517d",
     "tools/verify_package.py": "06cc83952b0e4a3817b08741fd7757dc16921338afaae9cf2c30a44131e20161"
   },

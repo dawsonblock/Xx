@@ -1,8 +1,8 @@
 # Current statistical-authority qualification
 
 The current source snapshot is frozen at qualified code commit
-`b349cb115f3bc8a9d3d45ad56bca174b044508c5` (Git tree
-`00be7f4473cd32dc303dac0c5275e820a192c195`). Its package version remains
+`c4603ac4128f9e45480c286457ad4a1eeac48ee4` (Git tree
+`0587067e04f7d67c1bbbf2f3d491c54ad6885173`). Its package version remains
 `1.3.5`; this is an unreleased qualification milestone, not v1.4.0.
 
 The canonical machine-readable identity and qualification record is
@@ -11,7 +11,7 @@ authority-critical file hashes in [`TCB_MANIFEST.json`](TCB_MANIFEST.json) and
 the reproducible synthetic campaign in
 [`qualification/multitask-statistical-qualification.json`](qualification/multitask-statistical-qualification.json).
 
-Local results on 2026-10-01: 207 passed and 1 skipped in the full project
+Local results on 2026-10-01: 208 passed and 1 skipped in the full project
 suite; synthetic family-wise null calibration passed 20,000 100-attempt
 lineages (3.37% false-promotion rate; 95% Wilson interval 3.13%–3.63% under
 the 5% family alpha); all 25 within-seed/family-correlation scenarios passed;
@@ -20,7 +20,7 @@ attempt-dependent and falls at late attempts as the precommitted alpha budget
 shrinks. The report and artifact document the observed power rather than
 implying all-attempt high power.
 
-Hosted CI for this source, independent external-anchor deployment and rollback
+Hosted CI for this exact source commit, independent external-anchor deployment and rollback
 qualification, real multi-task controls, and real AIDE-RSI lineage qualification
 remain unconfirmed or not run. No release tag should be cut from this record.
 

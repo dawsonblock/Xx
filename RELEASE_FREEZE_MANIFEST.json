@@ -5,19 +5,20 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
   },
   "dependency_manifest_sha256": "b54990949afc7ff454367c446c4d1ed45e1f9c5d8a69321ae4283c8f7cbbe4f2",
+  "hosted_workflow_runs": null,
   "limitations": [
     "requirements files are not a qualified dependency lock",
     "external anchor service is not independently deployed or rollback-qualified",
     "synthetic results do not establish real-task independence or AIDE improvement"
   ],
   "package_version": "1.3.5",
-  "qualified_code_commit": "b349cb115f3bc8a9d3d45ad56bca174b044508c5",
-  "qualified_code_git_tree": "00be7f4473cd32dc303dac0c5275e820a192c195",
-  "qualified_code_source_manifest_sha256": "a755c4a06fdaa837118707256841939225d984c6182415e79df73bd1a11189e8",
+  "qualified_code_commit": "c4603ac4128f9e45480c286457ad4a1eeac48ee4",
+  "qualified_code_git_tree": "0587067e04f7d67c1bbbf2f3d491c54ad6885173",
+  "qualified_code_source_manifest_sha256": "8947f6152fcd716e77eef74816154509b450976cfa23477943c79ce954241fcc",
   "release_head": null,
   "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
   "schema_version": 1,
-  "security_relevant_digest_sha256": "1d56a7a2a820c57ef70b2e6c35b8d8dd066fcbfcb8c2051793db7fcadeec5300",
+  "security_relevant_digest_sha256": "3a05049956f057fb61f0cb0a23fafc9007b1bf60a6b75865d489f32ab2dc6400",
   "security_relevant_files_sha256": {
     ".github/workflows/linter.yml": "618936b0635b66d63ebe02557b93660d3f8255ad3bdc4bcc1a5848175e4c88eb",
     ".github/workflows/linux-bubblewrap.yml": "698662445c2d6ab5f636388edebdd91e93f798f0cf40d5a70fee2b60a85afafb",
@@ -59,15 +60,15 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426",
     "rsi_anchor_service.py": "d98a0e624eca53e25ba4cf9b41f6602516a87d37604537e24db90bc1b70879d2",
     "setup.py": "66e852d0df9beff37da2a936aab7bfa2d99f378a87d285706e0babc616861a33",
-    "tools/generate_release_manifests.py": "6db33192a0166591f70d7b0ae7987934827134922ee97c042de6f17a28140f03",
+    "tools/generate_release_manifests.py": "c27883bd8841bcbd5333d1fd0fa9d1172eb789b31fbc1e9c210b682620c2943f",
     "tools/qualify_canary_statistics.py": "8375303fa75418a2db83faee0d2a815c7ed5aaad5857a5713eff67c88f0b517d",
     "tools/verify_package.py": "06cc83952b0e4a3817b08741fd7757dc16921338afaae9cf2c30a44131e20161"
   },
   "source_file_count": 914,
-  "source_snapshot_sha256": "a755c4a06fdaa837118707256841939225d984c6182415e79df73bd1a11189e8",
+  "source_snapshot_sha256": "8947f6152fcd716e77eef74816154509b450976cfa23477943c79ce954241fcc",
   "statistical_qualification": {
     "artifact": "qualification/multitask-statistical-qualification.json",
-    "artifact_sha256": "d05a8268fc0c9ff80b7d25ffe1f876aff75f13cf4342268be321df073e371c27",
+    "artifact_sha256": "c15759c96bdd6e436358e45e0323bc733e35e8b694cb5f1e94f7ea917d08ca04",
     "correlation_scenarios_passed": 25,
     "in_memory_lineage_attempts": 500,
     "in_memory_lineage_stress_status": "PASS_NOT_STATESTORE_OR_ANCHOR_QUALIFICATION",
@@ -80,11 +81,11 @@
     "power_curve_reported": true,
     "protocol_id": "MULTITASK_PROMOTION_PROTOCOL_V1",
     "protocol_sha256": "5237f9578d0d2e31aebb4b94f10eff4b75e3ffd6dbf4c4683e7a9b45e22fa963",
-    "source_file_manifest_sha256": "53ddccfb4d4aa46dfe66d6ceeadbbbcadf80e7669b5939d2281f3bc9a39ac71a",
+    "source_file_manifest_sha256": "6f345c074401a4e75f7ac85e4b1ac39c320b8229975af5b1be4b7727695d475e",
     "status": "SYNTHETIC_NULL_CALIBRATION_PASS",
     "synthetic_lineage_attempts": 100
   },
-  "tcb_manifest_sha256": "95cf98f856e4b162fe3e89da0d9731966d7a193586a35a030ed3ad2590f8dde2",
+  "tcb_manifest_sha256": "9513cd29295c43d6022403c265117525525d9cfb5746c9409a78d20bfcaab0f8",
   "validation": {
     "external_anchor_rollback_qualification": "NOT_RUN",
     "hosted_platform_qualification": "NOT_CONFIRMED",
@@ -92,11 +93,11 @@
     "local_full_pytest": {
       "errors": 0,
       "failures": 0,
-      "junit_xml_sha256": "e5072de49763b3d3cfe0e87a0cc3fcb563cdf8e9db14664147df94494b47c01c",
-      "passed": 207,
+      "junit_xml_sha256": "4f67b0db206cd0494788526cfa1bfb4c5411f11507bd70229e86565276b808ea",
+      "passed": 208,
       "skipped": 1,
       "status": "PASS",
-      "tests": 208
+      "tests": 209
     },
     "local_statistical_calibration": "SYNTHETIC_NULL_CALIBRATION_PASS",
     "real_multitask_controls": "NOT_RUN"
