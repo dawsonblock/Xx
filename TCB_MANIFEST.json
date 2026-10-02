@@ -1,5 +1,5 @@
 {
-  "canonical_files_sha256": "ba333569be84b47be936ebbe0d8ac0c95de2721bd92e5ed23c350b382430069e",
+  "canonical_files_sha256": "23f6bf81f15c6351815b19bbc3644d8ac055b23959512d3fa7ab5075c419e233",
   "file_count": 49,
   "files": {
     ".github/workflows/linter.yml": "451fcdeb3da2e3c2479e30aa0eb4daec1a5f8ac0782a25656c03ee8107cc709b",
@@ -46,9 +46,9 @@
     "setup.py": "3eb72c41ef235af4dc8394c0fd063ece7923128925270bb06accf5dff7d91303",
     "tests/test_rsi_multitask_canary.py": "0eae5eb16372200eebab04f5c72aafe09169f8b469cc900418c31e9852c2717e",
     "tests/test_rsi_reference_evaluator.py": "7947ef938c290798dff9c04e70f1b930c40dc705f66e7dfa0136f1c858f6fcf9",
-    "tests/test_rsi_statistics_qualification_tool.py": "09278c550b3354dfbbc5a8cbd7f912d2320e5382fef9f431ba35c179df7dcacc",
+    "tests/test_rsi_statistics_qualification_tool.py": "e205401d1db3d24ac567e4a6908f3539e81db6d8bb9d2cf4d7b75d4d0d8634c2",
     "tests/test_rsi_trusted_evaluator.py": "7849e6734f80aaadd010641f2d24a6c60e464502aea86657134910d8fe0d7a0f",
-    "tools/generate_release_manifests.py": "3b81aaa10093c2f4a29bb69e277f7ce699410e886ed204451900a0158d99cf58",
+    "tools/generate_release_manifests.py": "877e73951d7926b0762e43573d030495011257b21e5c1dc7f92885eeecec0dc2",
     "tools/qualify_canary_statistics.py": "f32242dca444acc96388a5037f32a76b7c3aafec07713d24671c25666ba5b50e",
     "tools/verify_package.py": "6f68bf5028e612ff0a33dede2a27ebd86f5f021cc60c15ba17772d9b7b6f2371"
   },

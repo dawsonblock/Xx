@@ -200,13 +200,13 @@
     "tests/test_rsi_sandbox_capture.py": "0c481e9133170ec05cc7488198dd449b3e124292dbba87ce1a83cd5b15d8f5e4",
     "tests/test_rsi_seatbelt.py": "23d61d682098061d621a6d82762ee659ab2adf85e35c9111ffbe8c982323d9b9",
     "tests/test_rsi_statistics_budget.py": "044e81a67f999fa62447b0d770ec20513b5f38b757d28cf896a35052359cc05f",
-    "tests/test_rsi_statistics_qualification_tool.py": "09278c550b3354dfbbc5a8cbd7f912d2320e5382fef9f431ba35c179df7dcacc",
+    "tests/test_rsi_statistics_qualification_tool.py": "e205401d1db3d24ac567e4a6908f3539e81db6d8bb9d2cf4d7b75d4d0d8634c2",
     "tests/test_rsi_trusted_evaluator.py": "7849e6734f80aaadd010641f2d24a6c60e464502aea86657134910d8fe0d7a0f",
     "tests/test_rsi_upgrade_regressions.py": "f164939d8c644fbda2561d9cd9677bc844aa044d9c125eb4b752d6847d253a2e",
     "tests/test_rsi_v120.py": "f0f7a5f7440c5d81e1875dfe159efee52e4fe0b0a2980c19a038596056694e28",
     "tests/test_rsi_world_loader.py": "6e603d299cfc18749ed17604ff17c020f0572fe6140acf511bb827d93befa4f3",
     "tools/__init__.py": "98faab0386a3fb3b9194e201e3403102d36e42367c27df2cdd39fdb6a38e27ad",
-    "tools/generate_release_manifests.py": "3b81aaa10093c2f4a29bb69e277f7ce699410e886ed204451900a0158d99cf58",
+    "tools/generate_release_manifests.py": "877e73951d7926b0762e43573d030495011257b21e5c1dc7f92885eeecec0dc2",
     "tools/qualify_canary_statistics.py": "f32242dca444acc96388a5037f32a76b7c3aafec07713d24671c25666ba5b50e",
     "tools/verify_package.py": "6f68bf5028e612ff0a33dede2a27ebd86f5f021cc60c15ba17772d9b7b6f2371",
     "vendor/LocalJevFabric-v1.5.0/BUILD_MANIFEST.json": "768b064c1ef36e81254638f4ebeca4e00865352fbeea468a414b2a52fbe3245b",
@@ -919,10 +919,10 @@
     "vendor/LocalJevFabric-v1.5.0/scripts/verify.sh": "fc07312a3b0e4e6f652c54d54eb4b036e159c6c6eb337b095b16440e02c61d65"
   },
   "manifest_type": "source_snapshot",
-  "qualified_code_commit": "ed76f8ba02c9319f119f356df97b9e983264c4d1",
-  "qualified_code_git_tree": "042a38848be5fae80f3d86abcaeaf9ce445806d0",
+  "qualified_code_commit": "ca80a2b13a052e67053d2aeed37ffccf02722545",
+  "qualified_code_git_tree": "c8406fa66565039b3100719ca617e8490692dfa6",
   "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
   "schema_version": 1,
   "source_file_count": 917,
-  "source_snapshot_sha256": "95e18dd010716b63b8b7a985a0c8af69fe85697623be94ebccf35eb91399115b"
+  "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1"
 }

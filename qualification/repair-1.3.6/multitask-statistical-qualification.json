@@ -2362,9 +2362,9 @@
   "protocol_sha256": "2c6f5444ae4ed02fb3320ef3ba6a9fcade858588ca5049e0db71974e835b85df",
   "python_version": "3.12.0",
   "qualification_type": "synthetic statistical calibration; not real-task qualification",
-  "release_freeze_manifest_available": false,
-  "release_freeze_source_snapshot_sha256": null,
-  "release_freeze_tcb_manifest_sha256": null,
+  "release_freeze_manifest_available": true,
+  "release_freeze_source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+  "release_freeze_tcb_manifest_sha256": "d4f82fcc58b100623063f89eaaeae6931bd9e9a05fb84dbad2659fbbfb7f81cc",
   "runs_per_task": 4,
   "schema_version": 4,
   "seed": 20261001,
@@ -3186,8 +3186,8 @@
       "wilson_95_low": 0.8645137030314343
     }
   },
-  "source_commit": "3bebc16fc075e3d4441fd82eb3151b240161c897",
-  "source_file_manifest_sha256": "0e046df2a97ca9b9b2d70988760f8142b24b7c9b9893503d6a904c6988b58b6d",
+  "source_commit": "ca80a2b13a052e67053d2aeed37ffccf02722545",
+  "source_file_manifest_sha256": "1e6b0e2e41437c730cb634ce11002c6276f9e3d65c846612dec150bf59227cbc",
   "source_files_sha256": {
     "aide/rsi/canary.py": "c0ec84249c634f5f0a2ff9895f27288bdadcfed342829d48aac410790a566fcc",
     "aide/rsi/evidence.py": "c0622f9a34fdb7b2e331b879e5ea78bef8de8fbb13cdba5a8a34f484df5a62e4",
@@ -3202,11 +3202,11 @@
     "requirements-rsi-ci.in": "15cfc1ec16e063c84b58e4a3588c797d0d2a9161ba7ffd7033d78c8489ec1ab6",
     "requirements-rsi-ci.lock": "f8ed88219bbf3f5e801bf8cdabe4c732008213150c5197abcccd7b0caa37f1be",
     "rsi_anchor_service.py": "d98a0e624eca53e25ba4cf9b41f6602516a87d37604537e24db90bc1b70879d2",
-    "tools/generate_release_manifests.py": "3b81aaa10093c2f4a29bb69e277f7ce699410e886ed204451900a0158d99cf58",
+    "tools/generate_release_manifests.py": "877e73951d7926b0762e43573d030495011257b21e5c1dc7f92885eeecec0dc2",
     "tools/qualify_canary_statistics.py": "f32242dca444acc96388a5037f32a76b7c3aafec07713d24671c25666ba5b50e"
   },
   "source_git_identity_available": true,
-  "source_git_tree": "3dda67b7d0c9d4dfd8844ecae3b3ba64669dbeff",
+  "source_git_tree": "c8406fa66565039b3100719ca617e8490692dfa6",
   "spending_rule": "alpha_i = family_alpha / 500",
   "synthetic_lineage_stress": {
     "alpha_remaining": 0.0,

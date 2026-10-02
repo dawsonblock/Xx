@@ -15,7 +15,7 @@ The active machine-readable identities are:
 - [`TCB_MANIFEST.json`](TCB_MANIFEST.json): security and authority code, tests, workflows, config, and build inputs.
 - [`BUILD_MANIFEST.json`](BUILD_MANIFEST.json): package and qualification state.
 
-The V5 code and statistical artifact identify code commit `3bebc16fc075e3d4441fd82eb3151b240161c897`. Regenerate all manifests after the release-record commit; the freeze must report that its hashed source matches its Git commit before hosted evidence can be attached.
+The committed code snapshot is `ca80a2b13a052e67053d2aeed37ffccf02722545`, with source-manifest SHA-256 `21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1`. The V5 statistical campaign was regenerated from this commit in the hash-locked Python 3.12 environment; its complete statistical implementation source-file manifest matches the current V5 implementation. The root freeze reports `COMMITTED_SOURCE_SNAPSHOT`. Earlier hosted workflow runs on the superseded source digest are preserved as [`hosted-workflow-runs-superseded-510406.json`](qualification/repair-1.3.6/hosted-workflow-runs-superseded-510406.json) and do not qualify this source.
 
 ## Repair scope
 
@@ -27,16 +27,19 @@ The current change set separates host paths from outer-sandbox paths in `Trusted
 |---|---|---|
 | Local focused multi-task/statistics/anchor tests | Native arm64 Python 3.12 lock environment | PASS: 42 tests |
 | Full local suite | [`qualification/repair-1.3.6/pytest-junit.xml`](qualification/repair-1.3.6/pytest-junit.xml) | PASS: 225 passed, 1 skipped |
-| Local wheel and source-distribution packaging | Build, `tools/verify_package.py`, clean wheel CLI/vendor/anchor smoke | PASS locally; hosted package workflow remains NOT_RUN |
-| Linux Bubblewrap first-party E2E | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
-| macOS Seatbelt and nested candidate cleanup | Hosted runs on repair source commit | NOT_RUN until hosted CI completes |
-| Windows state and order-invariant tests | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
-| Linter and package completeness | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
+| Linux Bubblewrap first-party E2E | Hosted run on current source digest | NOT RUN; earlier pass is superseded by the manifest-status generator change |
+| macOS Seatbelt first-party E2E | Hosted run on current source digest | NOT RUN; rerun required |
+| macOS nested candidate timeout cleanup | Hosted run on current source digest | NOT RUN; rerun required |
+| Windows state lock, anchor, and statistics tests | Hosted run on current source digest | NOT RUN; rerun required |
+| Linter and generated-manifest check | Hosted run on current source digest | NOT RUN; rerun required |
+| Package completeness | Hosted run on current source digest | NOT RUN; rerun required |
 | Null, nuisance-order, power, and synthetic lineage campaign | [`qualification/repair-1.3.6/multitask-statistical-qualification.json`](qualification/repair-1.3.6/multitask-statistical-qualification.json) | PASS: 20,000 familywise lineages, 25 correlation cells, 32 sequence-bias checks, 500 synthetic attempts; 4.55% null familywise rate (95% Wilson 4.27%–4.85%) |
 | Frozen real-task null/degraded/improvement controls | Complete trusted evaluation and promotion path | NOT_RUN; no qualification corpus is present |
 | External monotonic anchor rollback campaign | Separately administered service and destructive host rollback | NOT_RUN; no external service is deployed |
 
-The clean hash-lock install passed in a fresh native arm64 macOS Python 3.12.0 environment with 67 distributions; see [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json). This qualifies only that local platform. The lock covers the security/statistical CI and packaging toolchain, not every optional AIDE research dependency. Hosted qualification is required to confirm the lock across supported CI platforms.
+The clean hash-lock install passed in a fresh native arm64 macOS Python 3.12.0 environment with 67 distributions; see [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json) for the local inventory. The lock covers the security/statistical CI and packaging toolchain, not every optional AIDE research dependency. Hosted qualification is pending for the current source digest.
+
+The canonical hosted run record will be attached after all six workflows pass against this exact source snapshot. The release remains incomplete until then and until the independent-anchor and real-task gates below pass.
 
 ## Reproducible commands
 

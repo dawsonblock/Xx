@@ -2,7 +2,7 @@
 
 ## Release state
 
-**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`; this report does not authorize a release tag or unattended promotion. The repair source is on `repair/1.3.6-authority-statistics`. The qualified statistical/evaluator code snapshot is `3bebc16fc075e3d4441fd82eb3151b240161c897` before release-record updates. Its statistical artifact, test report, dependency install attestation, and complete source/TCB manifests are stored under [`qualification/repair-1.3.6/`](qualification/repair-1.3.6/) and at the repository root.
+**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`; this report does not authorize a release tag or unattended promotion. The current committed source snapshot is `ca80a2b13a052e67053d2aeed37ffccf02722545` with source-manifest SHA-256 `21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1`. The V5 statistical campaign was regenerated from this commit in the hash-locked environment; its source-file hashes match the statistical implementation. Earlier hosted workflows were run against a superseded digest and are preserved separately; they do not qualify this snapshot. The statistical artifact, test report, dependency install attestation, and complete source/TCB manifests are stored under [`qualification/repair-1.3.6/`](qualification/repair-1.3.6/) and at the repository root.
 
 The pre-repair source, reports, manifests, dependency files, JUnit output, and statistical/hosted evidence remain preserved under [`qualification/history/1.3.5-pre-repair/`](qualification/history/1.3.5-pre-repair/). Their results do not qualify this repair.
 
@@ -18,7 +18,7 @@ Run on native arm64 macOS with a fresh Python 3.12.0 virtual environment install
 - `pip install --require-hashes -r requirements-rsi-ci.lock`: passed in a fresh arm64 Python 3.12.0 environment; 67 installed distributions. Lock SHA-256 and inventory are in [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json).
 - Built the wheel and source distribution; `tools/verify_package.py` passed. A clean wheel install passed the statistics/anchor CLI help checks, bundled vendor-path check, and local anchor compare-and-swap/read smoke. The wheel smoke used the CI lock and deliberately did not install the full optional AIDE runtime dependency set.
 
-The lock qualification is local to this macOS arm64 environment. Hosted Linux, Windows, and macOS CI results are not represented as passed here.
+The Python 3.12 hash lock and full local suite passed in a fresh local environment. Hosted platform checks are pending against the current source digest; the older successful runs do not apply to this snapshot.
 
 ## Protocol V5 synthetic statistical calibration
 
@@ -36,14 +36,13 @@ These simulations establish behavior under their modeled family/sign assumptions
 ## Implemented repair scope
 
 - TrustedEvaluator now separates real host paths from paths available only inside Bubblewrap. The first-party reference adapter receives host paths so it can launch its separately sandboxed candidate; required paths and artifacts fail closed.
-- Linux and macOS workflows include first-party trusted-evaluator end-to-end tests; Windows includes canary schedule invariants. Hosted results must still be observed for this pushed source.
+- Linux and macOS hosted workflows include first-party trusted-evaluator end-to-end tests; Windows includes canary schedule and state-lock invariants. These workflows must be rerun on the current source digest before their gates are recorded as passed.
 - Canary order is derived from canonical task order and ordinal, independent of caller replicate IDs. Each task receives a precommitted ABBA or BAAB schedule with exact within-task balance; the complete schedule is signed and rechecked during recovery.
 - Statistical inference aggregates runs to a task effect and tasks to a declared independent-family effect before the exact sign test. Legacy single-task series fields are labeled and excluded from V5 panel authority.
 - The repair lock, source/TCB inventory, historical baseline, and release manifests are content addressed.
 
 ## Gates still not run
 
-- GitHub-hosted Linux Bubblewrap first-party evaluator E2E, macOS Seatbelt/nested timeout, Windows, linter, and package-completeness workflows on the final pushed source snapshot.
 - Frozen real-task null, degraded, and planted-improvement controls through the complete trusted evaluator and promotion path. No real-task qualification corpus is available in this checkout.
 - Independently administered external anchor deployment and destructive whole-directory rollback qualification. The local anchor client/service tests are not an independent monotonic authority.
 - A real multi-generation AIDE-RSI improvement run.

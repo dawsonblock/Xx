@@ -8,8 +8,8 @@
   "distribution_name": "aideml-rsi",
   "distribution_version": "1.3.5",
   "qualification_note": "This is an unreleased repair snapshot. See the release freeze for source identity and explicit NOT_RUN qualification gates.",
-  "security_relevant_digest_sha256": "ba333569be84b47be936ebbe0d8ac0c95de2721bd92e5ed23c350b382430069e",
-  "source_snapshot_sha256": "95e18dd010716b63b8b7a985a0c8af69fe85697623be94ebccf35eb91399115b",
+  "security_relevant_digest_sha256": "23f6bf81f15c6351815b19bbc3644d8ac055b23959512d3fa7ab5075c419e233",
+  "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
   "statistical_protocol": {
     "id": "MULTITASK_PROMOTION_PROTOCOL_V5",
     "sha256": "2c6f5444ae4ed02fb3320ef3ba6a9fcade858588ca5049e0db71974e835b85df"
