@@ -5,7 +5,50 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
   },
   "dependency_manifest_sha256": "b54990949afc7ff454367c446c4d1ed45e1f9c5d8a69321ae4283c8f7cbbe4f2",
-  "hosted_workflow_runs": null,
+  "hosted_workflow_runs": {
+    "artifact_sha256": "4cd342030ac36fac20f80a8c2f28ebe8ae104bd0ecc4267bbff54110740debdb",
+    "qualified_code_commit": "095c810b18dfc731f14f543bdbe13e30f3f9f830",
+    "qualified_source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+    "runs": {
+      "linter": {
+        "conclusion": "success",
+        "head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791",
+        "run_id": 36958334772,
+        "source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36958334772"
+      },
+      "linux_bubblewrap": {
+        "conclusion": "success",
+        "head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791",
+        "run_id": 36958334793,
+        "source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36958334793"
+      },
+      "macos_nested_candidate_timeout": {
+        "conclusion": "success",
+        "head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791",
+        "run_id": 36958334934,
+        "source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36958334934"
+      },
+      "package_completeness": {
+        "conclusion": "success",
+        "head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791",
+        "run_id": 36958334826,
+        "source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36958334826"
+      },
+      "windows_rsi_state_lock": {
+        "conclusion": "success",
+        "head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791",
+        "run_id": 36958334828,
+        "source_snapshot_sha256": "e1941e3fad89f0c4fc45346348ccc750c1babcf137b5d3f7330646f2a485d011",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36958334828"
+      }
+    },
+    "schema_version": 1,
+    "workflow_head_sha": "6ef0a90bca7f0244517696d1b333ead0198c9791"
+  },
   "limitations": [
     "requirements files are not a qualified dependency lock",
     "external anchor service is not independently deployed or rollback-qualified",
@@ -88,7 +131,7 @@
   "tcb_manifest_sha256": "742c5b775e828d785f89001e4896a7cd7c05388e771576b4869a19b98f5f1d2e",
   "validation": {
     "external_anchor_rollback_qualification": "NOT_RUN",
-    "hosted_platform_qualification": "NOT_CONFIRMED",
+    "hosted_platform_qualification": "PASS",
     "in_memory_synthetic_lineage_stress": "PASS_NOT_STATESTORE_OR_ANCHOR_QUALIFICATION",
     "local_full_pytest": {
       "errors": 0,

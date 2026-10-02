@@ -39,14 +39,20 @@ Local qualification on 2026-10-01:
   installed wheel and extracted source distribution without Git metadata; each
   resolved the frozen commit/tree from its bundled release freeze.
 
-Still unqualified: hosted workflows for this latest code commit, an independently
-deployed external anchor and whole-directory rollback, real multi-task
-identical/degraded/stronger controls, and genuine multi-generation AIDE-RSI
-improvement. The requirements files are not a locked dependency set. Synthetic
-independence assumptions do not prove that real task-family clusters are
-independent or representative. See the machine-readable freeze for exact
-`NOT_RUN` and `NOT_CONFIRMED` statuses. Older sections below are historical
-validation for earlier commits and must not be attributed to this source.
+Hosted Linux Bubblewrap, macOS nested-candidate timeout, Windows writer-lock,
+linter, and package-completeness workflows all passed on metadata head
+`6ef0a90bca7f0244517696d1b333ead0198c9791`, whose qualified source snapshot
+digest matches code commit `095c810b18dfc731f14f543bdbe13e30f3f9f830`. Their
+run IDs and URLs are recorded in the canonical freeze manifest.
+
+Still unqualified: an independently deployed external anchor and
+whole-directory rollback, real multi-task identical/degraded/stronger controls,
+and genuine multi-generation AIDE-RSI improvement. The requirements files are
+not a locked dependency set. Synthetic independence assumptions do not prove
+that real task-family clusters are independent or representative. See the
+machine-readable freeze for exact `NOT_RUN` and `NOT_CONFIRMED` statuses. Older
+sections below are historical validation for earlier commits and must not be
+attributed to this source.
 
 ## Unreleased hardening closure branch
 

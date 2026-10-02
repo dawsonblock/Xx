@@ -20,9 +20,20 @@ attempt-dependent and falls at late attempts as the precommitted alpha budget
 shrinks. The report and artifact document the observed power rather than
 implying all-attempt high power.
 
-Hosted CI for this exact source commit, independent external-anchor deployment and rollback
-qualification, real multi-task controls, and real AIDE-RSI lineage qualification
-remain unconfirmed or not run. No release tag should be cut from this record.
+Hosted CI completed successfully on metadata head
+`6ef0a90bca7f0244517696d1b333ead0198c9791`; its canonical source snapshot
+digest matches qualified code commit `095c810b18dfc731f14f543bdbe13e30f3f9f830`.
+The run IDs are also embedded in the freeze manifest:
+
+- [Linux Bubblewrap](https://github.com/dawsonblock/Xx/actions/runs/36958334793)
+- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36958334934)
+- [Windows RSI state lock](https://github.com/dawsonblock/Xx/actions/runs/36958334828)
+- [Linter](https://github.com/dawsonblock/Xx/actions/runs/36958334772)
+- [Package completeness](https://github.com/dawsonblock/Xx/actions/runs/36958334826)
+
+Independent external-anchor deployment and rollback qualification, real
+multi-task identical/degraded/stronger controls, and real AIDE-RSI lineage
+qualification remain not run. No release tag should be cut from this record.
 
 ## Historical qualification snapshots
 
