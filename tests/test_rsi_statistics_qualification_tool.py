@@ -180,3 +180,14 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
         qualified_code_commit=commit, qualified_code_tree="d" * 40
     )["RELEASE_FREEZE_MANIFEST.json"]
     assert stale["validation"]["hosted_platform_qualification"] == "STALE_OR_INCOMPLETE"
+
+    evidence["qualified_source_snapshot_sha256"] = source_snapshot
+    evidence["runs"].pop("package_completeness")
+    evidence_path.write_text(json.dumps(evidence))
+    incomplete = generate_release_manifests.build_manifests(
+        qualified_code_commit=commit, qualified_code_tree="d" * 40
+    )["RELEASE_FREEZE_MANIFEST.json"]
+    assert (
+        incomplete["validation"]["hosted_platform_qualification"]
+        == "STALE_OR_INCOMPLETE"
+    )
