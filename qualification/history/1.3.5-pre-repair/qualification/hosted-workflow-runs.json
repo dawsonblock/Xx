@@ -1,0 +1,43 @@
+{
+  "qualified_code_commit": "a2bdaedd0492b98e9ab0ee1726b14008766fc512",
+  "qualified_source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+  "runs": {
+    "linter": {
+      "conclusion": "success",
+      "head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1",
+      "run_id": 36962253573,
+      "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36962253573"
+    },
+    "linux_bubblewrap": {
+      "conclusion": "success",
+      "head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1",
+      "run_id": 36962280344,
+      "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36962280344"
+    },
+    "macos_nested_candidate_timeout": {
+      "conclusion": "success",
+      "head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1",
+      "run_id": 36962279795,
+      "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36962279795"
+    },
+    "package_completeness": {
+      "conclusion": "success",
+      "head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1",
+      "run_id": 36962253578,
+      "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36962253578"
+    },
+    "windows_rsi_state_lock": {
+      "conclusion": "success",
+      "head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1",
+      "run_id": 36962280860,
+      "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36962280860"
+    }
+  },
+  "schema_version": 1,
+  "workflow_head_sha": "925f1bc6172b150f8c85c8821187d15916188ba1"
+}

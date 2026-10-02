@@ -1,337 +1,208 @@
-# AIDE-DREAM-RSI v1.3.5
+# AIDE-DREAM-RSI
 
-This repository retains the owner's MIT license in `LICENSE`. The included AIDE ML code retains its Weco AI MIT notice in `LICENSE-AIDE`; bundled component licenses remain under `vendor/LocalJevFabric-v1.5.0/components/`.
+**AIDE-DREAM-RSI** combines AIDE's code-search loop with DREAM's bounded replay policy and an optional JEV advisory layer. It is a research system for evaluating changes to how an agent searches; it does not let the recursive policy rewrite its evaluator, sandbox, evidence verifier, or promotion authority.
 
-This release keeps the grounded DREAM-RSI replay architecture from v1.2 and adds an optional **LocalJevFabric v1.5.0 / SystemOne decision layer** without moving authority out of the DREAM-RSI control plane.
+> **Current status: unreleased qualification snapshot.** The package metadata remains `1.3.5`. This repair branch updates trusted-evaluator process construction and moves canary execution to a four-run, task-family-clustered protocol. Local tests and synthetic calibration do not qualify hosted Linux Bubblewrap, external rollback anchoring, real task panels, or unattended promotion. See the [release qualification record](RELEASE_QUALIFICATION_MANIFEST.md) before operating it.
 
-The division of responsibility is explicit:
+## What the system does
+
+AIDE proposes and evaluates candidate programs. DREAM chooses bounded search actions using recorded experience. RSI can evolve a constrained `PolicyGenome` through development, validation, and one-shot replay qualification. A challenger can be promoted only after a separate multi-task canary panel passes the trusted evidence and statistical gates.
 
 ```text
-DREAM-RSI   -> long-horizon branch/refine/recover/stop policy
-JEV         -> bounded semantic advice and failure repairability
-AIDE        -> code generation / debugging / improvement
-Sandbox     -> execution boundary
-Feedback model -> advisory interpretation of candidate output
-Trusted evaluator -> measured truth (task-specific; must be configured)
-Qualifier   -> promotion gate (fails closed without trusted metrics)
+AIDE candidate search
+        │
+        ▼
+trusted, content-addressed measurements
+        │
+        ▼
+DREAM replay and bounded policy evolution
+        │
+        ▼
+held-out trajectory qualification
+        │
+        ▼
+reserve a fresh multi-task canary panel and alpha allocation
+        │
+        ▼
+paired incumbent/challenger runs
+        │
+        ▼
+task effects → family-cluster effects → exact sign test
+        │
+        ▼
+signed decision and authenticated promotion
 ```
 
-JEV cannot create legal search actions, execute tools, rewrite replay history, alter the evaluator, bypass the sandbox, or promote a policy. In v1.3, branch ranking, model routing, verification depth, and failure classification are **shadow/advisory by default**. After reviewing evidence, an operator may explicitly set `rsi.jev.failure_influence=true`; only then may a high-confidence failure-repairability classification refine recovery priority. JEV still cannot add legal actions or gain promotion authority.
+The main authority boundaries are:
 
-The default live AIDE feedback path asks a model to interpret candidate output and report a metric. Those values remain advisory. Qualification, publication, and canary promotion require HMAC-attested scores plus present, hash-verified candidate, prediction, and evaluation artifacts. The attestation binds task, evaluator and configuration, dataset, split, environment, metric identity/direction, and result. Datasets are rehashed before and after every authoritative evaluation. Trusted runs also HMAC-authenticate durable RSI state. Canary recovery verifies the durable pending policy, signed reservation, signed decision, journal hashes, and a recomputed gate result before it can complete promotion.
+| Component | Role | Promotion authority |
+|---|---|---|
+| AIDE candidate | Produces a task solution | None |
+| DREAM / `PolicyGenome` | Selects bounded search actions | None by itself |
+| JEV | Optional bounded advice; shadow-first | None |
+| Trusted evaluator | Measures candidate output against pinned task data | Attests measurement only |
+| Qualification and canary gate | Verifies evidence and applies the precommitted test | Can authorize a transition when every check passes |
+| RSI state store / external anchor | Records monotonic state and attempt budget | Rejects edits, conflicting writers, and anchored rollback |
 
-An optional first-party tabular evaluator (`entrypoint: __aide_reference__`) separates candidate execution from hidden labels with strict Seatbelt or Bubblewrap isolation and scores predictions in a separate fixed-metric process. Other task formats need a reviewed operator bundle that provides the same candidate/label boundary. General policy promotion requires a precommitted `rsi.canary_panel` with at least 20 distinct tasks across at least 20 independent task-family clusters, three or more paired runs per task, and at least three balanced task strata. Each panel pins evaluator/data identities and a fixed local seed schedule. The gate reduces runs to one median effect per task, then correlated tasks to one median effect per family, and performs the exact sign test across family effects; seeds and same-family tasks do not multiply the independent sample count. The complete panel, seed/execution schedule, alpha allocation, and policy identities are reserved before evaluation. An incomplete attempt burns the panel, spends its alpha, and abandons its challenger. To make another attempt, rotate to a fresh panel and increment `rsi.canary_panel_epoch`; task identities and sample content already used for promotion cannot be reused. The seeds govern local Python/NumPy RNGs; remote LLM providers may remain nondeterministic. See [docs/STATISTICAL_QUALIFICATION.md](docs/STATISTICAL_QUALIFICATION.md). These are unreleased statistical-closure changes on the v1.3.5 branch; package metadata remains 1.3.5 until statistical, platform, anchor, and real-task qualification is complete.
+## Statistical promotion protocol
 
-Persistent qualification worlds are excluded from live memory, replay support, grid planning, and best-solution selection. A qualification shard is retired after a complete HMAC-attested decision so later candidates cannot tune against it. The default split bootstrap assigns two development, one validation, and three qualification worlds within six discovery rounds; seven rounds leave one subsequent canary opportunity.
+The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V4`. It treats independent task-family clusters as the inference units:
 
-The full LocalJevFabric v1.5.0 source tree is bundled under `vendor/LocalJevFabric-v1.5.0/`. It does not include TypeSafe Jev weights. Configure an AnyJev specialist, LLM2Jev generalist, or another Jev-compatible SystemOne backend before enabling the integration.
+- Each task has exactly **four paired runs** using the same task, seed, and budget for incumbent and challenger.
+- Four-run execution order is fixed before observation as ABBA or BAAB. Caller-supplied replicate IDs label evidence and cannot choose which policy runs first.
+- Runs reduce to one median effect per task; related tasks reduce to one median effect per predeclared family. Seeds and tasks in the same family do not multiply the independent sample count.
+- A one-sided exact sign test operates on family effects, with a fixed 500-attempt alpha budget and a separate practical-effect and worst-task-regression gate.
+- The complete panel, evaluator and data identities, seeds, order schedule, policy digests, and alpha allocation are reserved before canary results are read. An interrupted panel is burned and its alpha is not refunded.
 
-## Quick start
+A panel currently requires at least 20 task records across at least 20 operator-declared independent families, with at least three balanced task strata. The declaration of family independence is an experimental assumption that must be justified by the operator. The synthetic harness tests correlated seeds, correlated tasks within a family, heavy tails, heteroscedasticity, ties, and sequence-order effects; it cannot prove independence or representativeness for real tasks.
 
-Install AIDE-DREAM-RSI:
+The YAML also keeps the older single-task `evaluate_series()` controls for compatibility. Those legacy fields do not affect V4 promotion. The per-pair regression flag is recorded for audit but is not itself a promotion veto; the active score normalization, panel schedule, family-level test, alpha allocation, practical-effect threshold, and task-regression limit are bound into the V4 authority configuration.
+
+See [Statistical Qualification](docs/STATISTICAL_QUALIFICATION.md) for the exact protocol, calibration procedure, and qualification limits.
+
+## Trusted evaluation and sandboxing
+
+Feedback-model scores remain advisory. Authoritative evaluation binds candidate source, evaluator, evaluator configuration, dataset, split, environment, metric, result, predictions, and evaluation record. The expected content-addressed artifacts must exist and match their hashes. Dataset inputs are rehashed before and after authoritative evaluation.
+
+For tabular tasks, the first-party reference evaluator (`entrypoint: __aide_reference__`) separates candidate execution from hidden labels. It gives the candidate public feature files in a strict inner sandbox, collects bounded predictions, then scores them in a fixed process with labels. Custom evaluator bundles are trusted code and must implement an equivalent candidate/label boundary themselves.
+
+Linux uses Bubblewrap for strict candidate isolation. macOS can use Seatbelt or a container backend. The first-party adapter is trusted host code because it launches the nested candidate sandbox; its candidate remains in the inner boundary. Windows can use the Docker/Podman container backend. See [Trusted Evaluator Integration](docs/TRUSTED_EVALUATOR.md) and the [Threat Model](docs/THREAT_MODEL.md).
+
+The HMAC key is a host-held secret, not a hardware-backed signer. HMAC state detects edits but does not detect restoration of an older complete snapshot unless an independently operated monotonic anchor is configured. An anchor server is not deployed by this repository.
+
+## Installation
+
+The project requires Python 3.10 or newer. For a normal editable install:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-Optionally install the bundled LocalJevFabric service:
+The hash-locked `requirements-rsi-ci.lock` is for the Python 3.12 security, statistical, packaging, and CI test toolchain. It is not a lock for every optional AIDE research dependency:
+
+```bash
+python -m pip install --require-hashes -r requirements-rsi-ci.lock
+```
+
+For Linux strict-sandbox qualification, install Bubblewrap through the OS package manager and run the evaluator workflow tests. For macOS, the hosted workflows verify Seatbelt and nested process cleanup. A local pass on one platform does not qualify another platform.
+
+## Quick start
+
+Run AIDE with a task dataset and goal:
+
+```bash
+aide data_dir=/path/to/data goal="Optimize the solution"
+```
+
+For replay-based policy research:
+
+```bash
+aide-rsi \
+  data_dir=/path/to/data \
+  goal="Optimize the solution" \
+  rsi.enabled=true
+```
+
+Strict candidate execution can be selected explicitly:
+
+```bash
+aide-rsi \
+  data_dir=/path/to/data \
+  goal="Optimize the solution" \
+  rsi.enabled=true \
+  rsi.sandbox.mode=strict \
+  rsi.sandbox.backend=seatbelt
+```
+
+The reference live executor is serial (`rsi.max_parallelism=1`). Do not enable unattended promotion until the deployment has a reviewed evaluator/data configuration, independent canary panel, protected signing secret, external anchor where rollback resistance is required, and completed platform qualification.
+
+## JEV advisory layer
+
+The optional bundled LocalJevFabric v1.5.0 integration is advisory and shadow-first. It cannot execute tools, alter legal search actions, edit evidence, change the trusted evaluator, or promote a policy. Failure-repairability influence is opt-in; deterministic DREAM behavior remains available when JEV is unavailable.
+
+Install the optional service:
 
 ```bash
 make install-jev
 ```
 
-Configure a generalist backend using the bundled LocalJevFabric instructions. For example, after starting LLM2Jev on port 30000:
+Configure the generalist endpoint and registry for your deployment, then inspect it:
 
 ```bash
 export LLM2JEV_URL=http://127.0.0.1:30000
 export LLM2JEV_MODEL=qwen-local
 export FABRIC_GENERALIST_ORDER=llm2jev
 export FABRIC_REGISTRY="$PWD/vendor/LocalJevFabric-v1.5.0/config/tasks.registry.json"
-export FABRIC_AUDIT_LOG="$PWD/logs/jev-fabric-audit.jsonl"
 
-local-jev-fabric
-```
-
-Check connectivity:
-
-```bash
 aide-rsi-jev doctor
 ```
 
-After one or more shadow runs, summarize advisory behavior with:
-
-```bash
-aide-rsi-jev report /path/to/logs
-```
-
-Enable JEV for a recursive run:
+Enable advisory integration for a run only after reviewing the deployment settings:
 
 ```bash
 aide-rsi \
   data_dir=/path/to/data \
   goal="Optimize the solution" \
+  rsi.enabled=true \
   rsi.jev.enabled=true \
   rsi.jev.endpoint=http://127.0.0.1:8090/v1/systemone
 ```
 
-JEV outages are fail-open by default for advisory functionality: the deterministic DREAM policy remains usable. Set `rsi.jev.fail_open=false` only when you deliberately want a JEV availability failure to halt the run.
+See [JEV Integration](docs/JEV_INTEGRATION.md) for configuration and audit behavior.
 
-## Strict candidate execution
+## Validation
 
-Linux can use Bubblewrap. On macOS, `auto` uses the local Seatbelt backend when
-no container image is configured. You can select it explicitly without Docker:
-
-```bash
-aide-rsi \
-  data_dir=/path/to/data \
-  goal="Optimize the solution" \
-  rsi.sandbox.mode=strict \
-  rsi.sandbox.backend=seatbelt
-```
-
-Seatbelt runs a live confinement check before candidate execution. It denies
-candidate network access, process spawning, host-file contents outside the
-Python runtime and task input, and writes outside the disposable workspace.
-Its writable workspace is a local disk image capped by
-`rsi.sandbox.workspace_mb` (2 GiB by default). A supervisor samples candidate
-resident memory and stops sustained use above the smaller of
-`rsi.sandbox.memory_mb` and `rsi.sandbox.seatbelt_memory_mb` (1 GiB by default).
-Apple has deprecated the `sandbox-exec` interface. It exposes host file
-metadata and the local Python runtime to candidates, and it does not provide
-the container backend's hard memory isolation: short allocation spikes may
-exceed the sampled threshold. Use a dedicated runtime without secrets in its
-installation directory.
-
-macOS/Windows can also use the supplied Docker/Podman strict container backend:
+Run the focused local suite and standard checks:
 
 ```bash
-make sandbox-image
+python -m pytest -q tests/test_rsi_trusted_evaluator.py \
+  tests/test_rsi_reference_evaluator.py \
+  tests/test_rsi_multitask_canary.py \
+  tests/test_rsi_statistics_qualification_tool.py \
+  tests/test_rsi_recovery_hardening.py \
+  tests/test_rsi_qualification.py
 
-aide-rsi \
-  data_dir=/path/to/data \
-  goal="Optimize the solution" \
-  rsi.sandbox.mode=strict \
-  rsi.sandbox.backend=container \
-  rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.5
+python -m compileall -q aide tests tools rsi_anchor_service.py
+ruff check aide/ tools/ tests/
+black --check aide/ tools/ tests/
 ```
 
-The reference live executor remains intentionally serial (`rsi.max_parallelism=1`); replay parallel reward stays zero until real isolated concurrency exists.
-
-Read `docs/JEV_INTEGRATION.md`, `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, and `docs/REPLAY_SEMANTICS.md` before unattended use.
-
----
-
-## Original AIDE README
-
-<h1 align="center">AIDE ML — The Machine Learning Engineering Agent</h1>
-
-<p align="center"><em>
-LLM‑driven agent that writes, evaluates & improves machine‑learning code.
-</em></p>
-
-<p align="center">
-<a href="https://pypi.org/project/aideml/"><img src="https://img.shields.io/pypi/v/aideml?label=PyPI&logo=pypi" alt="PyPI"></a>
-<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+"></a>
-<a href="https://arxiv.org/abs/2502.13138"><img src="https://img.shields.io/badge/arXiv-2502.13138-b31b1b?logo=arxiv&logoColor=white" alt="arXiv paper"></a>
-<img src="https://img.shields.io/github/license/WecoAI/aideml?color=brightgreen" alt="MIT License">
-<a href="https://pepy.tech/projects/aideml"><img src="https://static.pepy.tech/badge/aideml" alt="PyPI Downloads"></a>&ensp;
-</p>
-
-<p align="center">
-<a href="https://docs.weco.ai/cli/getting-started?utm_source=aidemlrepo" target="_blank"><strong>Use in Production? Try Weco →</strong></a>
-</p>
-
-# What Is AIDE ML?
-
-**AIDE ML is the open‑source “reference build” of the AIDE algorithm**, a tree‑search agent that autonomously drafts, debugs and benchmarks code until a user‑defined metric is maximised (or minimised). It ships as a *research‑friendly* Python package with batteries‑included utilities (CLI, visualisation, config presets) so that academics and engineer‑researchers can **replicate the paper, test new ideas, or prototyping ML pipelines**.
-
-![Tree Search Visualization](https://github.com/WecoAI/aideml/assets/8918572/2401529c-b97e-4029-aed2-c3f376f54c3c)
-
-| Layer | Description | Where to find it |
-| --- | --- | --- |
-| **AIDE *algorithm*** | LLM‑guided agentic tree search in the space of code. | Described in our [paper](https://arxiv.org/abs/2502.13138). |
-| **AIDE ML *repo* (this repo)** | Lean implementation for experimentation & extension. | `pip install aideml` |
-| **Weco *product*** | The platform generalizes AIDE's capabilities to broader code optimization scenarios, providing experiment tracking and enhanced user control. | [weco.ai](https://weco.ai?utm_source=aidemlrepo) |
-
-### Who should use it?
-
-- **Agent‑architecture researchers** – swap in new search heuristics, evaluators or LLM back‑ends.
-- **ML Practitioners** – quickly build a high performance ML pipelines given a dataset.
-
-# Key Capabilities
-
-- **Natural‑language task specification**  Point the agent at a dataset and describe *goal* + *metric* in plain English. No YAML grids or bespoke wrappers.  `aide data_dir=…  goal="Predict churn"  eval="AUROC"` 
-- **Iterative *agentic tree search*** Each python script becomes a node in a solution tree; LLM‑generated patches spawn children; metric feedback prunes and guides the search. OpenAI’s **[MLE‑Bench](https://arxiv.org/abs/2410.07095)** (75 Kaggle comps) found the tree‑search of AIDE wins **4 × more medals** than the best linear agent (OpenHands). 
-
-<div align="center">
-<img src="https://github.com/user-attachments/assets/a48aa65e-360d-4d91-b4ad-98b0fe2585d4" width="80%">
-</div>
-
-<details>
-<summary>Utility features provided by this repo</summary>
-
-- **HTML visualiser** – inspect the full solution tree and code attached to each node.
-- **Streamlit UI** – prototype ML solution .
-- **Model‑neutral plumbing** – OpenAI, Anthropic, Gemini, or any local LLM that speaks the OpenAI API.
-
-</details>
-
-## Featured Research built on/with AIDE
-
-| Institution | Paper / Project Name | Links |
-|-------------|----------------------|-------|
-| **OpenAI** | MLE-bench: Evaluating Machine-Learning Agents on Machine-Learning Engineering | [Paper](https://arxiv.org/abs/2410.07095), [GitHub](https://github.com/openai/mle-bench) |
-| **METR** | RE-Bench: Evaluating frontier AI R&D capabilities of language-model agents against human experts | [Paper](https://arxiv.org/abs/2411.15114), [GitHub](https://github.com/METR/RE-Bench) |
-| **Sakana AI** | The AI Scientist-v2: Workshop-Level Automated Scientific Discovery via Agentic Tree Search | [Paper](https://arxiv.org/abs/2504.08066), [GitHub](https://github.com/SakanaAI/AI-Scientist-v2) |
-| **Meta** | The Automated LLM Speedrunning Benchmark: Reproducing NanoGPT Improvements | [Paper](https://arxiv.org/abs/2506.22419), [GitHub](https://github.com/facebookresearch/llm-speedrunner) |
-| **Meta** | AI Research Agents for Machine Learning: Search, Exploration, and Generalization in MLE-bench | [Paper](https://arxiv.org/abs/2507.02554), [GitHub](https://github.com/facebookresearch/aira-dojo) |
-| **SJTU** | ML-Master: Towards AI-for-AI via Integration of Exploration and Reasoning | [Paper](https://arxiv.org/abs/2506.16499), [GitHub](https://github.com/sjtu-sai-agents/ML-Master) |
-
-> *Know another public project that cites or forks AIDE?  
-> [Open a PR](https://github.com/WecoAI/aideml/pulls) and add it to the table!*
-
-
-# How to Use AIDE ML
-
-## Quick Start
+Run the release-scale synthetic statistical campaign:
 
 ```bash
-# 1  Install
-pip install -U aideml
-
-# 2  Set an LLM key
-export OPENAI_API_KEY=<your‑key>  # https://platform.openai.com/api-keys
-
-# 3  Run an optimisation
-aide data_dir="example_tasks/house_prices" \
-     goal="Predict the sales price for each house" \
-     eval="RMSE between log‑prices"
+python tools/qualify_canary_statistics.py \
+  --campaigns 20000 --attempts 500 --power-replicates 5000 \
+  --tasks 40 --task-families 20 --runs-per-task 4 \
+  --lineage-attempts 500 \
+  --output qualification/repair-1.3.6/multitask-statistical-qualification.json
 ```
 
-After the run finishes you’ll find:
-
-- `logs/<id>/best_solution.py` – best code found
-- `logs/<id>/tree_plot.html` – click to inspect the solution tree
-
----
-
-## Web UI
-
-To use the web UI, clone the repository locally and run the UI via streamlit:
+Generate and check the current source, TCB, build, and release-freeze manifests:
 
 ```bash
-git clone https://github.com/WecoAI/aideml.git
-cd aideml
-pip install -e . # adds streamlit
-cd aide/webui
-streamlit run app.py
+python tools/generate_release_manifests.py
+python tools/generate_release_manifests.py --check
 ```
 
-Use the sidebar to paste your API key, upload data, set **Goal** & **Metric**, then press **Run AIDE**.
+The release freeze remains `UNRELEASED_QUALIFICATION_INCOMPLETE` until hosted platform runs, real-task controls, external anchor rollback qualification, and the other stated release gates are recorded against the same source snapshot. Historical artifacts are retained under [`qualification/history/`](qualification/history/).
 
-The UI shows live logs, the solution tree, and the best code.
+## Repository map
 
----
+| Path | Contents |
+|---|---|
+| `aide/` | AIDE runtime, replay logic, bounded RSI policy and authority code |
+| `aide/rsi/trusted_evaluator.py` | Evaluator identity, namespace-aware launch, evidence validation |
+| `aide/rsi/reference_evaluator.py` | First-party tabular candidate/scorer split |
+| `aide/rsi/statistics.py` | Canary panel, task-family test, protocol digest and alpha budget |
+| `aide/rsi/state.py` | Authenticated state, writer lock, sticky external anchor client |
+| `docs/` | Architecture, threat model, evaluator and qualification guidance |
+| `qualification/repair-1.3.6/` | Current repair-branch test and statistical evidence |
+| `qualification/history/` | Preserved pre-repair manifests and qualification outputs |
+| `vendor/LocalJevFabric-v1.5.0/` | Bundled advisory service and component notices |
 
-## Advanced CLI Options
+## License
 
-```bash
-# Choose a different coding model and run 50 steps
-aide agent.code.model="claude-4-sonnet" \
-     agent.steps=50 \
-     data_dir=… goal=… eval=…
-```
-
-Common flags
-
-| Flag | Purpose | Default |
-| --- | --- | --- |
-| `agent.code.model` | LLM used to write code | `gpt-4-turbo` |
-| `agent.steps` | Improvement iterations | `20` |
-| `agent.search.num_drafts` | Drafts per step | `5` |
-
----
-
-## Use AIDE ML Inside Python
-
-```python
-import aide
-import logging
-
-def main():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    aide_logger = logging.getLogger("aide")
-    aide_logger.setLevel(logging.INFO)
-    print("Starting experiment...")
-    exp = aide.Experiment(
-        data_dir="example_tasks/bitcoin_price",  # replace this with your own directory
-        goal="Build a time series forecasting model for bitcoin close price.",  # replace with your own goal description
-        eval="RMSLE"  # replace with your own evaluation metric
-    )
-
-    best_solution = exp.run(steps=2)
-
-    print(f"Best solution has validation metric: {best_solution.valid_metric}")
-    print(f"Best solution code: {best_solution.code}")
-    print("Experiment finished.")
-
-if __name__ == '__main__':
-    main()
-```
-
----
-
-## Power‑User Extras
-
-### Local LLM (Ollama example)
-
-```bash
-export OPENAI_BASE_URL="http://localhost:11434/v1"
-aide agent.code.model="qwen2.5" data_dir=… goal=… eval=…
-```
-
-Note: evaluator defaults to gpt‑4o.
-
-### Fully local (code + evaluator — no external calls)
-```
-export OPENAI_BASE_URL="http://localhost:11434/v1"
-aide agent.code.model="qwen2.5" agent.feedback.model="qwen2.5" data_dir=… goal=… eval=…
-```
-
-Tip: Expect some performance drop with fully local models.
-
-### Docker
-
-```bash
-docker build -t aide .
-docker run -it --rm \
-  -v "${LOGS_DIR:-$(pwd)/logs}:/app/logs" \
-  -v "${WORKSPACE_BASE:-$(pwd)/workspaces}:/app/workspaces" \
-  -v "$(pwd)/aide/example_tasks:/app/data" \
-  -e OPENAI_API_KEY="your-actual-api-key" \
-  aide data_dir=/app/data/house_prices goal="Predict price" eval="RMSE"
-```
-
-### Development install
-
-```bash
-git clone https://github.com/WecoAI/aideml.git
-cd aideml && pip install -e .
-```
-
-# Citation
-
-If you use AIDE in your work, please cite the following paper:
-```bibtex
-@article{aide2025,
-      title={AIDE: AI-Driven Exploration in the Space of Code}, 
-      author={Zhengyao Jiang and Dominik Schmidt and Dhruv Srikanth and Dixing Xu and Ian Kaplan and Deniss Jacenko and Yuxiang Wu},
-      year={2025},
-      eprint={2502.13138},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2502.13138}, 
-}
-```
+The repository license is in [`LICENSE`](LICENSE). The included AIDE ML source retains its separate notice in [`LICENSE-AIDE`](LICENSE-AIDE); bundled components retain their notices under `vendor/LocalJevFabric-v1.5.0/components/`.

@@ -160,30 +160,36 @@ rsi:
   # Configure at least 20 distinct tasks and 20 independent task-family clusters,
   # balanced across at least 3 broad task strata.
   # Each item binds its task prompt, public training data, pinned evaluator, and
-  # fixed replicate schedule and seed values before any canary result is observed.
-  # replicate_ids and replicate_seeds must be sorted/aligned and each seed is
-  # applied to local Python/NumPy RNGs. Do not reuse seeds across independent
-  # task families; LLM providers may remain nondeterministic.
+  # exactly four paired runs and seed values before any canary result is observed.
+  # replicate_ids and replicate_seeds must be sorted/aligned. Replicate IDs do
+  # not choose execution order; each task uses a signed ABBA or BAAB schedule.
+  # Seeds initialize local Python/NumPy RNGs; provider RNG may be uncontrolled.
   canary_panel_epoch: 0
   canary_panel: []
   canary:
+    # Deprecated/unused by the RSI runner; retained for existing configs.
     attempts: 4
-    # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to
-    # one stochastic coding/evaluation rollout.
     repeats: 5
+
+    # Legacy V1 direct RealCanaryGate.evaluate_series() controls. They do not
+    # affect V4 multi-task panel or promotion authority.
     min_pass_fraction: 0.66
-    max_normalized_regression: 0.05
     min_pairs: 5
     confidence_level: 0.95
     bootstrap_samples: 10000
-    min_effect_size: 0.0
     max_single_pair_regression: 0.25
-    max_single_task_regression: 0.25
+
+    # V4 trusted task-pair extraction and normalization. The pair-level
+    # regression flag is serialized for audit but is not a promotion veto.
+    max_normalized_regression: 0.05
     min_valid: 1
+    score_scale_floor: 1.0
+
+    # V4 task-family inference and localized regression protection.
+    min_effect_size: 0.0
+    max_single_task_regression: 0.25
     # Total one-sided sign-test error budget across sequential promotions.
     experiment_alpha: 0.05
-    # Absolute score scale used when incumbent scores are close to zero.
-    score_scale_floor: 1.0
   # Optional LocalJevFabric/SystemOne advisory layer.  JEV never receives
   # promotion authority, cannot add legal actions, and cannot bypass the sandbox.
   # High-confidence failure repairability may influence recovery classification;

@@ -21,8 +21,7 @@ def vendor_data_files():
             continue
         relative_parent = path.relative_to(vendor_root).parent
         destination = (
-            Path("share/aideml-rsi/vendor/LocalJevFabric-v1.5.0")
-            / relative_parent
+            Path("share/aideml-rsi/vendor/LocalJevFabric-v1.5.0") / relative_parent
         )
         files_by_destination[str(destination)].append(str(path))
     return [
@@ -35,10 +34,17 @@ def qualification_data_files():
     """Ship integrity metadata for archive and wheel-installed tooling."""
     files = [
         str(path)
-        for path in (Path("TCB_MANIFEST.json"), Path("RELEASE_FREEZE_MANIFEST.json"))
+        for path in (
+            Path("TCB_MANIFEST.json"),
+            Path("RELEASE_FREEZE_MANIFEST.json"),
+            Path("SOURCE_TREE_MANIFEST.json"),
+            Path("requirements-rsi-ci.in"),
+            Path("requirements-rsi-ci.lock"),
+        )
         if path.is_file()
     ]
     return [("share/aideml-rsi", files)] if files else []
+
 
 setup(
     name="aideml-rsi",

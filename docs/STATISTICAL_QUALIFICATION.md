@@ -2,15 +2,27 @@
 
 Promotion inference uses independent task-family clusters. Seeds are paired within a task; tasks sharing a family are reduced to one median family effect. Only family effects enter the one-sided exact sign test. This is more conservative than counting each task as independent when tasks from the same family share data, prompts, scoring code, or environment. A tie at the configured practical-effect threshold counts as a non-win.
 
-`MULTITASK_PROMOTION_PROTOCOL_V2` fixes the protocol identity and records:
+`MULTITASK_PROMOTION_PROTOCOL_V4` fixes the protocol identity and records:
 
 - at least 20 distinct tasks and at least 20 independent task-family clusters;
-- at least 3 paired runs per task, reduced to one median task effect;
+- exactly 4 paired runs per task, reduced to one median task effect;
 - one median task effect per family cluster for inference;
 - at least 3 broad task strata, at least 3 independent families per stratum, and no stratum above half of the panel;
 - equal family weights, a predeclared practical-effect threshold, and a worst-task regression limit;
-- a panel digest, fixed replicate IDs and seeds, task budgets, evaluator and shard identities, sample identities, metric definitions, and run order; seeds may be paired within a dependence family but may not be reused across independent families;
+- a panel digest, fixed replicate IDs and seeds, task budgets, evaluator and shard identities, sample identities, metric definitions, and a canonical ABBA/BAAB run order. Replicate IDs are metadata and cannot select order. Each task has exactly two challenger-first and two incumbent-first pairs; the symmetric schedule cancels constant first/second-position and linear within-task sequence effects in the median task effect. Seeds may be paired within a dependence family but may not be reused across independent families;
 - a fixed 500-attempt horizon and Bonferroni allocation `alpha_i = family_alpha / 500`; attempt 501 is rejected rather than extending or resetting the sequence.
+
+The YAML retains `attempts` and `repeats` as deprecated, unused compatibility
+fields. `min_pass_fraction`, `min_pairs`, `confidence_level`,
+`bootstrap_samples`, and `max_single_pair_regression` remain controls for
+direct legacy V1 `RealCanaryGate.evaluate_series()` callers only. None affect
+the V4 panel or promotion decision. V4 binds `min_valid`,
+`score_scale_floor`, the fixed four-run schedule, task/family protocol,
+practical-effect threshold, maximum task regression, and alpha allocation.
+`max_normalized_regression` is also bound because it determines the serialized
+per-pair diagnostic flag; that flag does not independently veto panel
+promotion. Regression tests ensure legacy settings cannot change the V4
+protocol digest while decision or signed-result fields remain bound.
 
 `task_family` identifies a dependence cluster: every task with a plausible shared source of outcome dependence must use the same family ID. `task_stratum` records the broader domain (for example classification, forecasting, or resource-constrained search) and is used only to balance the precommitted panel. If two nominal families still share a meaningful shock, they must be merged for inference; relabeling correlated tasks cannot make them independent.
 
@@ -25,12 +37,12 @@ Run the seeded calibration harness with its release-scale defaults:
 ```sh
 python tools/qualify_canary_statistics.py \
   --campaigns 20000 --attempts 500 --power-replicates 5000 \
-  --tasks 40 --task-families 20 --runs-per-task 5 \
+  --tasks 40 --task-families 20 --runs-per-task 4 \
   --lineage-attempts 500 \
-  --output qualification/multitask-statistical-qualification.json
+  --output qualification/repair-1.3.6/multitask-statistical-qualification.json
 ```
 
-The null calibration sweeps within-task seed correlation and within-family task correlation over `0.0`, `0.25`, `0.5`, `0.75`, and `0.95`. It includes heteroscedastic family/task variance, heavy-tailed noise, ties, and shared environment noise that cancels under paired evaluation. It reports Wilson intervals, a positive/negative/null power curve, experiment-wide null lineages, and a 500-attempt in-memory alpha/panel lineage. Missing or failed authoritative runs are fail-closed by the runtime gate and are exercised by its recovery tests. Source file hashes are included in the output. The tool runs from a Git checkout, source archive, or installed wheel; it resolves source identity from explicit arguments, the bundled release freeze, or Git metadata, then falls back to a local source-file digest without inventing a commit or tree.
+The null calibration sweeps within-task seed correlation and within-family task correlation over `0.0`, `0.25`, `0.5`, `0.75`, and `0.95`. It includes heteroscedastic family/task variance, heavy-tailed noise, ties, and shared environment noise that cancels under paired evaluation. Each order nuisance is tested at magnitude `0.01`, `0.05`, `0.10`, and `0.25`: first-run and second-run advantages, linear time drift, monotonic load drift, cache warm-up, provider degradation, and family-specific order sensitivity. A combined adverse sequence case sweeps the same magnitudes. The harness reports Wilson intervals, a positive/negative/null power curve at 20, 30, 40, 50, and 60 independent families, experiment-wide null lineages, and a 500-attempt in-memory alpha/panel lineage. Missing or failed authoritative runs are fail-closed by the runtime gate and are exercised by its recovery tests. Source file hashes are included in the output. The tool runs from a Git checkout, source archive, or installed wheel; it resolves source identity from explicit arguments, the bundled release freeze, or Git metadata, then falls back to a local source-file digest without inventing a commit or tree.
 
 This is model-based qualification, not proof that any real panel's declared family clusters are independent or representative. It does not qualify an external anchor or show that AIDE improves across tasks. Those require a fixed real task panel, independently deployed anchor, and hosted platform runs. The earlier 47.8% same-task null result remains a historical finding about the previous run-level inference; it is not treated as evidence for this protocol.
 

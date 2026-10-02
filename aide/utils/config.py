@@ -110,17 +110,27 @@ class RSIJevConfig:
 
 @dataclass
 class RSICanaryConfig:
+    # Deprecated/unused by the RSI runner; retained for existing config files.
     attempts: int = 4
     repeats: int = 5
+
+    # Legacy V1 direct RealCanaryGate.evaluate_series() controls. They do not
+    # affect the V4 multi-task panel or promotion authority.
     min_pass_fraction: float = 0.66
-    max_normalized_regression: float = 0.05
-    min_valid: int = 1
-    score_scale_floor: float = 1.0
     min_pairs: int = 5
     confidence_level: float = 0.95
     bootstrap_samples: int = 10000
-    min_effect_size: float = 0.0
     max_single_pair_regression: float = 0.25
+
+    # V4 task-pair settings. max_normalized_regression only controls the
+    # serialized per-pair diagnostic flag; it does not veto panel promotion.
+    # The remaining values affect trusted score extraction/effect calculation.
+    max_normalized_regression: float = 0.05
+    min_valid: int = 1
+    score_scale_floor: float = 1.0
+    min_effect_size: float = 0.0
+
+    # V4 task/family promotion safeguards.
     max_single_task_regression: float = 0.25
     # Family-wise false-positive budget for sequential promotions. Spending is
     # durably indexed by canary attempt in authenticated experiment state.
@@ -173,10 +183,10 @@ class RSICanaryPanelTaskConfig:
     evaluator: RSITrustedEvaluatorConfig = field(
         default_factory=RSITrustedEvaluatorConfig
     )
-    replicate_ids: list[int] = field(default_factory=lambda: [0, 1, 2])
+    replicate_ids: list[int] = field(default_factory=lambda: [0, 1, 2, 3])
     # Fixed local Python/NumPy RNG seeds; provider-side LLM sampling may remain
     # nondeterministic and is recorded as such in each canary run.
-    replicate_seeds: list[int] = field(default_factory=lambda: [101, 202, 303])
+    replicate_seeds: list[int] = field(default_factory=lambda: [101, 202, 303, 404])
     budget_per_run: int = 24
 
 

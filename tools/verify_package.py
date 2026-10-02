@@ -31,7 +31,13 @@ def _check_wheel(path: Path) -> None:
     with zipfile.ZipFile(path) as archive:
         members = set(archive.namelist())
     missing = _WHEEL_MEMBERS - members
-    for filename in ("TCB_MANIFEST.json", "RELEASE_FREEZE_MANIFEST.json"):
+    for filename in (
+        "TCB_MANIFEST.json",
+        "RELEASE_FREEZE_MANIFEST.json",
+        "SOURCE_TREE_MANIFEST.json",
+        "requirements-rsi-ci.in",
+        "requirements-rsi-ci.lock",
+    ):
         if not any(
             name.endswith(f".data/data/share/aideml-rsi/{filename}") for name in members
         ):
@@ -53,7 +59,13 @@ def _check_sdist(path: Path) -> None:
         for relative in _SDIST_MEMBERS
         if not any(name.endswith("/" + relative) for name in members)
     }
-    for filename in ("TCB_MANIFEST.json", "RELEASE_FREEZE_MANIFEST.json"):
+    for filename in (
+        "TCB_MANIFEST.json",
+        "RELEASE_FREEZE_MANIFEST.json",
+        "SOURCE_TREE_MANIFEST.json",
+        "requirements-rsi-ci.in",
+        "requirements-rsi-ci.lock",
+    ):
         if not any(name.endswith("/" + filename) for name in members):
             missing.add(filename)
     vendor_marker = "LocalJevFabric-v1.5.0/BUILD_MANIFEST.json"

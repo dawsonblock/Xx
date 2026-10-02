@@ -170,7 +170,7 @@ class TaskClusteredCanaryGate:
     ):
         if set(pair_gates) != set(panel.task_ids):
             raise ValueError("pair evaluator gates must exactly match panel tasks")
-        pair_policies = [gate.policy_config() for gate in pair_gates.values()]
+        pair_policies = [gate.task_pair_policy_config() for gate in pair_gates.values()]
         if any(policy != pair_policies[0] for policy in pair_policies[1:]):
             raise ValueError("all task pair gates must use the same fixed protocol")
         self.pair_gate_policy = pair_policies[0]
@@ -225,7 +225,7 @@ class TaskClusteredCanaryGate:
             "min_effect_size": self.min_effect_size,
             "max_task_regression": self.max_task_regression,
             "task_pair_gate_configs": {
-                task_id: self.pair_gates[task_id].authority_config()
+                task_id: self.pair_gates[task_id].task_pair_authority_config()
                 for task_id in self.panel.task_ids
             },
         }
@@ -502,6 +502,28 @@ class RealCanaryGate:
         if self.experiment_alpha is not None:
             config["experiment_alpha"] = self.experiment_alpha
         return config
+
+    def task_pair_policy_config(self) -> dict[str, Any]:
+        """Static rules used by ``evaluate_pair`` in the V4 clustered gate.
+
+        The older single-task series controls (bootstrap, pass fraction, and
+        pair count) do not affect ``evaluate_pair`` and must not be presented
+        as authoritative multi-task protocol parameters.
+        """
+        return {
+            "max_normalized_regression": self.max_normalized_regression,
+            "min_valid": self.min_valid,
+            "score_scale_floor": self.score_scale_floor,
+            "require_artifacts": self.require_artifacts,
+        }
+
+    def task_pair_authority_config(self) -> dict[str, Any]:
+        """Decision inputs for one signed task-pair gate in a V4 panel."""
+        return {
+            **self.task_pair_policy_config(),
+            "expected_evaluation_identity": self.expected_evaluation_identity,
+            "promotion_block_reason": self.promotion_block_reason,
+        }
 
     @staticmethod
     def _journal_scores(

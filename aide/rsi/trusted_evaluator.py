@@ -36,6 +36,56 @@ class TrustedEvaluatorError(RuntimeError):
     """A pinned evaluator could not produce a valid trusted record."""
 
 
+@dataclass(frozen=True)
+class HostPathSet:
+    """Filesystem paths visible to a process running in the host namespace."""
+
+    evaluator_root: Path
+    evaluator_entrypoint: Path
+    candidate_path: Path
+    hidden_data: Path
+    task_config: Path
+    split_manifest: Path
+    request_file: Path
+    response_file: Path
+    scratch_dir: Path
+    output_dir: Path
+
+    def request_paths(self) -> dict[str, str]:
+        return {
+            "candidate_path": str(self.candidate_path),
+            "evaluator_config_path": str(self.task_config),
+            "dataset_dir": str(self.hidden_data),
+            "split_manifest_path": str(self.split_manifest),
+            "output_dir": str(self.output_dir),
+        }
+
+
+@dataclass(frozen=True)
+class SandboxPathSet:
+    """Paths visible only inside the outer Bubblewrap evaluator namespace."""
+
+    evaluator_root: str = "/evaluator"
+    evaluator_entrypoint: str = "/evaluator/evaluate.py"
+    candidate_path: str = "/candidate.py"
+    hidden_data: str = "/hidden-data"
+    task_config: str = "/task-config.json"
+    split_manifest: str = "/split-manifest.json"
+    request_file: str = "/scratch/request.json"
+    response_file: str = "/scratch/response.json"
+    scratch_dir: str = "/scratch"
+    output_dir: str = "/scratch/predictions"
+
+    def request_paths(self) -> dict[str, str]:
+        return {
+            "candidate_path": self.candidate_path,
+            "evaluator_config_path": self.task_config,
+            "dataset_dir": self.hidden_data,
+            "split_manifest_path": self.split_manifest,
+            "output_dir": self.output_dir,
+        }
+
+
 def _effective_resource_limit(name: str, requested: int) -> int:
     """Cap requested limits to the host hard limit before passing them to a child."""
     resource_id = getattr(resource, name, None)
@@ -504,7 +554,12 @@ class TrustedEvaluator:
         candidate_path: Path,
         request: dict[str, Any],
     ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
-        """Build a fail-closed Seatbelt or Bubblewrap evaluator invocation."""
+        """Build an invocation whose paths match its process namespace.
+
+        The first-party adapter runs in the host namespace so it can launch its
+        confined candidate process. A custom evaluator runs in the outer
+        evaluator sandbox. Namespace-only paths must never reach host Python.
+        """
         if self.reference_evaluator:
             if (
                 _python_source_tree_sha256(self.reference_package_root / "aide")
@@ -520,51 +575,86 @@ class TrustedEvaluator:
         else:
             evaluator_root = self.bundle_dir
             entrypoint_path = self.entrypoint
-        if self.sandbox_backend == "seatbelt":
-            request_paths = {
-                "candidate_path": str(candidate_path),
-                "evaluator_config_path": str(self.config_path),
-                "dataset_dir": str(self.dataset_dir),
-                "split_manifest_path": str(self.split_path),
-                "output_dir": str(temp_dir / "predictions"),
-            }
-            bundle_path = str(evaluator_root)
-            entrypoint = str(entrypoint_path)
-            request_path = str(temp_dir / "request.json")
-            response_path = str(temp_dir / "response.json")
-            scratch_path = str(temp_dir)
-            prefix = [shutil.which("sandbox-exec") or "sandbox-exec"]
-            for name, value in (
-                ("PY_PREFIX", sys.prefix),
-                ("PY_BASE", sys.base_prefix),
-                ("BUNDLE", evaluator_root),
-                ("DATASET", self.dataset_dir),
-                ("CONFIG", self.config_path),
-                ("SPLIT", self.split_path),
-                ("CANDIDATE", candidate_path.resolve()),
-                ("SCRATCH", temp_dir.resolve()),
-            ):
-                prefix.extend(("-D", f"{name}={value}"))
-            prefix.extend(("-p", _EVALUATOR_SEATBELT_PROFILE))
-            home_path = scratch_path
+        output_dir = temp_dir / "predictions"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        request_path = temp_dir / "request.json"
+        response_path = temp_dir / "response.json"
+        try:
+            host_paths = HostPathSet(
+                evaluator_root=evaluator_root.resolve(strict=True),
+                evaluator_entrypoint=entrypoint_path.resolve(strict=True),
+                candidate_path=candidate_path.resolve(strict=True),
+                hidden_data=self.dataset_dir.resolve(strict=True),
+                task_config=self.config_path.resolve(strict=True),
+                split_manifest=self.split_path.resolve(strict=True),
+                request_file=request_path,
+                response_file=response_path,
+                scratch_dir=temp_dir.resolve(strict=True),
+                output_dir=output_dir.resolve(strict=True),
+            )
+        except OSError as exc:
+            raise TrustedEvaluatorError(
+                "required evaluator path is missing or inaccessible"
+            ) from exc
+        for directory in (
+            host_paths.evaluator_root,
+            host_paths.hidden_data,
+            host_paths.scratch_dir,
+            host_paths.output_dir,
+        ):
+            if not directory.is_dir():
+                raise TrustedEvaluatorError(
+                    f"required evaluator directory is missing: {directory}"
+                )
+        for artifact in (
+            host_paths.evaluator_entrypoint,
+            host_paths.candidate_path,
+            host_paths.task_config,
+            host_paths.split_manifest,
+        ):
+            if not artifact.is_file():
+                raise TrustedEvaluatorError(
+                    f"required evaluator artifact is missing: {artifact}"
+                )
+
+        # The reference adapter launches the candidate sandbox itself and stays
+        # trusted host code. Custom evaluators use the outer Seatbelt or
+        # Bubblewrap boundary.
+        host_namespace = self.reference_evaluator or self.sandbox_backend == "seatbelt"
+        if host_namespace:
+            paths = host_paths
+            bundle_path = str(paths.evaluator_root)
+            entrypoint = str(paths.evaluator_entrypoint)
+            request_file = str(paths.request_file)
+            response_file = str(paths.response_file)
+            home_path = str(paths.scratch_dir)
+            prefix: list[str] = []
+            if self.sandbox_backend == "seatbelt" and not self.reference_evaluator:
+                prefix = [shutil.which("sandbox-exec") or "sandbox-exec"]
+                for name, value in (
+                    ("PY_PREFIX", str(Path(sys.prefix).resolve())),
+                    ("PY_BASE", str(Path(sys.base_prefix).resolve())),
+                    ("BUNDLE", paths.evaluator_root),
+                    ("DATASET", paths.hidden_data),
+                    ("CONFIG", paths.task_config),
+                    ("SPLIT", paths.split_manifest),
+                    ("CANDIDATE", paths.candidate_path),
+                    ("SCRATCH", paths.scratch_dir),
+                ):
+                    prefix.extend(("-D", f"{name}={value}"))
+                prefix.extend(("-p", _EVALUATOR_SEATBELT_PROFILE))
         else:
-            request_paths = {
-                "candidate_path": "/candidate.py",
-                "evaluator_config_path": "/task-config.json",
-                "dataset_dir": "/hidden-data",
-                "split_manifest_path": "/split-manifest.json",
-                "output_dir": "/scratch/predictions",
-            }
-            bundle_path = "/evaluator"
-            if self.reference_evaluator:
-                entrypoint = "/evaluator/aide/rsi/reference_evaluator.py"
-            else:
-                entrypoint = (
-                    Path(bundle_path) / self.entrypoint.relative_to(self.bundle_dir)
+            relative_entrypoint = self.entrypoint.relative_to(self.bundle_dir)
+            paths = SandboxPathSet(
+                evaluator_entrypoint=(
+                    Path("/evaluator") / relative_entrypoint
                 ).as_posix()
-            request_path = "/scratch/request.json"
-            response_path = "/scratch/response.json"
-            scratch_path = "/scratch"
+            )
+            bundle_path = paths.evaluator_root
+            entrypoint = paths.evaluator_entrypoint
+            request_file = paths.request_file
+            response_file = paths.response_file
+            home_path = "/tmp"
             prefix = [
                 shutil.which("bwrap") or "bwrap",
                 "--die-with-parent",
@@ -597,24 +687,24 @@ class TrustedEvaluator:
                 (
                     "--ro-bind",
                     str(evaluator_root),
-                    "/evaluator",
+                    paths.evaluator_root,
                     "--ro-bind",
                     str(self.dataset_dir),
-                    "/hidden-data",
+                    paths.hidden_data,
                     "--ro-bind",
                     str(self.config_path),
-                    "/task-config.json",
+                    paths.task_config,
                     "--ro-bind",
                     str(self.split_path),
-                    "/split-manifest.json",
+                    paths.split_manifest,
                     "--ro-bind",
                     str(candidate_path),
-                    "/candidate.py",
+                    paths.candidate_path,
                     "--bind",
                     str(temp_dir),
-                    "/scratch",
+                    paths.scratch_dir,
                     "--chdir",
-                    "/scratch",
+                    paths.scratch_dir,
                     "--clearenv",
                     "--setenv",
                     "HOME",
@@ -627,44 +717,11 @@ class TrustedEvaluator:
                     self.evaluator_path,
                 )
             )
-            home_path = "/tmp"
 
-        child_request = {**request, **request_paths}
+        child_request = {**request, **paths.request_paths()}
         if self.reference_evaluator:
             child_request["candidate_process_groups_path"] = str(
-                temp_dir / "candidate_process_groups.json"
-            )
-            # This content-pinned adapter is the only evaluator allowed to run
-            # outside the outer Seatbelt namespace: it must launch a nested
-            # candidate sandbox, which macOS forbids from inside Seatbelt.
-            command = [
-                sys.executable,
-                "-I",
-                "-B",
-                "-c",
-                _EVALUATOR_WRAPPER,
-                str(self.max_output_bytes),
-                str(max(1, math.ceil(self.timeout_s))),
-                str(self.max_memory_bytes),
-                str(self.max_processes),
-                str(self.max_open_files),
-                bundle_path,
-                entrypoint,
-                "--request",
-                request_path,
-                "--response",
-                response_path,
-            ]
-            return (
-                command,
-                {
-                    "PATH": self.evaluator_path,
-                    "HOME": str(temp_dir),
-                    "TMPDIR": str(temp_dir),
-                    "PYTHONNOUSERSITE": "1",
-                    "PYTHONDONTWRITEBYTECODE": "1",
-                },
-                child_request,
+                host_paths.scratch_dir / "candidate_process_groups.json"
             )
         command = [
             *prefix,
@@ -681,9 +738,9 @@ class TrustedEvaluator:
             bundle_path,
             entrypoint,
             "--request",
-            request_path,
+            request_file,
             "--response",
-            response_path,
+            response_file,
         ]
         environment = {
             "PATH": self.evaluator_path,

@@ -38,6 +38,7 @@ from .statistics import (
     CanaryPanel,
     CanaryPanelTask,
     StatisticalBudget,
+    canary_execution_schedule,
     multitask_protocol_sha256,
     sequential_alpha,
     statistical_epoch_sha256,
@@ -151,28 +152,26 @@ def _panel_seed_schedule_sha256(panel: CanaryPanel) -> str:
     )
 
 
+def _panel_execution_schedule(panel: CanaryPanel) -> list[dict[str, Any]]:
+    task_by_id = {task.task_id: task for task in panel.tasks}
+    return [
+        {
+            **scheduled,
+            "shard_sha256": task_by_id[scheduled["task_id"]].shard_sha256,
+            "budget_per_run": task_by_id[scheduled["task_id"]].budget_per_run,
+        }
+        for scheduled in canary_execution_schedule(panel)
+    ]
+
+
 def _panel_execution_schedule_sha256(panel: CanaryPanel) -> str:
-    tasks = sorted(panel.tasks, key=lambda item: item.task_id)
-    schedule = []
-    for task_index, task in enumerate(tasks):
-        for replicate in task.replicate_ids:
-            order = (
-                ["challenger", "incumbent"]
-                if (replicate + task_index) % 2 == 0
-                else ["incumbent", "challenger"]
-            )
-            schedule.append(
-                {
-                    "task_id": task.task_id,
-                    "task_sha256": task.task_sha256,
-                    "shard_sha256": task.shard_sha256,
-                    "replicate_id": replicate,
-                    "seed": task.seed_for(replicate),
-                    "budget_per_run": task.budget_per_run,
-                    "order": order,
-                }
-            )
-    return _stable_digest({"panel_sha256": panel.panel_sha256, "runs": schedule})
+    return _stable_digest(
+        {
+            "panel_sha256": panel.panel_sha256,
+            "protocol_sha256": panel.protocol_sha256,
+            "runs": _panel_execution_schedule(panel),
+        }
+    )
 
 
 def _task_pair_gate_template(
@@ -181,12 +180,6 @@ def _task_pair_gate_template(
     return RealCanaryGate(
         max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
         min_valid=cfg.rsi.canary.min_valid,
-        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
-        min_pairs=cfg.rsi.canary.min_pairs,
-        confidence_level=cfg.rsi.canary.confidence_level,
-        bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
-        min_effect_size=0.0,
-        max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
         score_scale_floor=cfg.rsi.canary.score_scale_floor,
         artifact_root=artifact_root,
         require_artifacts=True,
@@ -209,7 +202,7 @@ def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
     max_task_regression = float(cfg.rsi.canary.max_single_task_regression)
     pair_gate_policy = _task_pair_gate_template(
         cfg, artifact_root=Path(artifact_root)
-    ).policy_config()
+    ).task_pair_policy_config()
     protocol_sha = multitask_protocol_sha256(
         family_alpha,
         min_effect,
@@ -916,9 +909,11 @@ def _recover_multitask_canary_transaction(
     if int(transaction.get("round", -1)) != round_no:
         raise ValueError("multi-task canary round does not match durable state")
     seed_schedule_sha256 = _panel_seed_schedule_sha256(panel)
+    execution_schedule = _panel_execution_schedule(panel)
     if (
         transaction.get("seed_schedule_sha256") != seed_schedule_sha256
         or decision.get("seed_schedule_sha256") != seed_schedule_sha256
+        or transaction.get("canary_execution_schedule") != execution_schedule
         or transaction.get("canary_schedule_sha256")
         != _panel_execution_schedule_sha256(panel)
         or decision.get("canary_schedule_sha256")
@@ -1930,6 +1925,7 @@ def _run_rsi_unlocked() -> None:
                         "evaluation_sample_public_input_sha256": public_hashes,
                         "task_sha256s": sorted(panel_task_hashes),
                         "seed_schedule_sha256": _panel_seed_schedule_sha256(panel),
+                        "canary_execution_schedule": _panel_execution_schedule(panel),
                         "canary_schedule_sha256": _panel_execution_schedule_sha256(
                             panel
                         ),
@@ -1948,7 +1944,13 @@ def _run_rsi_unlocked() -> None:
                     task_id: [] for task_id in panel.task_ids
                 }
                 journal_evidence = []
-                for task_index, task_runtime in enumerate(canary_panel_runtime.tasks):
+                schedule_by_key = {
+                    (entry["task_id"], entry["replicate_id"]): entry
+                    for entry in _panel_execution_schedule(panel)
+                }
+                for task_runtime in sorted(
+                    canary_panel_runtime.tasks, key=lambda runtime: runtime.task_id
+                ):
                     task = task_runtime.definition
                     task_component = _task_path_component(task.task_id)
                     for replicate in sorted(task.replicate_ids):
@@ -1958,11 +1960,7 @@ def _run_rsi_unlocked() -> None:
                             / f"rep-{replicate:04d}"
                         )
                         outcomes = {}
-                        order = (
-                            ("challenger", "incumbent")
-                            if (replicate + task_index) % 2 == 0
-                            else ("incumbent", "challenger")
-                        )
+                        order = schedule_by_key[(task.task_id, replicate)]["order"]
                         for side in order:
                             policy = pending if side == "challenger" else incumbent
                             side_workspace = (

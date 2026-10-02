@@ -11,10 +11,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       - name: Build wheel and source distribution
         run: |
-          python -m pip install --disable-pip-version-check build==1.2.2.post1
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-rsi-ci.lock
           python -m build --sdist --wheel
           wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           sdist=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
@@ -24,7 +24,7 @@ jobs:
           python -m venv /tmp/aideml-rsi-wheel
           wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           /tmp/aideml-rsi-wheel/bin/python -m pip install --no-deps "$wheel"
-          /tmp/aideml-rsi-wheel/bin/python -m pip install numpy==1.26.2 requests==2.32.4
+          /tmp/aideml-rsi-wheel/bin/python -m pip install --require-hashes -r requirements-rsi-ci.lock
           /tmp/aideml-rsi-wheel/bin/aide-rsi-statistics --help
           /tmp/aideml-rsi-wheel/bin/aide-rsi-anchor --help
           vendor_path=$(/tmp/aideml-rsi-wheel/bin/aide-rsi-jev vendor-path)

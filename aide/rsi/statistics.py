@@ -17,13 +17,13 @@ MAX_PROMOTION_ATTEMPTS = 500
 _MAX_ATTEMPTS = MAX_PROMOTION_ATTEMPTS
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
-MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V2"
-MULTITASK_PROTOCOL_VERSION = 2
+MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V4"
+MULTITASK_PROTOCOL_VERSION = 4
 MULTITASK_MIN_TASKS = 20
 MULTITASK_MIN_INDEPENDENT_FAMILIES = 20
 MULTITASK_MIN_STRATA = 3
 MULTITASK_MIN_FAMILIES_PER_STRATUM = 3
-MULTITASK_MIN_RUNS_PER_TASK = 3
+MULTITASK_MIN_RUNS_PER_TASK = 4
 SIGN_TIE_ABS_TOLERANCE = 1e-12
 MULTITASK_PROTOCOL = {
     "protocol_id": MULTITASK_PROTOCOL_ID,
@@ -41,6 +41,7 @@ MULTITASK_PROTOCOL = {
     "maximum_family_stratum_share": 0.5,
     "minimum_runs_per_task": MULTITASK_MIN_RUNS_PER_TASK,
     "replicate_seed_schedule": "paired_within_task; disjoint_across_family_clusters; provider_rng_may_be_uncontrolled",
+    "execution_order_schedule": "four_runs_per_task; canonical_task_order; replicate_ids_do_not_select_order; per_task_ABBA_or_BAAB_exact_balance; family_and_global_first_side_exact_balance",
     "test": "one_sided_exact_binomial_sign_test",
     "alpha_spending_rule_id": SPENDING_RULE_ID,
     "alpha_spending_rule_version": SPENDING_RULE_VERSION,
@@ -202,9 +203,9 @@ class CanaryPanelTask:
             self.replicate_ids
         ):
             raise ValueError("canary panel replicate IDs must be nonempty and unique")
-        if len(self.replicate_ids) < MULTITASK_MIN_RUNS_PER_TASK:
+        if len(self.replicate_ids) != MULTITASK_MIN_RUNS_PER_TASK:
             raise ValueError(
-                f"each canary task needs at least {MULTITASK_MIN_RUNS_PER_TASK} paired runs"
+                f"each canary task needs exactly {MULTITASK_MIN_RUNS_PER_TASK} paired runs"
             )
         if any(
             isinstance(value, bool) or not isinstance(value, int) or value < 0
@@ -411,6 +412,69 @@ class CanaryPanel:
         if value["panel_sha256"] != result.panel_sha256:
             raise ValueError("canary panel digest mismatch")
         return result
+
+
+def canary_execution_schedule(panel: CanaryPanel) -> tuple[dict[str, Any], ...]:
+    """Build the canonical, globally and family-balanced paired run schedule.
+
+    Replicate IDs label stored run records only. Execution order is determined
+    by canonical task order and replicate ordinal. Four paired runs use an
+    exact ABBA or BAAB first-side sequence, balancing each task and cancelling
+    constant first/second-position effects in the median task effect.
+    """
+    task_records = sorted(
+        panel.tasks, key=lambda task: (task.task_id, task.task_sha256)
+    )
+    family_indices = {
+        family: index
+        for index, family in enumerate(
+            sorted({task.task_family for task in task_records})
+        )
+    }
+    family_first_counts: dict[str, list[int]] = {}
+    schedule: list[dict[str, Any]] = []
+    for task_index, task in enumerate(task_records):
+        counts = family_first_counts.setdefault(task.task_family, [0, 0])
+        challenger_first_pattern = (
+            "challenger",
+            "incumbent",
+            "incumbent",
+            "challenger",
+        )
+        incumbent_first_pattern = ("incumbent", "challenger", "challenger", "incumbent")
+        first_sides = (
+            challenger_first_pattern
+            if (family_indices[task.task_family] + task_index) % 2 == 0
+            else incumbent_first_pattern
+        )
+        for ordinal, (replicate_id, seed, first_side) in enumerate(
+            zip(task.replicate_ids, task.replicate_seeds, first_sides, strict=True)
+        ):
+            second_side = "incumbent" if first_side == "challenger" else "challenger"
+            schedule.append(
+                {
+                    "task_id": task.task_id,
+                    "task_sha256": task.task_sha256,
+                    "task_family": task.task_family,
+                    "replicate_ordinal": ordinal,
+                    "replicate_id": replicate_id,
+                    "seed": seed,
+                    "order": [first_side, second_side],
+                }
+            )
+            if first_side == "challenger":
+                counts[0] += 1
+            else:
+                counts[1] += 1
+    challenger_first_count = sum(counts[0] for counts in family_first_counts.values())
+    incumbent_first_count = sum(counts[1] for counts in family_first_counts.values())
+    if challenger_first_count != incumbent_first_count:
+        raise AssertionError(
+            "canonical canary execution schedule is not exactly balanced"
+        )
+    if any(counts[0] != counts[1] for counts in family_first_counts.values()):
+        raise AssertionError("canonical canary family schedule is not exactly balanced")
+    return tuple(schedule)
 
 
 @dataclass(frozen=True)

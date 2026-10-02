@@ -102,11 +102,12 @@ deployed checkpoint service.
 
 General policy promotion uses an immutable multi-task `CanaryPanel`. Each panel
 contains at least 20 distinct task identities from at least 20 independent
-task-family clusters, with at least three paired runs per task. It also fixes
+task-family clusters, with exactly four paired runs per task. It also fixes
 at least three broad task strata, with at least three independent families per
 stratum and no stratum above half the family clusters. Incumbent and challenger are run with the same
-fixed task seed and budget; execution order is fixed and alternates according
-to the signed schedule. The median normalized paired effect within each task
+fixed task seed and budget; execution order is fixed by canonical task position,
+not caller-supplied replicate IDs. Each task uses an exact ABBA or BAAB schedule,
+so both policies run first twice and second twice. The median normalized paired effect within each task
 is the task-level estimate; correlated task estimates in the same family are
 reduced to one median family effect. A one-sided exact sign test then operates
 across independent family effects, with ties at the practical-effect threshold
@@ -119,7 +120,7 @@ predeclared dependence clusters and receive equal weight; strata are
 predeclared for domain balance. Panel composition, evaluator/shard identities,
 sample hashes, seed schedule, run budgets, metric definition, execution order,
 protocol digest, statistical epoch, and allocated alpha are authenticated
-before any score is observed. Protocol V2 fixes a 500-attempt Bonferroni
+before any score is observed. Protocol V4 fixes a 500-attempt Bonferroni
 horizon with `alpha_i = family_alpha / 500`; attempt 501 is rejected. A
 reservation spends alpha before execution and cannot be refunded. A missing or
 incomplete signed decision burns the panel rather than retrying it. Recovery

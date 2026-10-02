@@ -18,6 +18,7 @@ from aide.rsi.statistics import (
     CanaryPanel,
     CanaryPanelTask,
     StatisticalBudget,
+    canary_execution_schedule,
     multitask_protocol_sha256,
     sequential_alpha,
     task_effect_decision,
@@ -51,7 +52,7 @@ def _panel(
     duplicate_public: bool = False,
     extra_same_family_task: bool = False,
 ) -> CanaryPanel:
-    gate_policy = _pair_gate().policy_config()
+    gate_policy = _pair_gate().task_pair_policy_config()
     protocol_sha256 = multitask_protocol_sha256(
         0.05, 0.0, 0.25, pair_gate_policy=gate_policy
     )
@@ -77,11 +78,12 @@ def _panel(
                 sample_ids=(f"sample-{index}",),
                 public_input_sha256=(public_hash,),
                 sample_content_sha256=(_sha(f"full sample {index}"),),
-                replicate_ids=(0, 1, 2),
+                replicate_ids=(0, 1, 2, 3),
                 replicate_seeds=(
                     101 + index * 1000,
                     202 + index * 1000,
                     303 + index * 1000,
+                    404 + index * 1000,
                 ),
                 budget_per_run=24,
                 public_data_sha256=_sha(f"public data directory {index}"),
@@ -100,6 +102,36 @@ def _panel(
             )
         )
     return CanaryPanel(epoch=epoch, tasks=tuple(tasks), protocol_sha256=protocol_sha256)
+
+
+def test_legacy_series_settings_do_not_change_multitask_protocol_identity():
+    defaults = _pair_gate()
+    legacy_changed = RealCanaryGate(
+        min_pass_fraction=0.95,
+        min_pairs=17,
+        confidence_level=0.99,
+        bootstrap_samples=1000,
+        max_single_pair_regression=0.5,
+    )
+    assert defaults.policy_config() != legacy_changed.policy_config()
+    assert (
+        defaults.task_pair_policy_config() == legacy_changed.task_pair_policy_config()
+    )
+    assert multitask_protocol_sha256(
+        pair_gate_policy=defaults.task_pair_policy_config()
+    ) == multitask_protocol_sha256(
+        pair_gate_policy=legacy_changed.task_pair_policy_config()
+    )
+
+    changed_authoritative = RealCanaryGate(max_normalized_regression=0.1)
+    assert defaults.task_pair_policy_config() != (
+        changed_authoritative.task_pair_policy_config()
+    )
+    assert multitask_protocol_sha256(
+        pair_gate_policy=defaults.task_pair_policy_config()
+    ) != multitask_protocol_sha256(
+        pair_gate_policy=changed_authoritative.task_pair_policy_config()
+    )
 
 
 def _journal(score: float, role: str, task_index: int, replicate: int):
@@ -141,6 +173,100 @@ def _gate(panel: CanaryPanel, *, attempt: int = 1) -> TaskClusteredCanaryGate:
     )
 
 
+def _schedule_order_by_ordinal(panel: CanaryPanel):
+    return {
+        (entry["task_id"], entry["replicate_ordinal"]): tuple(entry["order"])
+        for entry in canary_execution_schedule(panel)
+    }
+
+
+def test_even_replicate_ids_cannot_force_challenger_first():
+    panel = _panel()
+    even_ids = tuple(replace(task, replicate_ids=(0, 2, 4, 6)) for task in panel.tasks)
+    schedule = canary_execution_schedule(
+        CanaryPanel(panel.epoch, even_ids, panel.protocol_sha256)
+    )
+    first_sides = [entry["order"][0] for entry in schedule]
+
+    assert "incumbent" in first_sides
+    assert first_sides.count("challenger") == first_sides.count("incumbent")
+
+
+def test_odd_replicate_ids_cannot_force_challenger_first():
+    panel = _panel()
+    odd_ids = tuple(replace(task, replicate_ids=(1, 3, 5, 7)) for task in panel.tasks)
+    schedule = canary_execution_schedule(
+        CanaryPanel(panel.epoch, odd_ids, panel.protocol_sha256)
+    )
+    first_sides = [entry["order"][0] for entry in schedule]
+
+    assert "incumbent" in first_sides
+    assert first_sides.count("challenger") == first_sides.count("incumbent")
+
+
+def test_sparse_replicate_ids_do_not_affect_order():
+    panel = _panel()
+    sparse_ids = tuple(
+        replace(task, replicate_ids=(100, 1000, 10000, 100000)) for task in panel.tasks
+    )
+    sparse_panel = CanaryPanel(panel.epoch, sparse_ids, panel.protocol_sha256)
+
+    assert _schedule_order_by_ordinal(sparse_panel) == _schedule_order_by_ordinal(panel)
+
+
+def test_reordered_input_panel_has_identical_canonical_schedule():
+    panel = _panel()
+    reordered = CanaryPanel(
+        panel.epoch, tuple(reversed(panel.tasks)), panel.protocol_sha256
+    )
+
+    assert reordered.panel_sha256 == panel.panel_sha256
+    assert canary_execution_schedule(reordered) == canary_execution_schedule(panel)
+
+
+def test_schedule_global_balance():
+    first_sides = [entry["order"][0] for entry in canary_execution_schedule(_panel())]
+
+    assert abs(first_sides.count("challenger") - first_sides.count("incumbent")) <= 1
+
+
+def test_schedule_per_task_balance():
+    grouped: dict[str, list[str]] = {}
+    for entry in canary_execution_schedule(_panel()):
+        grouped.setdefault(entry["task_id"], []).append(entry["order"][0])
+
+    assert all(
+        orders.count("challenger") == orders.count("incumbent")
+        for orders in grouped.values()
+    )
+
+
+def test_schedule_per_family_balance():
+    grouped: dict[str, list[str]] = {}
+    for entry in canary_execution_schedule(_panel(extra_same_family_task=True)):
+        grouped.setdefault(entry["task_family"], []).append(entry["order"][0])
+
+    assert all(
+        orders.count("challenger") == orders.count("incumbent")
+        for orders in grouped.values()
+    )
+
+
+def test_replicate_id_parity_fuzz_does_not_change_canonical_order():
+    rng = random.Random(74192026)
+    panel = _panel()
+    reference = _schedule_order_by_ordinal(panel)
+    for _ in range(2000):
+        tasks = []
+        for task in panel.tasks:
+            base = rng.randrange(0, 10**12)
+            parity = rng.randrange(2)
+            ids = tuple(base + parity + 2 * ordinal for ordinal in range(4))
+            tasks.append(replace(task, replicate_ids=ids))
+        fuzzed = CanaryPanel(panel.epoch, tuple(tasks), panel.protocol_sha256)
+        assert _schedule_order_by_ordinal(fuzzed) == reference
+
+
 def test_replicates_reduce_to_one_effect_per_task():
     panel = _panel()
     gate = _gate(panel)
@@ -151,13 +277,13 @@ def test_replicates_reduce_to_one_effect_per_task():
                 _journal(1.1, "challenger", task_index, replicate),
                 _journal(1.0, "incumbent", task_index, replicate),
             )
-            for replicate in range(3)
+            for replicate in range(4)
         ]
 
     result = gate.evaluate_panel(pairs)
 
     assert result.total_tasks == MULTITASK_MIN_TASKS
-    assert all(effect.runs == 3 for effect in result.task_effects)
+    assert all(effect.runs == 4 for effect in result.task_effects)
     assert result.positive_tasks == MULTITASK_MIN_TASKS
     assert result.positive_families == MULTITASK_MIN_TASKS
     assert result.critical_positive_families == 19
@@ -179,7 +305,7 @@ def test_many_replicates_from_one_winning_task_cannot_grant_promotion():
                 _journal(candidate_score, "challenger", task_index, replicate),
                 _journal(1.0, "incumbent", task_index, replicate),
             )
-            for replicate in range(3)
+            for replicate in range(4)
         ]
 
     result = gate.evaluate_panel(pairs)
@@ -201,7 +327,7 @@ def test_correlated_tasks_in_one_family_count_as_one_inference_unit():
                 _journal(score, "challenger", task_index, replicate),
                 _journal(1.0, "incumbent", task_index, replicate),
             )
-            for replicate in range(3)
+            for replicate in range(4)
         ]
 
     result = gate.evaluate_panel(pairs)
@@ -314,7 +440,7 @@ def test_task_clustered_gate_rejects_missing_runs_and_wrong_alpha():
                 _journal(1.1, "challenger", index, replicate),
                 _journal(1.0, "incumbent", index, replicate),
             )
-            for replicate in range(2 if index == 0 else 3)
+            for replicate in range(2 if index == 0 else 4)
         ]
         for index, task_id in enumerate(panel.task_ids)
     }
@@ -381,7 +507,7 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
                     _journal(1.1, "challenger", index, replicate),
                     _journal(1.0, "incumbent", index, replicate),
                 )
-                for replicate in range(3)
+                for replicate in range(4)
             ]
             for index, task_id in enumerate(panel.task_ids)
         }
@@ -405,7 +531,7 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
                     _journal(1.1, "challenger", index, replicate),
                     _journal(1.0, "incumbent", index, replicate),
                 )
-                for replicate in range(3)
+                for replicate in range(4)
             ]
             for index, task_id in enumerate(panel.task_ids)
         }

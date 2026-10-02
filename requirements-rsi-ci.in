@@ -1,0 +1,23 @@
+# Validation/tooling environment for RSI authority and evaluator qualification.
+# Full AIDE task dependencies remain in requirements.txt; this file is the
+# minimal, fully locked set used by the security/statistical CI gates.
+backoff==2.2.1
+black==24.3.0
+build==1.2.2.post1
+anthropic==0.20.0
+coolname==2.2.0
+dataclasses-json==0.6.7
+funcy==2.0
+genson==1.2.2
+humanize==4.8.0
+igraph==0.11.8
+jsonschema==4.19.2
+numpy==1.26.2
+omegaconf==2.3.0
+pandas==2.1.4
+openai==1.69.0
+pytest==9.0.3
+requests==2.32.4
+rich==13.7.0
+ruff==0.7.1
+shutup==0.2.0

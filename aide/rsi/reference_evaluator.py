@@ -453,8 +453,8 @@ def _run_candidate_seatbelt(
             raise SandboxUnavailable("macOS Seatbelt is unavailable")
         prefix = [sandbox_exec]
         for name, value in (
-            ("PY_PREFIX", sys.prefix),
-            ("PY_BASE", sys.base_prefix),
+            ("PY_PREFIX", str(Path(sys.prefix).resolve())),
+            ("PY_BASE", str(Path(sys.base_prefix).resolve())),
             ("WORK", workspace.resolve()),
             ("INPUT", (workspace / "input").resolve()),
         ):

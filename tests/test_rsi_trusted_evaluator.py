@@ -206,6 +206,143 @@ def _make_evaluator(
     return evaluator, candidate_sha256, config
 
 
+def _make_reference_process_builder(tmp_path: Path, monkeypatch):
+    evaluator, candidate_sha256, _config = _make_evaluator(tmp_path, monkeypatch)
+    source_root = tmp_path / "reference-source"
+
+    def stage_reference_package(_source, destination):
+        entrypoint = destination / "aide/rsi/reference_evaluator.py"
+        entrypoint.parent.mkdir(parents=True, exist_ok=True)
+        entrypoint.write_text("# pinned reference evaluator test artifact\n")
+
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator._python_source_tree_sha256",
+        lambda _path: "a" * 64,
+    )
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator._stage_reference_package",
+        stage_reference_package,
+    )
+    evaluator.reference_evaluator = True
+    evaluator.reference_package_root = source_root
+    evaluator.reference_source_sha256 = "a" * 64
+    evaluator.sandbox_backend = "bubblewrap"
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "predictions").mkdir()
+    candidate = tmp_path / "candidate.py"
+    candidate.write_text("print('candidate')\n")
+    request = {"candidate_sha256": candidate_sha256}
+    return evaluator, candidate_sha256, scratch, candidate, request
+
+
+def test_reference_evaluator_uses_host_paths_on_linux(tmp_path: Path, monkeypatch):
+    evaluator, candidate_sha256, scratch, candidate, request = (
+        _make_reference_process_builder(tmp_path, monkeypatch)
+    )
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator.shutil.which", lambda name: "/usr/bin/bwrap"
+    )
+
+    command, _environment, child_request = evaluator._evaluator_process(
+        temp_dir=scratch,
+        candidate_path=candidate,
+        request=request,
+    )
+
+    assert command[0] == sys.executable
+    assert "--unshare-all" not in command
+    assert "/evaluator" not in command
+    assert "/scratch/request.json" not in command
+    assert child_request["candidate_sha256"] == candidate_sha256
+    assert child_request["candidate_path"] == str(candidate.resolve())
+    assert child_request["dataset_dir"] == str(evaluator.dataset_dir.resolve())
+    assert child_request["evaluator_config_path"] == str(
+        evaluator.config_path.resolve()
+    )
+    assert child_request["split_manifest_path"] == str(evaluator.split_path.resolve())
+    assert child_request["output_dir"] == str((scratch / "predictions").resolve())
+
+
+def test_reference_evaluator_does_not_reference_bwrap_only_paths(
+    tmp_path: Path, monkeypatch
+):
+    evaluator, _digest, scratch, candidate, request = _make_reference_process_builder(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator.shutil.which", lambda name: "/usr/bin/bwrap"
+    )
+
+    command, _environment, child_request = evaluator._evaluator_process(
+        temp_dir=scratch,
+        candidate_path=candidate,
+        request=request,
+    )
+
+    namespace_paths = {
+        "/evaluator",
+        "/candidate.py",
+        "/hidden-data",
+        "/task-config.json",
+        "/split-manifest.json",
+        "/scratch",
+        "/scratch/request.json",
+        "/scratch/response.json",
+    }
+    assert not namespace_paths.intersection(command)
+    assert not namespace_paths.intersection(child_request.values())
+
+
+def test_reference_evaluator_missing_artifact_fails_closed(tmp_path: Path, monkeypatch):
+    evaluator, _digest, scratch, candidate, request = _make_reference_process_builder(
+        tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator._stage_reference_package",
+        lambda _source, _destination: None,
+    )
+
+    with pytest.raises(
+        TrustedEvaluatorError, match="required evaluator path is missing"
+    ):
+        evaluator._evaluator_process(
+            temp_dir=scratch,
+            candidate_path=candidate,
+            request=request,
+        )
+
+
+def test_seatbelt_evaluator_resolves_symlinked_python_prefixes(tmp_path, monkeypatch):
+    evaluator, _digest, scratch, candidate, request = _make_reference_process_builder(
+        tmp_path, monkeypatch
+    )
+    evaluator.reference_evaluator = False
+    evaluator.sandbox_backend = "seatbelt"
+    real_prefix = tmp_path / "python-prefix"
+    real_prefix.mkdir()
+    prefix_link = tmp_path / "python-prefix-link"
+    prefix_link.symlink_to(real_prefix, target_is_directory=True)
+    real_base = tmp_path / "python-base"
+    real_base.mkdir()
+    base_link = tmp_path / "python-base-link"
+    base_link.symlink_to(real_base, target_is_directory=True)
+    monkeypatch.setattr("aide.rsi.trusted_evaluator.sys.prefix", str(prefix_link))
+    monkeypatch.setattr("aide.rsi.trusted_evaluator.sys.base_prefix", str(base_link))
+    monkeypatch.setattr(
+        "aide.rsi.trusted_evaluator.shutil.which", lambda name: "/usr/bin/sandbox-exec"
+    )
+
+    command, _environment, _child_request = evaluator._evaluator_process(
+        temp_dir=scratch,
+        candidate_path=candidate,
+        request=request,
+    )
+
+    assert f"PY_PREFIX={real_prefix.resolve()}" in command
+    assert f"PY_BASE={real_base.resolve()}" in command
+
+
 def test_pinned_evaluator_runs_without_host_attestation_key_and_signs_record(
     tmp_path: Path, monkeypatch
 ):

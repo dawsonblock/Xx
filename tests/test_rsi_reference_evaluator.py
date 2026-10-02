@@ -181,3 +181,41 @@ def test_bubblewrap_candidate_workspace_is_read_only_and_tmpfs_is_sized(
     ]
     assert "--ro-bind" in command
     assert "--bind" not in command
+
+
+def test_seatbelt_candidate_resolves_symlinked_python_prefixes(tmp_path, monkeypatch):
+    script = tmp_path / "candidate.py"
+    script.write_text("pass\n")
+    real_prefix = tmp_path / "python-prefix"
+    real_prefix.mkdir()
+    prefix_link = tmp_path / "python-prefix-link"
+    prefix_link.symlink_to(real_prefix, target_is_directory=True)
+    real_base = tmp_path / "python-base"
+    real_base.mkdir()
+    base_link = tmp_path / "python-base-link"
+    base_link.symlink_to(real_base, target_is_directory=True)
+    monkeypatch.setattr(reference.sys, "platform", "darwin")
+    monkeypatch.setattr(reference.sys, "prefix", str(prefix_link))
+    monkeypatch.setattr(reference.sys, "base_prefix", str(base_link))
+    monkeypatch.setattr(reference.shutil, "which", lambda name: "/usr/bin/sandbox-exec")
+
+    class Finished:
+        pid = 223
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    popen = Mock(return_value=Finished())
+    monkeypatch.setattr(reference.subprocess, "Popen", popen)
+    reference._run_candidate_seatbelt(
+        script,
+        tmp_path,
+        {},
+        max_processes=64,
+        max_open_files=64,
+    )
+
+    command = popen.call_args.args[0]
+    assert f"PY_PREFIX={real_prefix.resolve()}" in command
+    assert f"PY_BASE={real_base.resolve()}" in command
