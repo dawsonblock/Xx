@@ -27,6 +27,7 @@ The current change set separates host paths from outer-sandbox paths in `Trusted
 |---|---|---|
 | Local focused multi-task/statistics/anchor tests | Native arm64 Python 3.12 lock environment | PASS: 42 tests |
 | Full local suite | [`qualification/repair-1.3.6/pytest-junit.xml`](qualification/repair-1.3.6/pytest-junit.xml) | PASS: 225 passed, 1 skipped |
+| Local wheel and source-distribution packaging | Build, `tools/verify_package.py`, clean wheel CLI/vendor/anchor smoke | PASS locally; hosted package workflow remains NOT_RUN |
 | Linux Bubblewrap first-party E2E | Hosted run on repair source commit | NOT_RUN until hosted CI completes |
 | macOS Seatbelt and nested candidate cleanup | Hosted runs on repair source commit | NOT_RUN until hosted CI completes |
 | Windows state and order-invariant tests | Hosted run on repair source commit | NOT_RUN until hosted CI completes |

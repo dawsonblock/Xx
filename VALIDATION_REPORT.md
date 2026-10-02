@@ -16,6 +16,7 @@ Run on native arm64 macOS with a fresh Python 3.12.0 virtual environment install
 - Black: passed on the exact Python file set used by the repository lint workflow.
 - `compileall` and `git diff --check`: passed.
 - `pip install --require-hashes -r requirements-rsi-ci.lock`: passed in a fresh arm64 Python 3.12.0 environment; 67 installed distributions. Lock SHA-256 and inventory are in [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json).
+- Built the wheel and source distribution; `tools/verify_package.py` passed. A clean wheel install passed the statistics/anchor CLI help checks, bundled vendor-path check, and local anchor compare-and-swap/read smoke. The wheel smoke used the CI lock and deliberately did not install the full optional AIDE runtime dependency set.
 
 The lock qualification is local to this macOS arm64 environment. Hosted Linux, Windows, and macOS CI results are not represented as passed here.
 
