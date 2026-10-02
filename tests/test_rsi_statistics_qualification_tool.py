@@ -4,6 +4,7 @@ import json
 import shutil
 
 import numpy as np
+import pytest
 
 from tools import generate_release_manifests, qualify_canary_statistics
 
@@ -62,6 +63,21 @@ def test_calibration_harness_reports_family_correlations_and_lineage():
     )
     assert result["synthetic_lineage_stress"]["attempts"] == 5
     assert result["synthetic_lineage_stress"]["alpha_remaining"] < 0.05
+    assert result["promotion_attempt_horizon"] == 500
+    assert result["spending_rule"] == "alpha_i = family_alpha / 500"
+
+
+def test_calibration_harness_rejects_attempts_beyond_protocol_horizon():
+    with pytest.raises(ValueError, match="cannot exceed the fixed 500-attempt"):
+        qualify_canary_statistics.run_campaign(
+            campaigns=1,
+            attempts=501,
+            power_replicates=1,
+            tasks=40,
+            task_families=20,
+            runs_per_task=3,
+            lineage_attempts=1,
+        )
 
 
 def test_vectorized_calibration_decisions_match_production_gate():
@@ -135,7 +151,7 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
     monkeypatch.setattr(
         generate_release_manifests,
         "_current_statistical_protocol",
-        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V1", "b" * 64),
+        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V2", "b" * 64),
     )
     source_snapshot = generate_release_manifests._canonical_sha256(
         generate_release_manifests._file_hashes(

@@ -152,20 +152,20 @@ def test_canary_confidence_gate_rejects_too_few_pairs_and_uncertainty():
     assert uncertain.lower_confidence_bound < -0.05
 
 
-def test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales():
+def test_fixed_horizon_canary_alpha_is_durable_and_pair_count_is_stable():
     first = RealCanaryGate(
         min_pairs=5,
         bootstrap_samples=1000,
         experiment_alpha=0.05,
         promotion_attempt_index=1,
     )
-    assert first.min_pairs == 6
+    assert first.min_pairs == 14
     first_result = first.evaluate_series(
         [(Journal(1.2), Journal(1.0)) for _ in range(first.min_pairs)]
     )
     assert first_result.passed
-    assert first_result.sign_test_p_value == pytest.approx(1 / 64)
-    assert first_result.sequential_alpha == pytest.approx(0.025)
+    assert first_result.sign_test_p_value == pytest.approx(1 / 16_384)
+    assert first_result.sequential_alpha == pytest.approx(0.0001)
     assert first_result.promotion_attempt_index == 1
 
     second = RealCanaryGate(
@@ -174,21 +174,21 @@ def test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales():
         experiment_alpha=0.05,
         promotion_attempt_index=2,
     )
-    assert second.min_pairs == 7
-    six_pair_result = second.evaluate_series(
-        [(Journal(1.2), Journal(1.0)) for _ in range(6)]
+    assert second.min_pairs == first.min_pairs
+    thirteen_pair_result = second.evaluate_series(
+        [(Journal(1.2), Journal(1.0)) for _ in range(13)]
     )
-    assert not six_pair_result.passed
-    assert "too few paired" in six_pair_result.reason
+    assert not thirteen_pair_result.passed
+    assert "too few paired" in thirteen_pair_result.reason
     second_result = second.evaluate_series(
         [(Journal(1.2), Journal(1.0)) for _ in range(second.min_pairs)]
     )
     assert second_result.passed
-    assert second_result.sign_test_p_value == pytest.approx(1 / 128)
+    assert second_result.sign_test_p_value == pytest.approx(1 / 16_384)
     assert second_result.sign_test_p_value <= second_result.sequential_alpha
 
-    spent = sum(0.05 / (attempt * (attempt + 1)) for attempt in range(1, 100_001))
-    assert spent < 0.05
+    spent = sum(0.05 / 500 for _ in range(500))
+    assert spent == pytest.approx(0.05)
     assert first.authority_config() != second.authority_config()
     assert first.policy_config() == second.policy_config()
 

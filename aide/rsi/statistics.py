@@ -11,13 +11,14 @@ from dataclasses import asdict, dataclass
 from statistics import median
 from typing import Any
 
-SPENDING_RULE_ID = "telescoping-harmonic"
+SPENDING_RULE_ID = "finite-horizon-bonferroni"
 SPENDING_RULE_VERSION = 1
-_MAX_ATTEMPTS = 1_000_000_000
+MAX_PROMOTION_ATTEMPTS = 500
+_MAX_ATTEMPTS = MAX_PROMOTION_ATTEMPTS
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
-MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V1"
-MULTITASK_PROTOCOL_VERSION = 1
+MULTITASK_PROTOCOL_ID = "MULTITASK_PROMOTION_PROTOCOL_V2"
+MULTITASK_PROTOCOL_VERSION = 2
 MULTITASK_MIN_TASKS = 20
 MULTITASK_MIN_INDEPENDENT_FAMILIES = 20
 MULTITASK_MIN_STRATA = 3
@@ -43,6 +44,8 @@ MULTITASK_PROTOCOL = {
     "test": "one_sided_exact_binomial_sign_test",
     "alpha_spending_rule_id": SPENDING_RULE_ID,
     "alpha_spending_rule_version": SPENDING_RULE_VERSION,
+    "promotion_attempt_horizon": MAX_PROMOTION_ATTEMPTS,
+    "alpha_allocation": "family_alpha / promotion_attempt_horizon",
     "family_alpha": 0.05,
     "minimum_practical_effect": 0.0,
     "maximum_task_regression": 0.25,
@@ -102,27 +105,30 @@ def statistical_epoch_sha256(family_alpha: float, protocol_sha256: str) -> str:
         raise ValueError("family alpha must be finite and in (0, 1)")
     return _canonical_digest(
         {
-            "domain": "aide-rsi-statistical-epoch/v1",
+            "domain": "aide-rsi-statistical-epoch/v2",
             "protocol_sha256": protocol_sha256,
             "family_alpha": alpha,
             "spending_rule_id": SPENDING_RULE_ID,
             "spending_rule_version": SPENDING_RULE_VERSION,
+            "promotion_attempt_horizon": MAX_PROMOTION_ATTEMPTS,
         }
     )
 
 
 def sequential_alpha(family_alpha: float, attempt_index: int) -> float:
-    """The precommitted summable schedule: alpha_i = alpha / (i * (i + 1))."""
+    """Return the fixed Bonferroni allocation for a precommitted 500-attempt epoch."""
     alpha = float(family_alpha)
     if not math.isfinite(alpha) or not 0 < alpha < 1:
         raise ValueError("family alpha must be finite and in (0, 1)")
     if (
         isinstance(attempt_index, bool)
         or not isinstance(attempt_index, int)
-        or not 1 <= attempt_index <= _MAX_ATTEMPTS
+        or not 1 <= attempt_index <= MAX_PROMOTION_ATTEMPTS
     ):
-        raise ValueError("attempt index must be a positive integer")
-    return alpha / (attempt_index * (attempt_index + 1))
+        raise ValueError(
+            f"attempt index must be an integer in [1, {MAX_PROMOTION_ATTEMPTS}]"
+        )
+    return alpha / MAX_PROMOTION_ATTEMPTS
 
 
 def exact_sign_min_pairs(alpha: float) -> int:
@@ -426,6 +432,7 @@ class StatisticalBudget:
     history_digest: str
     panel_sha256: str | None = None
     protocol_sha256: str | None = None
+    max_attempts: int = MAX_PROMOTION_ATTEMPTS
 
     @classmethod
     def initial(cls, family_alpha: float) -> StatisticalBudget:
@@ -434,10 +441,11 @@ class StatisticalBudget:
             raise ValueError("family alpha must be finite and in (0, 1)")
         genesis = _canonical_digest(
             {
-                "domain": "aide-rsi-statistical-budget/v1",
+                "domain": "aide-rsi-statistical-budget/v2",
                 "family_alpha": alpha,
                 "spending_rule_id": SPENDING_RULE_ID,
                 "spending_rule_version": SPENDING_RULE_VERSION,
+                "max_attempts": MAX_PROMOTION_ATTEMPTS,
             }
         )
         return cls(
@@ -451,57 +459,36 @@ class StatisticalBudget:
             history_digest=genesis,
             panel_sha256=None,
             protocol_sha256=None,
+            max_attempts=MAX_PROMOTION_ATTEMPTS,
         )
 
     @classmethod
     def migrate_legacy(
         cls, family_alpha: float, legacy_attempt_index: int
     ) -> StatisticalBudget:
-        """Conservatively reserve all legacy attempts when adding the ledger."""
+        """Initialize only pristine legacy runs under the new statistical epoch.
+
+        Existing attempts were tested under a different protocol. Carrying them
+        into a new epoch would make the family-wise error claim ambiguous, so a
+        nonzero legacy counter must be resolved by starting a fresh experiment.
+        """
         if (
             isinstance(legacy_attempt_index, bool)
             or not isinstance(legacy_attempt_index, int)
             or not 0 <= legacy_attempt_index <= _MAX_ATTEMPTS
         ):
             raise ValueError("legacy attempt index is invalid")
-        base = cls.initial(family_alpha)
-        if legacy_attempt_index == 0:
-            return base
-        alpha = base.family_alpha
-        spent = alpha * legacy_attempt_index / (legacy_attempt_index + 1)
-        remaining = alpha / (legacy_attempt_index + 1)
-        allocation = sequential_alpha(alpha, legacy_attempt_index)
-        history = _canonical_digest(
-            {
-                "domain": "aide-rsi-statistical-budget-legacy-migration/v1",
-                "legacy_attempt_index": legacy_attempt_index,
-                "family_alpha": alpha,
-                "spending_rule_id": SPENDING_RULE_ID,
-                "spending_rule_version": SPENDING_RULE_VERSION,
-                "previous_history_digest": base.history_digest,
-            }
-        )
-        return cls(
-            family_alpha=alpha,
-            attempt_index=legacy_attempt_index,
-            spent_alpha=spent,
-            remaining_alpha=remaining,
-            last_allocation=allocation,
-            spending_rule_id=SPENDING_RULE_ID,
-            spending_rule_version=SPENDING_RULE_VERSION,
-            history_digest=history,
-            panel_sha256=None,
-            protocol_sha256=None,
-        )
+        if legacy_attempt_index != 0:
+            raise ValueError(
+                "legacy statistical attempts require a fresh statistical epoch"
+            )
+        return cls.initial(family_alpha)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> StatisticalBudget:
         if not isinstance(value, dict):
             raise TypeError("statistical budget must be an object")
         expected_keys = set(cls.__dataclass_fields__)
-        legacy_keys = expected_keys - {"panel_sha256", "protocol_sha256"}
-        if set(value) == legacy_keys:
-            value = {**value, "panel_sha256": None, "protocol_sha256": None}
         if set(value) != expected_keys:
             raise ValueError("statistical budget fields are invalid")
         try:
@@ -532,6 +519,12 @@ class StatisticalBudget:
             or self.spending_rule_version != SPENDING_RULE_VERSION
         ):
             raise ValueError("statistical budget spending rule is unsupported")
+        if (
+            isinstance(self.max_attempts, bool)
+            or not isinstance(self.max_attempts, int)
+            or self.max_attempts != MAX_PROMOTION_ATTEMPTS
+        ):
+            raise ValueError("statistical budget attempt horizon is unsupported")
         if not isinstance(self.history_digest, str) or not _SHA256_RE.fullmatch(
             self.history_digest
         ):
@@ -545,12 +538,8 @@ class StatisticalBudget:
         if (self.panel_sha256 is None) != (self.protocol_sha256 is None):
             raise ValueError("statistical budget panel and protocol must be paired")
 
-        expected_spent = (
-            0.0
-            if self.attempt_index == 0
-            else self.family_alpha * self.attempt_index / (self.attempt_index + 1)
-        )
-        expected_remaining = self.family_alpha / (self.attempt_index + 1)
+        expected_spent = self.family_alpha * self.attempt_index / self.max_attempts
+        expected_remaining = self.family_alpha - expected_spent
         expected_last = (
             0.0
             if self.attempt_index == 0
@@ -568,24 +557,30 @@ class StatisticalBudget:
                 or not math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-15)
             ):
                 raise ValueError("statistical budget alpha totals are inconsistent")
-        if self.remaining_alpha < 0 or self.spent_alpha - self.family_alpha > 1e-15:
+        if (
+            self.remaining_alpha < -1e-15
+            or self.spent_alpha - self.family_alpha > 1e-15
+        ):
             raise ValueError("statistical budget exceeds its family alpha")
 
     def reserve(self, *, panel_sha256: str, protocol_sha256: str) -> StatisticalBudget:
         if self.attempt_index >= _MAX_ATTEMPTS:
-            raise ValueError("statistical budget attempt limit reached")
+            raise ValueError(
+                f"statistical budget exhausted after {MAX_PROMOTION_ATTEMPTS} attempts"
+            )
         _require_sha256(panel_sha256, "reserved canary panel digest")
         _require_sha256(protocol_sha256, "reserved statistical protocol digest")
         next_index = self.attempt_index + 1
         allocation = sequential_alpha(self.family_alpha, next_index)
-        next_spent = self.family_alpha * next_index / (next_index + 1)
-        next_remaining = self.family_alpha / (next_index + 1)
+        next_spent = self.family_alpha * next_index / self.max_attempts
+        next_remaining = self.family_alpha - next_spent
         history = _canonical_digest(
             {
-                "domain": "aide-rsi-statistical-budget-reservation/v1",
+                "domain": "aide-rsi-statistical-budget-reservation/v2",
                 "attempt_index": next_index,
                 "allocated_alpha": allocation,
                 "family_alpha": self.family_alpha,
+                "max_attempts": self.max_attempts,
                 "spending_rule_id": self.spending_rule_id,
                 "spending_rule_version": self.spending_rule_version,
                 "previous_history_digest": self.history_digest,
@@ -604,6 +599,7 @@ class StatisticalBudget:
             history_digest=history,
             panel_sha256=panel_sha256,
             protocol_sha256=protocol_sha256,
+            max_attempts=self.max_attempts,
         )
         result.validate()
         return result

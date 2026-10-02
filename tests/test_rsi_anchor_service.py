@@ -297,7 +297,7 @@ def test_one_hundred_state_transitions_reject_restored_revision_twenty(
     assert snapshot_at_20 is not None
     final = store.load()
     assert final["statistical_budget"]["attempt_index"] == 100
-    assert final["statistical_budget"]["remaining_alpha"] == pytest.approx(0.05 / 101)
+    assert final["statistical_budget"]["remaining_alpha"] == pytest.approx(0.04)
     assert len(final["consumed_canary_sample_ids"]) == 100
     assert len(final["consumed_canary_sample_content_sha256"]) == 100
     assert anchor["store"].read(anchor["anchor_id"])["revision"] == 101

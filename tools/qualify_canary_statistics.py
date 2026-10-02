@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aide.rsi.statistics import (
+    MAX_PROMOTION_ATTEMPTS,
     MULTITASK_MIN_INDEPENDENT_FAMILIES,
     MULTITASK_MIN_TASKS,
     MULTITASK_PROTOCOL_ID,
@@ -455,7 +456,7 @@ def _lineage_stress(*, attempts: int, alpha: float, seed: int) -> dict[str, Any]
 def run_campaign(
     *,
     campaigns: int = 20_000,
-    attempts: int = 100,
+    attempts: int = MAX_PROMOTION_ATTEMPTS,
     power_replicates: int = 5_000,
     tasks: int = 40,
     task_families: int = MULTITASK_MIN_INDEPENDENT_FAMILIES,
@@ -468,6 +469,11 @@ def run_campaign(
 ) -> dict[str, Any]:
     if min(campaigns, attempts, power_replicates, tasks, runs_per_task) < 1:
         raise ValueError("simulation counts must be positive")
+    if attempts > MAX_PROMOTION_ATTEMPTS or lineage_attempts > MAX_PROMOTION_ATTEMPTS:
+        raise ValueError(
+            f"attempt and lineage counts cannot exceed the fixed "
+            f"{MAX_PROMOTION_ATTEMPTS}-attempt protocol horizon"
+        )
     if (
         tasks < MULTITASK_MIN_TASKS
         or task_families < MULTITASK_MIN_INDEPENDENT_FAMILIES
@@ -565,7 +571,7 @@ def run_campaign(
     source_manifest_sha256 = hashlib.sha256(
         json.dumps(source_hashes, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    allocated = sum(sequential_alpha(alpha, index) for index in range(1, attempts + 1))
+    allocated = attempts * sequential_alpha(alpha, 1)
     return {
         "schema_version": 2,
         "qualification_type": "synthetic statistical calibration; not real-task qualification",
@@ -599,10 +605,11 @@ def run_campaign(
         "within_family_task_correlations": list(correlations),
         "family_cluster_null_type_i_by_seed_and_family_correlation": single_attempt,
         "family_alpha": alpha,
-        "spending_rule": "alpha_i = alpha / (i * (i + 1))",
+        "spending_rule": f"alpha_i = family_alpha / {MAX_PROMOTION_ATTEMPTS}",
+        "promotion_attempt_horizon": MAX_PROMOTION_ATTEMPTS,
         "attempts_per_familywise_lineage": attempts,
         "theoretical_alpha_allocated_through_last_attempt": allocated,
-        "theoretical_remaining_alpha": alpha / (attempts + 1),
+        "theoretical_remaining_alpha": alpha - allocated,
         "null_familywise_calibration": {
             "lineages": campaigns,
             "false_promotion_lineages": familywise_false,
@@ -630,7 +637,7 @@ def run_campaign(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaigns", type=int, default=20_000)
-    parser.add_argument("--attempts", type=int, default=100)
+    parser.add_argument("--attempts", type=int, default=MAX_PROMOTION_ATTEMPTS)
     parser.add_argument("--power-replicates", type=int, default=5_000)
     parser.add_argument("--tasks", type=int, default=40)
     parser.add_argument(

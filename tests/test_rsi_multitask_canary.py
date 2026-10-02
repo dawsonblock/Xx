@@ -160,7 +160,7 @@ def test_replicates_reduce_to_one_effect_per_task():
     assert all(effect.runs == 3 for effect in result.task_effects)
     assert result.positive_tasks == MULTITASK_MIN_TASKS
     assert result.positive_families == MULTITASK_MIN_TASKS
-    assert result.critical_positive_families == 15
+    assert result.critical_positive_families == 19
     assert result.p_value == pytest.approx(2**-MULTITASK_MIN_TASKS)
     assert result.passed
     decoded = CanaryPanel.from_dict(panel.to_dict())
@@ -210,7 +210,7 @@ def test_correlated_tasks_in_one_family_count_as_one_inference_unit():
     assert result.positive_tasks == MULTITASK_MIN_TASKS
     assert result.total_families == MULTITASK_MIN_TASKS
     assert result.positive_families == MULTITASK_MIN_TASKS - 1
-    assert result.critical_positive_families == 15
+    assert result.critical_positive_families == 19
 
 
 def test_panel_rejects_small_unbalanced_or_overlapping_task_sets():
@@ -386,7 +386,7 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
             for index, task_id in enumerate(panel.task_ids)
         }
     )
-    assert result.critical_positive_families == 15
+    assert result.critical_positive_families == 19
     assert result.total_families == 20
 
     late_gate = TaskClusteredCanaryGate(
@@ -410,8 +410,8 @@ def test_exact_sign_cutoff_tracks_allocated_alpha():
             for index, task_id in enumerate(panel.task_ids)
         }
     )
-    assert late_result.critical_positive_families is None
-    assert not late_result.passed
+    assert late_result.critical_positive_families == 19
+    assert late_result.passed
 
 
 def test_interrupted_multitask_panel_is_burned_and_alpha_is_not_refunded(
@@ -465,6 +465,8 @@ def test_interrupted_multitask_panel_is_burned_and_alpha_is_not_refunded(
     assert recovered["pending_digest"] is None
     assert recovered["last_canary"]["status"] == "aborted"
     assert recovered["statistical_budget"]["attempt_index"] == 1
-    assert recovered["statistical_budget"]["remaining_alpha"] == pytest.approx(0.025)
+    assert recovered["statistical_budget"]["remaining_alpha"] == pytest.approx(
+        0.05 - 0.05 / 500
+    )
     assert panel.panel_sha256 in recovered["consumed_canary_panel_sha256"]
     assert set(task_hashes) <= set(recovered["consumed_canary_task_sha256"])

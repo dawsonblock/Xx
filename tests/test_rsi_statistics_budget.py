@@ -7,6 +7,7 @@ import pytest
 
 from aide.rsi.state import RSIStateStore
 from aide.rsi.statistics import (
+    MAX_PROMOTION_ATTEMPTS,
     MULTITASK_MIN_TASKS,
     SPENDING_RULE_ID,
     SPENDING_RULE_VERSION,
@@ -32,14 +33,14 @@ def _task_hashes(attempt: int) -> list[str]:
     ]
 
 
-def test_statistical_budget_spends_a_summable_monotonic_sequence():
+def test_statistical_budget_spends_a_fixed_bonferroni_horizon():
     family_alpha = 0.05
     budget = StatisticalBudget.initial(family_alpha)
     previous_remaining = budget.remaining_alpha
     first_digest = budget.history_digest
     allocation_sum = 0.0
 
-    for attempt in range(1, 1001):
+    for attempt in range(1, MAX_PROMOTION_ATTEMPTS + 1):
         allocation = sequential_alpha(family_alpha, attempt)
         allocation_sum += allocation
         assert exact_sign_min_pairs(allocation) >= 1
@@ -54,20 +55,27 @@ def test_statistical_budget_spends_a_summable_monotonic_sequence():
         first_digest = budget.history_digest
         previous_remaining = budget.remaining_alpha
 
-    assert allocation_sum <= family_alpha
+    assert allocation_sum == pytest.approx(family_alpha)
     assert family_alpha - allocation_sum == pytest.approx(budget.remaining_alpha)
-    assert budget.remaining_alpha == pytest.approx(family_alpha / 1001)
+    assert budget.remaining_alpha == pytest.approx(0.0)
+    with pytest.raises(ValueError, match="exhausted"):
+        budget.reserve(
+            panel_sha256=hashlib.sha256(b"panel-after-horizon").hexdigest(),
+            protocol_sha256=_PROTOCOL,
+        )
+    with pytest.raises(ValueError, match="attempt index"):
+        sequential_alpha(family_alpha, MAX_PROMOTION_ATTEMPTS + 1)
 
 
-def test_statistical_budget_migration_burns_legacy_attempts():
-    migrated = StatisticalBudget.migrate_legacy(0.05, 20)
-    assert migrated.attempt_index == 20
-    assert migrated.spent_alpha == pytest.approx(0.05 * 20 / 21)
-    assert migrated.remaining_alpha == pytest.approx(0.05 / 21)
-    assert migrated.last_allocation == pytest.approx(sequential_alpha(0.05, 20))
+def test_statistical_budget_only_migrates_pristine_legacy_runs():
+    migrated = StatisticalBudget.migrate_legacy(0.05, 0)
+    assert migrated.attempt_index == 0
+    assert migrated.remaining_alpha == pytest.approx(0.05)
+    assert migrated.max_attempts == MAX_PROMOTION_ATTEMPTS
     assert migrated.spending_rule_id == SPENDING_RULE_ID
     assert migrated.spending_rule_version == SPENDING_RULE_VERSION
-    assert _reserve(migrated, 21).attempt_index == 21
+    with pytest.raises(ValueError, match="fresh statistical epoch"):
+        StatisticalBudget.migrate_legacy(0.05, 20)
 
 
 def test_budget_deserialization_rejects_policy_and_counter_tampering():
@@ -80,6 +88,11 @@ def test_budget_deserialization_rejects_policy_and_counter_tampering():
     encoded = budget.to_dict()
     encoded["spending_rule_version"] = 2
     with pytest.raises(ValueError, match="unsupported"):
+        StatisticalBudget.from_dict(encoded)
+
+    encoded = budget.to_dict()
+    encoded["max_attempts"] += 1
+    with pytest.raises(ValueError, match="horizon is unsupported"):
         StatisticalBudget.from_dict(encoded)
 
 
@@ -155,7 +168,10 @@ def test_state_store_accepts_only_exact_next_budget_reservation(tmp_path, monkey
 
     final = store.load()
     assert final["statistical_budget"] == first.to_dict()
-    assert math.isclose(final["statistical_budget"]["remaining_alpha"], 0.025)
+    assert math.isclose(
+        final["statistical_budget"]["remaining_alpha"],
+        0.05 - 0.05 / MAX_PROMOTION_ATTEMPTS,
+    )
 
 
 def test_task_sign_test_counts_tasks_and_treats_effect_threshold_as_a_tie():

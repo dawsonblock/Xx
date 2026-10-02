@@ -10,6 +10,7 @@ from typing import Any
 
 from .evidence import has_trusted_evaluation
 from .statistics import (
+    MAX_PROMOTION_ATTEMPTS,
     MULTITASK_MIN_RUNS_PER_TASK,
     MULTITASK_PROTOCOL_ID,
     SPENDING_RULE_ID,
@@ -442,9 +443,11 @@ class RealCanaryGate:
             if (
                 isinstance(promotion_attempt_index, bool)
                 or not isinstance(promotion_attempt_index, int)
-                or not 1 <= promotion_attempt_index <= 1_000_000_000
+                or not 1 <= promotion_attempt_index <= MAX_PROMOTION_ATTEMPTS
             ):
-                raise ValueError("promotion_attempt_index must be a positive integer")
+                raise ValueError(
+                    "promotion_attempt_index is outside the fixed protocol horizon"
+                )
             experiment_alpha = float(experiment_alpha)
             if not math.isfinite(experiment_alpha) or not 0 < experiment_alpha < 1:
                 raise ValueError("experiment_alpha must be finite and in (0, 1)")

@@ -36,15 +36,15 @@ out-of-band TLS leaf-certificate fingerprint through
 `AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256`; certificate renewal requires an
 explicit operator pin migration.
 
-The canary attempt index is HMAC-authenticated and monotonic. Upgrading a run
-without that field seeds it conservatively from its last completed round; a
-fresh experiment begins at zero. Each reserved canary increments the index
-before evaluation. The default 0.05 family-wise budget uses
-`alpha_i = 0.05 / (i * (i + 1))`, and the runner adds paired repeats as needed
-for the exact sign-test resolution. The static gate thresholds and configured
-alpha are pinned for the run; changing them requires a new experiment. A
-full signed-directory rollback can also roll back this index unless an external
-monotonic anchor is configured.
+The canary attempt index is HMAC-authenticated and monotonic. The multi-task
+statistical protocol has a fixed horizon of 500 promotion attempts and a
+Bonferroni allocation of `alpha_i = family_alpha / 500`. A reserved canary
+consumes its allocation before evaluation. Existing runs with a nonzero
+attempt count under an older statistical protocol must start a fresh
+experiment; those attempts cannot be silently reinterpreted under the new
+error budget. Gate thresholds, protocol, horizon, and configured alpha are
+pinned for the run. A full signed-directory rollback can also roll back this
+index unless an external monotonic anchor is configured.
 
 ## Evaluator configuration
 

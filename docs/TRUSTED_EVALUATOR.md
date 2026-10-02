@@ -119,7 +119,12 @@ predeclared dependence clusters and receive equal weight; strata are
 predeclared for domain balance. Panel composition, evaluator/shard identities,
 sample hashes, seed schedule, run budgets, metric definition, execution order,
 protocol digest, statistical epoch, and allocated alpha are authenticated
-before any score is observed. The alpha schedule is `alpha_i = family_alpha / (i * (i + 1))`; a reservation spends alpha before execution and cannot be refunded. A missing or incomplete signed decision burns the panel rather than retrying it. Recovery verifies journal hashes and recomputes task and family effects, including the exact critical family count required at the reserved alpha.
+before any score is observed. Protocol V2 fixes a 500-attempt Bonferroni
+horizon with `alpha_i = family_alpha / 500`; attempt 501 is rejected. A
+reservation spends alpha before execution and cannot be refunded. A missing or
+incomplete signed decision burns the panel rather than retrying it. Recovery
+verifies journal hashes and recomputes task and family effects, including the
+exact critical family count required at the reserved alpha.
 
 The statistical protocol assumes genuinely independent family clusters and
 valid paired outcomes. The synthetic calibration suite tests correlated runs

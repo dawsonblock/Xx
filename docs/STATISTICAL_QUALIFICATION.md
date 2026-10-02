@@ -2,7 +2,7 @@
 
 Promotion inference uses independent task-family clusters. Seeds are paired within a task; tasks sharing a family are reduced to one median family effect. Only family effects enter the one-sided exact sign test. This is more conservative than counting each task as independent when tasks from the same family share data, prompts, scoring code, or environment. A tie at the configured practical-effect threshold counts as a non-win.
 
-`MULTITASK_PROMOTION_PROTOCOL_V1` fixes the protocol identity and records:
+`MULTITASK_PROMOTION_PROTOCOL_V2` fixes the protocol identity and records:
 
 - at least 20 distinct tasks and at least 20 independent task-family clusters;
 - at least 3 paired runs per task, reduced to one median task effect;
@@ -10,7 +10,7 @@ Promotion inference uses independent task-family clusters. Seeds are paired with
 - at least 3 broad task strata, at least 3 independent families per stratum, and no stratum above half of the panel;
 - equal family weights, a predeclared practical-effect threshold, and a worst-task regression limit;
 - a panel digest, fixed replicate IDs and seeds, task budgets, evaluator and shard identities, sample identities, metric definitions, and run order; seeds may be paired within a dependence family but may not be reused across independent families;
-- the summable allocation `alpha_i = family_alpha / (i * (i + 1))`.
+- a fixed 500-attempt horizon and Bonferroni allocation `alpha_i = family_alpha / 500`; attempt 501 is rejected rather than extending or resetting the sequence.
 
 `task_family` identifies a dependence cluster: every task with a plausible shared source of outcome dependence must use the same family ID. `task_stratum` records the broader domain (for example classification, forecasting, or resource-constrained search) and is used only to balance the precommitted panel. If two nominal families still share a meaningful shock, they must be merged for inference; relabeling correlated tasks cannot make them independent.
 
@@ -24,7 +24,7 @@ Run the seeded calibration harness with its release-scale defaults:
 
 ```sh
 python tools/qualify_canary_statistics.py \
-  --campaigns 20000 --attempts 100 --power-replicates 5000 \
+  --campaigns 20000 --attempts 500 --power-replicates 5000 \
   --tasks 40 --task-families 20 --runs-per-task 5 \
   --lineage-attempts 500 \
   --output qualification/multitask-statistical-qualification.json
@@ -36,4 +36,4 @@ This is model-based qualification, not proof that any real panel's declared fami
 
 ## Statistical epoch changes
 
-The protocol digest and family alpha are immutable in authenticated state. Changing the test, task/family aggregation, task strata, alpha schedule, practical-effect threshold, or regression limits requires a new statistical epoch with a fresh alpha budget. Panel data and seed schedules may rotate between attempts only when the previous panel has been consumed and the new task identities and content have not appeared in the retired set.
+The protocol digest, family alpha, fixed attempt horizon, and spending rule are immutable in authenticated state. Changing the test, task/family aggregation, task strata, alpha schedule, practical-effect threshold, or regression limits requires a new statistical epoch with a fresh alpha budget. An old nonzero attempt counter cannot be migrated into this protocol because its previous decisions used a different allocation. Panel data and seed schedules may rotate between attempts only when the previous panel has been consumed and the new task identities and content have not appeared in the retired set.
