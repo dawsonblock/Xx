@@ -1,11 +1,11 @@
 {
-  "canonical_files_sha256": "09aa753dd5d744570c11781f998d5b5e1cb66a455d7882b6f8237d1835ee5924",
+  "canonical_files_sha256": "11d01a6623ca9351689e5b72a1108e2657d7091a3d1630ddae0dbe6f8c32a51d",
   "file_count": 49,
   "files": {
-    ".github/workflows/linter.yml": "1dc8f705494276421b7db0f89455064bfdb76acdd5a709b74d03ec6feab69f04",
+    ".github/workflows/linter.yml": "451fcdeb3da2e3c2479e30aa0eb4daec1a5f8ac0782a25656c03ee8107cc709b",
     ".github/workflows/linux-bubblewrap.yml": "c83f210c04259e6c34e77b10cb7382d9ded291ba3f11b7fb8271de2d1e1d174b",
     ".github/workflows/macos-nested-timeout.yml": "499f8f77a7084d6d0f67fb1fd1d083805337db13be95917ea462de07aafd8790",
-    ".github/workflows/macos-seatbelt.yml": "4ae51e18ac9e9dd39e7576d5a594322fb26b7a9c97cb58d095256e8bc9786297",
+    ".github/workflows/macos-seatbelt.yml": "e04ab625b01cc0e7fa4caab8fdf7d79594f4b1ec3d4a1adbfe9672b43be83864",
     ".github/workflows/package-smoke.yml": "71776deccd100444e0b4d8fd565c549a7daaf40b605458c9044689bd57d888a3",
     ".github/workflows/windows-rsi-state-lock.yml": "275b2677ac5ceaeece67fd2b8bff4c91105bc88a2362eecbcc26d52ed57a29e4",
     "MANIFEST.in": "d26e6ccba50c1319feaa8b7a9ef281b6c7f2765b9244d3697c0a4ae496b8bbc0",

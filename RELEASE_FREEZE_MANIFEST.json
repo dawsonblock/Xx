@@ -17,18 +17,18 @@
     "synthetic results do not establish real-task independence or AIDE improvement"
   ],
   "package_version": "1.3.5",
-  "qualified_code_commit": "00409ee00e35791041ead66eea177526b7b78ccc",
-  "qualified_code_git_tree": "a17e155fb918a797c241a4d2b53f5ca1c140678d",
-  "qualified_code_source_manifest_sha256": "753ad63241f4c0da6ec4e01f5dc696263c137615782578dcfec7b29505da8136",
+  "qualified_code_commit": "4dde99dce0ded82ae61b8eaae6106f468f768463",
+  "qualified_code_git_tree": "abda50894ce3eedc215d31eb8ab6fd2f3186d8c2",
+  "qualified_code_source_manifest_sha256": "bb55777524d6b1199ed76c1d0c7e02e8d7f9c0c9197847d4dff80339de686997",
   "release_head": null,
   "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
   "schema_version": 1,
-  "security_relevant_digest_sha256": "09aa753dd5d744570c11781f998d5b5e1cb66a455d7882b6f8237d1835ee5924",
+  "security_relevant_digest_sha256": "11d01a6623ca9351689e5b72a1108e2657d7091a3d1630ddae0dbe6f8c32a51d",
   "security_relevant_files_sha256": {
-    ".github/workflows/linter.yml": "1dc8f705494276421b7db0f89455064bfdb76acdd5a709b74d03ec6feab69f04",
+    ".github/workflows/linter.yml": "451fcdeb3da2e3c2479e30aa0eb4daec1a5f8ac0782a25656c03ee8107cc709b",
     ".github/workflows/linux-bubblewrap.yml": "c83f210c04259e6c34e77b10cb7382d9ded291ba3f11b7fb8271de2d1e1d174b",
     ".github/workflows/macos-nested-timeout.yml": "499f8f77a7084d6d0f67fb1fd1d083805337db13be95917ea462de07aafd8790",
-    ".github/workflows/macos-seatbelt.yml": "4ae51e18ac9e9dd39e7576d5a594322fb26b7a9c97cb58d095256e8bc9786297",
+    ".github/workflows/macos-seatbelt.yml": "e04ab625b01cc0e7fa4caab8fdf7d79594f4b1ec3d4a1adbfe9672b43be83864",
     ".github/workflows/package-smoke.yml": "71776deccd100444e0b4d8fd565c549a7daaf40b605458c9044689bd57d888a3",
     ".github/workflows/windows-rsi-state-lock.yml": "275b2677ac5ceaeece67fd2b8bff4c91105bc88a2362eecbcc26d52ed57a29e4",
     "MANIFEST.in": "d26e6ccba50c1319feaa8b7a9ef281b6c7f2765b9244d3697c0a4ae496b8bbc0",
@@ -76,7 +76,7 @@
     "tools/verify_package.py": "6f68bf5028e612ff0a33dede2a27ebd86f5f021cc60c15ba17772d9b7b6f2371"
   },
   "source_file_count": 917,
-  "source_snapshot_sha256": "753ad63241f4c0da6ec4e01f5dc696263c137615782578dcfec7b29505da8136",
+  "source_snapshot_sha256": "bb55777524d6b1199ed76c1d0c7e02e8d7f9c0c9197847d4dff80339de686997",
   "source_snapshot_status": "COMMITTED_SOURCE_SNAPSHOT",
   "statistical_qualification": {
     "artifact": "qualification/repair-1.3.6/multitask-statistical-qualification.json",
@@ -97,7 +97,7 @@
     "status": "SYNTHETIC_NULL_CALIBRATION_PASS",
     "synthetic_lineage_attempts": 500
   },
-  "tcb_manifest_sha256": "58e2ae8236dffc68d663cc153bd015696bd2852777bc026e77fc1cdc5f749f8c",
+  "tcb_manifest_sha256": "4665012335fd9b38d785072a35e397b7323de22bcc740fc755e23252fe3007dd",
   "validation": {
     "dependency_lock_local_install": "PASS_LOCAL",
     "dependency_lock_qualification": "LOCAL_HASHED_INSTALL_PASS_HOSTED_NOT_CONFIRMED",
