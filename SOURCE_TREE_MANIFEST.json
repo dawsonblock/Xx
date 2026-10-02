@@ -200,7 +200,7 @@
     "tests/test_rsi_sandbox_capture.py": "0c481e9133170ec05cc7488198dd449b3e124292dbba87ce1a83cd5b15d8f5e4",
     "tests/test_rsi_seatbelt.py": "23d61d682098061d621a6d82762ee659ab2adf85e35c9111ffbe8c982323d9b9",
     "tests/test_rsi_statistics_budget.py": "044e81a67f999fa62447b0d770ec20513b5f38b757d28cf896a35052359cc05f",
-    "tests/test_rsi_statistics_qualification_tool.py": "f3f2ae9ed646be0cc9b007403ef1d857a01609375f164762367e3eafaad7b36a",
+    "tests/test_rsi_statistics_qualification_tool.py": "09278c550b3354dfbbc5a8cbd7f912d2320e5382fef9f431ba35c179df7dcacc",
     "tests/test_rsi_trusted_evaluator.py": "7849e6734f80aaadd010641f2d24a6c60e464502aea86657134910d8fe0d7a0f",
     "tests/test_rsi_upgrade_regressions.py": "f164939d8c644fbda2561d9cd9677bc844aa044d9c125eb4b752d6847d253a2e",
     "tests/test_rsi_v120.py": "f0f7a5f7440c5d81e1875dfe159efee52e4fe0b0a2980c19a038596056694e28",
@@ -919,10 +919,10 @@
     "vendor/LocalJevFabric-v1.5.0/scripts/verify.sh": "fc07312a3b0e4e6f652c54d54eb4b036e159c6c6eb337b095b16440e02c61d65"
   },
   "manifest_type": "source_snapshot",
-  "qualified_code_commit": "c6531f61ff32d1fe8063bb15208358e0a24b7842",
-  "qualified_code_git_tree": "2327bb1396cc4eb03586487fea2b920f29449735",
+  "qualified_code_commit": "ed76f8ba02c9319f119f356df97b9e983264c4d1",
+  "qualified_code_git_tree": "042a38848be5fae80f3d86abcaeaf9ce445806d0",
   "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
   "schema_version": 1,
   "source_file_count": 917,
-  "source_snapshot_sha256": "9f4aa800a2ad2615af2f7ab93c6a0d3a6522d30ef944a517b1e8914e683affd1"
+  "source_snapshot_sha256": "95e18dd010716b63b8b7a985a0c8af69fe85697623be94ebccf35eb91399115b"
 }
