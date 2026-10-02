@@ -123,3 +123,60 @@ def test_release_freeze_reads_pytest_counts_from_junit_xml(tmp_path, monkeypatch
     assert result["tests"] == 207
     assert result["passed"] == 206
     assert result["skipped"] == 1
+
+
+def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
+    tmp_path, monkeypatch
+):
+    commit = "a" * 40
+    workflow_head = "c" * 40
+    (tmp_path / "VERSION").write_text("1.3.5\n")
+    monkeypatch.setattr(generate_release_manifests, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        generate_release_manifests,
+        "_current_statistical_protocol",
+        lambda: ("MULTITASK_PROMOTION_PROTOCOL_V1", "b" * 64),
+    )
+    source_snapshot = generate_release_manifests._canonical_sha256(
+        generate_release_manifests._file_hashes(
+            generate_release_manifests._source_paths()
+        )
+    )
+    qualification = tmp_path / "qualification"
+    qualification.mkdir()
+    runs = {
+        name: {
+            "run_id": index,
+            "url": f"https://github.com/example/repo/actions/runs/{index}",
+            "head_sha": workflow_head,
+            "source_snapshot_sha256": source_snapshot,
+            "conclusion": "success",
+        }
+        for index, name in enumerate(
+            sorted(generate_release_manifests.HOSTED_WORKFLOWS), start=1
+        )
+    }
+    evidence = {
+        "schema_version": 1,
+        "qualified_code_commit": commit,
+        "qualified_source_snapshot_sha256": source_snapshot,
+        "workflow_head_sha": workflow_head,
+        "runs": runs,
+    }
+    evidence_path = qualification / "hosted-workflow-runs.json"
+    evidence_path.write_text(json.dumps(evidence))
+
+    release = generate_release_manifests.build_manifests(
+        qualified_code_commit=commit, qualified_code_tree="d" * 40
+    )["RELEASE_FREEZE_MANIFEST.json"]
+
+    assert release["validation"]["hosted_platform_qualification"] == "PASS"
+    assert release["hosted_workflow_runs"]["workflow_head_sha"] == workflow_head
+    assert release["hosted_workflow_runs"]["artifact_sha256"]
+
+    evidence["qualified_source_snapshot_sha256"] = "e" * 64
+    evidence_path.write_text(json.dumps(evidence))
+    stale = generate_release_manifests.build_manifests(
+        qualified_code_commit=commit, qualified_code_tree="d" * 40
+    )["RELEASE_FREEZE_MANIFEST.json"]
+    assert stale["validation"]["hosted_platform_qualification"] == "STALE_OR_INCOMPLETE"

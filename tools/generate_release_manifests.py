@@ -14,6 +14,13 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = ("TCB_MANIFEST.json", "RELEASE_FREEZE_MANIFEST.json")
+HOSTED_WORKFLOWS = {
+    "linux_bubblewrap",
+    "macos_nested_candidate_timeout",
+    "windows_rsi_state_lock",
+    "linter",
+    "package_completeness",
+}
 GENERATED_OR_VOLATILE = {
     *OUTPUTS,
     "BUILD_MANIFEST.json",
@@ -167,6 +174,7 @@ def build_manifests(
     qualified_code_tree: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     source_hashes = _file_hashes(_source_paths())
+    source_snapshot_sha256 = _canonical_sha256(source_hashes)
     tcb_hashes = _file_hashes(_tcb_paths())
     current_protocol_id, current_protocol_sha256 = _current_statistical_protocol()
     tcb = {
@@ -202,6 +210,47 @@ def build_manifests(
         for path in ("requirements.txt", "requirements-replay.txt")
         if path in source_hashes
     }
+    hosted_evidence_path = ROOT / "qualification/hosted-workflow-runs.json"
+    hosted_workflow_evidence: dict[str, Any] | None = None
+    hosted_platform_status = "NOT_CONFIRMED"
+    if hosted_evidence_path.is_file():
+        try:
+            evidence = json.loads(hosted_evidence_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            evidence = None
+        if isinstance(evidence, dict):
+            runs = evidence.get("runs")
+            workflow_head = evidence.get("workflow_head_sha")
+            source_matches = (
+                evidence.get("qualified_code_commit") == code_commit
+                and evidence.get("qualified_source_snapshot_sha256")
+                == source_snapshot_sha256
+            )
+            runs_complete = (
+                isinstance(workflow_head, str)
+                and len(workflow_head) == 40
+                and isinstance(runs, dict)
+                and set(runs) == HOSTED_WORKFLOWS
+                and all(
+                    isinstance(run, dict)
+                    and run.get("conclusion") == "success"
+                    and isinstance(run.get("run_id"), int)
+                    and isinstance(run.get("url"), str)
+                    and run.get("url", "").startswith("https://github.com/")
+                    and run.get("head_sha") == workflow_head
+                    and run.get("source_snapshot_sha256") == source_snapshot_sha256
+                    for run in runs.values()
+                )
+            )
+            hosted_workflow_evidence = {
+                **evidence,
+                "artifact_sha256": hashlib.sha256(
+                    hosted_evidence_path.read_bytes()
+                ).hexdigest(),
+            }
+            hosted_platform_status = (
+                "PASS" if source_matches and runs_complete else "STALE_OR_INCOMPLETE"
+            )
     qualification_path = ROOT / "qualification/multitask-statistical-qualification.json"
     statistical_qualification: dict[str, Any] = {
         "artifact": "qualification/multitask-statistical-qualification.json",
@@ -325,9 +374,9 @@ def build_manifests(
         "package_version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
         "qualified_code_commit": code_commit,
         "qualified_code_git_tree": code_tree,
-        "qualified_code_source_manifest_sha256": _canonical_sha256(source_hashes),
+        "qualified_code_source_manifest_sha256": source_snapshot_sha256,
         "release_head": None,
-        "source_snapshot_sha256": _canonical_sha256(source_hashes),
+        "source_snapshot_sha256": source_snapshot_sha256,
         "source_file_count": len(source_hashes),
         "security_relevant_files_sha256": tcb_hashes,
         "security_relevant_digest_sha256": _canonical_sha256(tcb_hashes),
@@ -336,10 +385,11 @@ def build_manifests(
         "dependency_manifest_sha256": _canonical_sha256(dependency_files),
         "dependency_lock_sha256": None,
         "statistical_qualification": statistical_qualification,
+        "hosted_workflow_runs": hosted_workflow_evidence,
         "validation": {
             "local_statistical_calibration": statistical_qualification["status"],
             "local_full_pytest": _pytest_validation(),
-            "hosted_platform_qualification": "NOT_CONFIRMED",
+            "hosted_platform_qualification": hosted_platform_status,
             "external_anchor_rollback_qualification": "NOT_RUN",
             "real_multitask_controls": "NOT_RUN",
             "in_memory_synthetic_lineage_stress": statistical_qualification.get(
