@@ -290,6 +290,8 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
     )["RELEASE_FREEZE_MANIFEST.json"]
 
     assert release["validation"]["hosted_platform_qualification"] == "PASS"
+    assert release["validation"]["linux_reference_evaluator_e2e"] == "PASS"
+    assert release["validation"]["execution_order_balance"] == "PASS_HOSTED"
     assert release["hosted_workflow_runs"]["workflow_head_sha"] == workflow_head
     assert release["hosted_workflow_runs"]["artifact_sha256"]
 
@@ -299,6 +301,8 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
         qualified_code_commit=commit, qualified_code_tree="d" * 40
     )["RELEASE_FREEZE_MANIFEST.json"]
     assert stale["validation"]["hosted_platform_qualification"] == "STALE_OR_INCOMPLETE"
+    assert stale["validation"]["linux_reference_evaluator_e2e"] == "STALE_OR_INCOMPLETE"
+    assert stale["validation"]["execution_order_balance"] == "STALE_OR_INCOMPLETE"
 
     evidence["qualified_source_snapshot_sha256"] = source_snapshot
     evidence["runs"].pop("package_completeness")

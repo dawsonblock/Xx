@@ -304,6 +304,7 @@ def build_manifests(
     hosted_workflow_evidence: dict[str, Any] | None = None
     hosted_platform_status = "NOT_CONFIRMED"
     if hosted_evidence_path.is_file():
+        hosted_platform_status = "STALE_OR_INCOMPLETE"
         try:
             evidence = json.loads(hosted_evidence_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -573,8 +574,24 @@ def build_manifests(
             "dependency_lock_local_install": dependency_install_status,
             "external_anchor_rollback_qualification": "NOT_RUN",
             "real_multitask_controls": "NOT_RUN",
-            "linux_reference_evaluator_e2e": "NOT_RUN_HOSTED",
-            "execution_order_balance": "LOCAL_TESTS_PASS_HOSTED_NOT_RUN",
+            "linux_reference_evaluator_e2e": (
+                "PASS"
+                if hosted_platform_status == "PASS"
+                else (
+                    "STALE_OR_INCOMPLETE"
+                    if hosted_platform_status == "STALE_OR_INCOMPLETE"
+                    else "NOT_RUN_HOSTED"
+                )
+            ),
+            "execution_order_balance": (
+                "PASS_HOSTED"
+                if hosted_platform_status == "PASS"
+                else (
+                    "STALE_OR_INCOMPLETE"
+                    if hosted_platform_status == "STALE_OR_INCOMPLETE"
+                    else "LOCAL_TESTS_PASS_HOSTED_NOT_RUN"
+                )
+            ),
             "null_and_power_calibration": statistical_qualification["status"],
             "real_task_null_and_effect_controls": "NOT_RUN",
             "in_memory_synthetic_lineage_stress": statistical_qualification.get(
