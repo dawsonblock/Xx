@@ -111,11 +111,17 @@ class RSIJevConfig:
 @dataclass
 class RSICanaryConfig:
     attempts: int = 4
-    repeats: int = 3
+    repeats: int = 5
     min_pass_fraction: float = 0.66
     max_normalized_regression: float = 0.05
     min_valid: int = 1
     score_scale_floor: float = 1.0
+    min_pairs: int = 5
+    confidence_level: float = 0.95
+    bootstrap_samples: int = 10000
+    min_effect_size: float = 0.0
+    max_single_pair_regression: float = 0.25
+    max_single_task_regression: float = 0.25
     # Family-wise false-positive budget for sequential promotions. Spending is
     # durably indexed by canary attempt in authenticated experiment state.
     experiment_alpha: float = 0.05
@@ -151,6 +157,30 @@ class RSITrustedEvaluatorConfig:
 
 
 @dataclass
+class RSICanaryPanelTaskConfig:
+    """One fixed task in a cross-task promotion panel.
+
+    ``task_family`` identifies an independent inference cluster; ``task_stratum``
+    identifies the broad domain used to balance panel coverage.
+    """
+
+    task_id: str = ""
+    task_family: str = ""
+    task_stratum: str = ""
+    task_description_file: str | None = None
+    public_data_dir: str | None = None
+    public_data_sha256: str | None = None
+    evaluator: RSITrustedEvaluatorConfig = field(
+        default_factory=RSITrustedEvaluatorConfig
+    )
+    replicate_ids: list[int] = field(default_factory=lambda: [0, 1, 2])
+    # Fixed local Python/NumPy RNG seeds; provider-side LLM sampling may remain
+    # nondeterministic and is recorded as such in each canary run.
+    replicate_seeds: list[int] = field(default_factory=lambda: [101, 202, 303])
+    budget_per_run: int = 24
+
+
+@dataclass
 class RSIConfig:
     enabled: bool = False
     outer_rounds: int = 7
@@ -173,6 +203,11 @@ class RSIConfig:
     canary_evaluator: RSITrustedEvaluatorConfig = field(
         default_factory=RSITrustedEvaluatorConfig
     )
+    # Cross-task canary tasks are fixed before a promotion attempt. The legacy
+    # single canary evaluator is retained for state migration only and cannot
+    # authorize a policy promotion.
+    canary_panel: list[RSICanaryPanelTaskConfig] = field(default_factory=list)
+    canary_panel_epoch: int = 0
     canary: RSICanaryConfig = field(default_factory=RSICanaryConfig)
     jev: RSIJevConfig = field(default_factory=RSIJevConfig)
     evolution: RSIEvolutionConfig = field(default_factory=RSIEvolutionConfig)

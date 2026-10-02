@@ -1,14 +1,15 @@
 # RSI authority closure hardening report
 
+> This report began as the prior authority-closure review. Its original test totals and conclusions about single-task inference describe earlier commits only. For the current unreleased multi-task statistical milestone, use `RELEASE_FREEZE_MANIFEST.json` for snapshot identity and `docs/STATISTICAL_QUALIFICATION.md` for the active protocol and qualification scope.
+
 ## Status
 
 This is an unreleased source hardening branch based on AIDE-DREAM-RSI v1.3.5.
-Package metadata remains at 1.3.5; the work has not been published as a release
-archive. The current source has **178 passed, 1 skipped** in the full local
-suite, **127 passed, 1 skipped** in RSI tests, and **57 passed** in the focused
-recovery/evaluator suite on macOS. GitHub-hosted macOS, Linux, Windows, and
-linter workflows passed on commit `cd94004`. Deployment qualification remains
-open.
+Package metadata remains at 1.3.5. The test counts retained below apply to the
+earlier authority-closure source, not the current multi-task statistical code.
+The current branch's local results and exact source identity are recorded in
+`RELEASE_FREEZE_MANIFEST.json`; no v1.4.0 release or external deployment
+qualification is claimed.
 
 ## Promotion and recovery authority
 
@@ -60,28 +61,18 @@ process group so outer timeout cleanup can kill it on macOS too. An integration
 test forces an outer evaluator timeout while the nested candidate sleeps and
 verifies the candidate process group is gone.
 
-Canary promotion retains the deterministic 95% bootstrap non-inferiority bound,
-minimum passing fraction, and worst-pair regression ceiling. It now also uses a
-one-sided exact paired sign test with alpha spending
-`alpha_i = experiment_alpha / (i * (i + 1))`; the monotonic attempt index is
-stored in authenticated state, with the total experiment alpha immutable for
-the run. The complete static promotion-rule digest is also pinned in state, so
-confidence levels and regression thresholds cannot drift between generations.
-The attempt index is bound into each signed transaction and decision; the
-derived alpha appears in the signed result and gate configuration. Repeats grow
-as the per-attempt alpha shrinks: six pairs at attempt one and seven at attempt
-two with the default 0.05 budget. The
-spending schedule sums to the configured experiment alpha if each attempt's
-sign-test p-value is valid. That requires independent paired rollout outcomes;
-the current runner does not establish cross-task or seed independence, so this
-is an implemented statistical control with an explicit qualification boundary,
-not a claim of proven end-to-end false-promotion control. It measures repeated
-rollout behavior and does not establish generalization beyond retired canary
-shards. The generic operator evaluator
-supports ID-based overlap checks only because it has no canonical sample
-content model. The cumulative consumed-ID and content-hash lists grow with
-canary use; an authenticated append-only ledger is a future storage
-improvement.
+Canary promotion uses a one-sided exact sign test over independent task-family
+effects with alpha spending `alpha_i = experiment_alpha / (i * (i + 1))`.
+Paired run effects are reduced to a median per task, then tasks sharing a
+predeclared dependence family are reduced to one median family effect. At least
+20 task records and 20 family clusters are required, with balanced domain
+strata, a practical-effect threshold, and a worst-task regression ceiling.
+The panel, seeds, budgets, evaluator and shard identities, run order, protocol,
+and alpha allocation are reserved in authenticated state before observations.
+An incomplete canary burns the panel and alpha. This prevents seeds or related
+tasks from multiplying the nominal sample count; validity still depends on
+real families being independent and representative. Synthetic calibration is
+not a substitute for real multi-task controls or external-anchor qualification.
 
 ## Evaluator integrity and isolation
 

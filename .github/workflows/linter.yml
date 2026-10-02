@@ -23,9 +23,17 @@ jobs:
         run: >-
           ruff check --output-format=github aide/
           rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tools/generate_release_manifests.py tools/verify_package.py
           tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
+          tests/test_rsi_multitask_canary.py
+          tests/test_rsi_statistics_qualification_tool.py
       - name: Run Black
         run: >-
           black --check --diff aide/
           rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tools/generate_release_manifests.py tools/verify_package.py
           tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
+          tests/test_rsi_multitask_canary.py
+          tests/test_rsi_statistics_qualification_tool.py
+      - name: Check generated release manifests
+        run: python tools/generate_release_manifests.py --check

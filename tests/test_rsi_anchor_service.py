@@ -12,7 +12,11 @@ from pathlib import Path
 import pytest
 
 from aide.rsi.state import RSIStateStore, _RemoteStateAnchor
-from aide.rsi.statistics import StatisticalBudget
+from aide.rsi.statistics import (
+    MULTITASK_MIN_TASKS,
+    MULTITASK_PROTOCOL_SHA256,
+    StatisticalBudget,
+)
 from rsi_anchor_service import (
     AnchorHTTPServer,
     CheckpointStore,
@@ -247,21 +251,38 @@ def test_one_hundred_state_transitions_reject_restored_revision_twenty(
         current_round=0,
         canary_attempt_count=0,
         canary_experiment_alpha=0.05,
+        statistical_protocol_sha256=MULTITASK_PROTOCOL_SHA256,
         statistical_budget=StatisticalBudget.initial(0.05).to_dict(),
         consumed_canary_sample_ids=[],
+        consumed_canary_panel_sha256=[],
+        consumed_canary_task_sha256=[],
     )
     snapshot_at_20 = None
     for revision in range(1, 101):
         current = store.load()
         next_budget = StatisticalBudget.from_dict(
             current["statistical_budget"]
-        ).reserve()
+        ).reserve(
+            panel_sha256=hashlib.sha256(f"panel-{revision}".encode()).hexdigest(),
+            protocol_sha256=MULTITASK_PROTOCOL_SHA256,
+        )
         sample_content = hashlib.sha256(f"canary-input-{revision}".encode()).hexdigest()
         store.write(
             phase="LIVE_RUNNING",
             current_round=revision,
             canary_attempt_count=revision,
             statistical_budget=next_budget.to_dict(),
+            consumed_canary_panel_sha256=[
+                *current.get("consumed_canary_panel_sha256", []),
+                next_budget.panel_sha256,
+            ],
+            consumed_canary_task_sha256=[
+                *current.get("consumed_canary_task_sha256", []),
+                *[
+                    hashlib.sha256(f"task-{revision}-{index}".encode()).hexdigest()
+                    for index in range(MULTITASK_MIN_TASKS)
+                ],
+            ],
             consumed_canary_sample_ids=[
                 *current["consumed_canary_sample_ids"],
                 f"canary-{revision:03d}",

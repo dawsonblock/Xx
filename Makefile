@@ -64,7 +64,7 @@ sandbox-image:
 
 # Install the bundled LocalJevFabric control-plane dependency.
 install-jev:
-	. $(VENV_NAME)/bin/activate && pip install -e ./vendor/LocalJevFabric-v1.5.0/fabric
+	. $(VENV_NAME)/bin/activate && pip install "$$(aide-rsi-jev vendor-path)/fabric"
 
 # Requires a configured LocalJevFabric backend (AnyJev, LLM2Jev, or external SystemOne).
 jev-fabric:

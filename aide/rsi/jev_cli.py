@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sysconfig
 
 from .jev import JevAdvisor
 
@@ -29,8 +30,19 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.cmd == "vendor-path":
-        root = Path(__file__).resolve().parents[2]
-        path = root / "vendor" / "LocalJevFabric-v1.5.0"
+        source_path = (
+            Path(__file__).resolve().parents[2] / "vendor" / "LocalJevFabric-v1.5.0"
+        )
+        installed_path = (
+            Path(sysconfig.get_path("data"))
+            / "share"
+            / "aideml-rsi"
+            / "vendor"
+            / "LocalJevFabric-v1.5.0"
+        )
+        path = source_path if source_path.is_dir() else installed_path
+        if not path.is_dir():
+            parser.error("bundled LocalJevFabric source tree is missing")
         print(path)
         return
 

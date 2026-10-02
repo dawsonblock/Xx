@@ -14530,5 +14530,7 @@
       "git_tree_object": "877e0ebae4aab5f1e74d395de8704d69965a4b7f",
       "tree_sha256": "93593594e37184970559d7f8f69f926b8d49b4bad4640cae969de2bee3fb3f6b"
     }
-  }
+  },
+  "manifest_status": "Historical inventory for earlier v1.3.5 authority-closure snapshots; use RELEASE_FREEZE_MANIFEST.json for the current source identity.",
+  "current_authoritative_manifest": "RELEASE_FREEZE_MANIFEST.json"
 }

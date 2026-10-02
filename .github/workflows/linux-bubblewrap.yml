@@ -18,6 +18,10 @@ on:
       - tests/test_rsi_v120.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_multitask_canary.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/qualify_canary_statistics.py
+      - tools/generate_release_manifests.py
       - .github/workflows/linux-bubblewrap.yml
   push:
     branches: [main, fix/aide-rsi-authority-closure]
@@ -37,6 +41,10 @@ on:
       - tests/test_rsi_v120.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_multitask_canary.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/qualify_canary_statistics.py
+      - tools/generate_release_manifests.py
       - .github/workflows/linux-bubblewrap.yml
 
 permissions:
@@ -74,4 +82,8 @@ jobs:
             tests/test_rsi_recovery_hardening.py::test_long_sequence_of_interrupted_canaries_never_restores_retired_samples \
             tests/test_rsi_v120.py::test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales \
             tests/test_rsi_anchor_service.py \
-            tests/test_rsi_statistics_budget.py
+            tests/test_rsi_statistics_budget.py \
+            tests/test_rsi_multitask_canary.py \
+            tests/test_rsi_statistics_qualification_tool.py
+      - name: Check generated release manifests
+        run: python tools/generate_release_manifests.py --check

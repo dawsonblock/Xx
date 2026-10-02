@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .statistics import StatisticalBudget
+from .statistics import (
+    MULTITASK_MIN_TASKS,
+    StatisticalBudget,
+    statistical_epoch_sha256,
+)
 
 if os.name == "nt":
     import msvcrt
@@ -363,6 +367,26 @@ class RSIStateStore:
             r"[0-9a-f]{64}", str(raw["canary_gate_policy_sha256"])
         ):
             raise ValueError("durable canary gate policy digest is invalid")
+        if "statistical_protocol_sha256" in raw and not re.fullmatch(
+            r"[0-9a-f]{64}", str(raw["statistical_protocol_sha256"])
+        ):
+            raise ValueError("durable statistical protocol digest is invalid")
+        if "statistical_epoch_sha256" in raw:
+            epoch_digest = raw["statistical_epoch_sha256"]
+            if not isinstance(epoch_digest, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", epoch_digest
+            ):
+                raise ValueError("durable statistical epoch digest is invalid")
+            if (
+                "canary_experiment_alpha" not in raw
+                or "statistical_protocol_sha256" not in raw
+                or epoch_digest
+                != statistical_epoch_sha256(
+                    raw["canary_experiment_alpha"],
+                    raw["statistical_protocol_sha256"],
+                )
+            ):
+                raise ValueError("durable statistical epoch binding is invalid")
         if "statistical_budget" in raw:
             budget = StatisticalBudget.from_dict(raw["statistical_budget"])
             if budget.attempt_index != attempt_count:
@@ -376,6 +400,35 @@ class RSIStateStore:
                 raise ValueError(
                     "durable statistical budget does not match the experiment alpha"
                 )
+            if (
+                budget.protocol_sha256 is not None
+                and budget.protocol_sha256 != raw.get("statistical_protocol_sha256")
+            ):
+                raise ValueError(
+                    "durable statistical protocol does not match the latest alpha reservation"
+                )
+            if budget.panel_sha256 is not None and budget.panel_sha256 not in raw.get(
+                "consumed_canary_panel_sha256", []
+            ):
+                raise ValueError("statistical budget panel was not durably consumed")
+        for name in (
+            "consumed_canary_sample_ids",
+            "consumed_canary_sample_content_sha256",
+            "consumed_canary_public_input_sha256",
+            "consumed_canary_panel_sha256",
+            "consumed_canary_task_sha256",
+        ):
+            values = raw.get(name, [])
+            if (
+                not isinstance(values, list)
+                or any(not isinstance(value, str) or not value for value in values)
+                or len(values) != len(set(values))
+            ):
+                raise ValueError(f"durable {name} is invalid")
+            if name != "consumed_canary_sample_ids" and any(
+                not re.fullmatch(r"[0-9a-f]{64}", value) for value in values
+            ):
+                raise ValueError(f"durable {name} contains an invalid SHA-256 value")
         self._verify_anchor(raw)
         return raw
 
@@ -413,6 +466,27 @@ class RSIStateStore:
             raise ValueError("canary experiment alpha must be finite and in (0, 1)")
         if current_alpha is not None and next_alpha != current_alpha:
             raise ValueError("canary experiment alpha is immutable for this run")
+        current_protocol = raw.get("statistical_protocol_sha256")
+        next_protocol = updates.get("statistical_protocol_sha256", current_protocol)
+        if current_protocol is not None and next_protocol != current_protocol:
+            raise ValueError("statistical protocol is immutable within an experiment")
+        if "statistical_protocol_sha256" in updates and (
+            not isinstance(next_protocol, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", next_protocol)
+        ):
+            raise ValueError("statistical protocol digest must be a SHA-256 value")
+        current_epoch = raw.get("statistical_epoch_sha256")
+        next_epoch = updates.get("statistical_epoch_sha256", current_epoch)
+        if current_epoch is not None and next_epoch != current_epoch:
+            raise ValueError("statistical epoch is immutable within an experiment")
+        if "statistical_epoch_sha256" in updates and (
+            not isinstance(next_epoch, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", next_epoch)
+            or next_alpha is None
+            or next_protocol is None
+            or next_epoch != statistical_epoch_sha256(next_alpha, next_protocol)
+        ):
+            raise ValueError("statistical epoch must bind alpha and protocol")
         current_budget_data = raw.get("statistical_budget")
         next_budget_data = updates.get("statistical_budget", current_budget_data)
         if current_budget_data is not None or next_budget_data is not None:
@@ -429,9 +503,34 @@ class RSIStateStore:
                             "statistical budget cannot change without a reservation"
                         )
                 elif next_budget.attempt_index == current_budget.attempt_index + 1:
-                    if next_budget != current_budget.reserve():
+                    consumed_panels = updates.get(
+                        "consumed_canary_panel_sha256",
+                        raw.get("consumed_canary_panel_sha256", []),
+                    )
+                    consumed_tasks = updates.get(
+                        "consumed_canary_task_sha256",
+                        raw.get("consumed_canary_task_sha256", []),
+                    )
+                    if (
+                        next_budget.panel_sha256 is None
+                        or next_budget.protocol_sha256 is None
+                        or next_budget.protocol_sha256 != next_protocol
+                        or next_budget.panel_sha256 not in consumed_panels
+                        or next_budget.panel_sha256
+                        in raw.get("consumed_canary_panel_sha256", [])
+                        or len(
+                            set(consumed_tasks)
+                            - set(raw.get("consumed_canary_task_sha256", []))
+                        )
+                        < MULTITASK_MIN_TASKS
+                        or next_budget
+                        != current_budget.reserve(
+                            panel_sha256=next_budget.panel_sha256,
+                            protocol_sha256=next_budget.protocol_sha256,
+                        )
+                    ):
                         raise ValueError(
-                            "statistical budget reservation is not the exact next allocation"
+                            "statistical budget reservation is not the exact next panel allocation"
                         )
                 else:
                     raise ValueError(
@@ -458,6 +557,33 @@ class RSIStateStore:
             or not re.fullmatch(r"[0-9a-f]{64}", next_gate_policy)
         ):
             raise ValueError("canary gate policy digest must be a SHA-256 value")
+        for name in (
+            "consumed_canary_sample_ids",
+            "consumed_canary_sample_content_sha256",
+            "consumed_canary_public_input_sha256",
+            "consumed_canary_panel_sha256",
+            "consumed_canary_task_sha256",
+        ):
+            if name in updates:
+                previous = raw.get(name, [])
+                next_values = updates[name]
+                if (
+                    not isinstance(next_values, list)
+                    or any(
+                        not isinstance(value, str) or not value for value in next_values
+                    )
+                    or len(next_values) != len(set(next_values))
+                    or not set(previous) <= set(next_values)
+                ):
+                    raise ValueError(f"durable {name} cannot decrease or duplicate")
+                if name != "consumed_canary_sample_ids" and any(
+                    not isinstance(value, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", value)
+                    for value in next_values
+                ):
+                    raise ValueError(
+                        f"durable {name} contains an invalid SHA-256 value"
+                    )
         raw.update(updates)
         raw.setdefault("schema_version", 1)
         previous_revision = int(raw.get("anchor_revision", 0))

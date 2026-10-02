@@ -1,63 +1,39 @@
-# Sequential canary statistical qualification
+# Multi-task canary statistical protocol
 
-`RealCanaryGate` uses a one-sided exact sign test over paired rollout deltas
-and spends family alpha using the fixed schedule
-`alpha_i = alpha / (i * (i + 1))`. The sum over all attempts is at most the
-configured family alpha. `StatisticalBudget` records the rule ID/version,
-attempt index, current allocation, spent and remaining alpha, and a chained
-reservation digest in authenticated RSI state. A reservation is committed
-before the canary runs; an interrupted, failed, or rejected attempt does not
-refund alpha. State writes allow only the exact next reservation.
+Promotion inference uses independent task-family clusters. Seeds are paired within a task; tasks sharing a family are reduced to one median family effect. Only family effects enter the one-sided exact sign test. This is more conservative than counting each task as independent when tasks from the same family share data, prompts, scoring code, or environment. A tie at the configured practical-effect threshold counts as a non-win.
 
-The per-attempt sign-test guarantee depends on valid independent paired signs.
-Repeated seeds from one task are not automatically independent tasks. The
-current runner still evaluates canary repetitions using one pinned task and
-dataset shard, so it has not established cross-task generalization or the
-independence assumption required by the sign test.
+`MULTITASK_PROMOTION_PROTOCOL_V1` fixes the protocol identity and records:
 
-## Synthetic calibration probe
+- at least 20 distinct tasks and at least 20 independent task-family clusters;
+- at least 3 paired runs per task, reduced to one median task effect;
+- one median task effect per family cluster for inference;
+- at least 3 broad task strata, at least 3 independent families per stratum, and no stratum above half of the panel;
+- equal family weights, a predeclared practical-effect threshold, and a worst-task regression limit;
+- a panel digest, fixed replicate IDs and seeds, task budgets, evaluator and shard identities, sample identities, metric definitions, and run order; seeds may be paired within a dependence family but may not be reused across independent families;
+- the summable allocation `alpha_i = family_alpha / (i * (i + 1))`.
 
-Run the same production gate implementation against seeded synthetic data:
+`task_family` identifies a dependence cluster: every task with a plausible shared source of outcome dependence must use the same family ID. `task_stratum` records the broader domain (for example classification, forecasting, or resource-constrained search) and is used only to balance the precommitted panel. If two nominal families still share a meaningful shock, they must be merged for inference; relabeling correlated tasks cannot make them independent.
+
+The complete panel and allocated alpha are authenticated in durable state before the first result is observed. The signed transaction binds the panel, task set, protocol, seed and execution schedules, incumbent/challenger, and budget digest. Every task journal is content-hash-bound into the signed decision. Recovery recomputes task effects, family effects, and the gate from those journals. The decision records the exact critical number of positive family clusters for its allocated alpha. If a canary has been reserved but its complete signed decision is missing, recovery aborts the challenger and burns the panel and alpha allocation; it never reruns that panel.
+
+The configured seeds initialize local Python and NumPy random generators and are paired between incumbent and challenger. They do not control randomness inside every LLM provider. Each run records that provider-side RNG seeding is not guaranteed. Seeds estimate within-task variability; tasks estimate a family effect; independent family clusters provide the nominal inference units.
+
+## Synthetic calibration
+
+Run the seeded calibration harness with its release-scale defaults:
 
 ```sh
 python tools/qualify_canary_statistics.py \
-  --campaigns 500 --attempts 100 --power-replicates 1000 \
-  --bootstrap-samples 1000 \
-  --output qualification/canary-statistics-synthetic.json
+  --campaigns 20000 --attempts 100 --power-replicates 5000 \
+  --tasks 40 --task-families 20 --runs-per-task 5 \
+  --lineage-attempts 500 \
+  --output qualification/multitask-statistical-qualification.json
 ```
 
-The output includes family-wise false promotion under independent null rollout
-pairs, a clustered same-task null model, positive/negative effect acceptance
-rates at early and late sequential attempts, Wilson intervals, and the
-theoretical alpha allocated. The default bootstrap count is deliberately low
-for a quick smoke run; a release campaign must set the same bootstrap count as
-the target production configuration and use substantially more independent
-lineages.
+The null calibration sweeps within-task seed correlation and within-family task correlation over `0.0`, `0.25`, `0.5`, `0.75`, and `0.95`. It includes heteroscedastic family/task variance, heavy-tailed noise, ties, and shared environment noise that cancels under paired evaluation. It reports Wilson intervals, a positive/negative/null power curve, experiment-wide null lineages, and a 500-attempt in-memory alpha/panel lineage. Missing or failed authoritative runs are fail-closed by the runtime gate and are exercised by its recovery tests. Source file hashes are included in the output. The tool runs from a Git checkout, source archive, or installed wheel; it resolves source identity from explicit arguments, the bundled release freeze, or Git metadata, then falls back to a local source-file digest without inventing a commit or tree.
 
-The clustered model holds one zero-mean task effect across seeds and promotion
-attempts while adding small within-task noise. It is a sensitivity analysis,
-not an estimate of real AIDE task correlation. A high promotion rate in this
-model demonstrates why repeated seeds from one task cannot be counted as
-independent evidence for cross-task claims.
+This is model-based qualification, not proof that any real panel's declared family clusters are independent or representative. It does not qualify an external anchor or show that AIDE improves across tasks. Those require a fixed real task panel, independently deployed anchor, and hosted platform runs. The earlier 47.8% same-task null result remains a historical finding about the previous run-level inference; it is not treated as evidence for this protocol.
 
-One recorded local run used seed `20261001`, 500 null lineages per model,
-100 promotion attempts per lineage, 500 power replicates, and only 100
-bootstrap resamples per gate. Under independent null pairs it promoted 12/500
-lineages (2.4%; 95% Wilson interval 1.38%–4.15%). Under the shared-task
-clustered null it promoted 239/500 (47.8%; 95% Wilson interval
-43.46%–52.18%). For a synthetic `+0.015` effect with `0.01` rollout standard
-deviation, single-attempt acceptance was 65.6% at attempt 1 and 25.6% at
-attempt 100. The full seeded output and source-file hashes are in
-[`qualification/canary-statistics-synthetic.json`](../qualification/canary-statistics-synthetic.json).
+## Statistical epoch changes
 
-This is not release qualification: it uses a low bootstrap count and a
-synthetic correlation model, and it does not estimate real task/seed
-correlation. It does show that the current repeated-seed procedure cannot
-support a cross-task false-promotion claim until task clusters become the
-inference units.
-
-These simulations do not replace a fixed multi-task qualification matrix.
-Before unattended multi-generation promotion, define the inference unit as a
-task, dataset shard, and search seed; determine task-level aggregation; then
-measure within-task and between-task variance on a precommitted task matrix.
-The current state and canary protocol do not yet implement that matrix.
+The protocol digest and family alpha are immutable in authenticated state. Changing the test, task/family aggregation, task strata, alpha schedule, practical-effect threshold, or regression limits requires a new statistical epoch with a fresh alpha budget. Panel data and seed schedules may rotate between attempts only when the previous panel has been consumed and the new task identities and content have not appeared in the retired set.

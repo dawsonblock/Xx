@@ -5,13 +5,15 @@ import hashlib
 import json
 import math
 import os
+import random
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .artifacts import load_candidate, store_candidate
-from .canary import RealCanaryGate
+from .canary import RealCanaryGate, TaskClusteredCanaryGate
 from .evaluator import ReplayEvaluator
 from .evidence import (
     has_trusted_evaluation,
@@ -32,7 +34,14 @@ from .qualification import QualificationGate
 from .sandbox import SandboxLimits, SecureInterpreter
 from .split import PersistentSplitManager
 from .state import RSIStateStore, rsi_writer_lock
-from .statistics import StatisticalBudget
+from .statistics import (
+    CanaryPanel,
+    CanaryPanelTask,
+    StatisticalBudget,
+    multitask_protocol_sha256,
+    sequential_alpha,
+    statistical_epoch_sha256,
+)
 from .support import ReplaySupportIndex
 from .types import PolicyGenome
 from .world import world_from_journal
@@ -51,6 +60,304 @@ def _policy_digest(genome: PolicyGenome | None) -> str | None:
         return None
     payload = json.dumps(genome.to_dict(), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class _CanaryPanelTaskRuntime:
+    task_id: str
+    task_family: str
+    task_description: str
+    task_metric: Any
+    evaluator: Any
+    public_data_dir: Path
+    definition: CanaryPanelTask
+
+
+@dataclass(frozen=True)
+class _CanaryPanelRuntime:
+    panel: CanaryPanel
+    tasks: tuple[_CanaryPanelTaskRuntime, ...]
+
+    @property
+    def identity(self) -> str:
+        return self.panel.panel_sha256
+
+    @property
+    def authority_identity(self) -> str:
+        authorities = []
+        for task in self.tasks:
+            evaluator = task.evaluator
+            authorities.append(
+                {
+                    "evaluator_sha256": evaluator.evaluator_sha256,
+                    "environment_sha256": evaluator.environment_sha256,
+                    "sandbox_backend": evaluator.sandbox_backend,
+                    "timeout_s": evaluator.timeout_s,
+                    "max_output_bytes": evaluator.max_output_bytes,
+                    "max_memory_bytes": evaluator.max_memory_bytes,
+                    "max_processes": evaluator.max_processes,
+                    "max_open_files": evaluator.max_open_files,
+                }
+            )
+        if any(authority != authorities[0] for authority in authorities[1:]):
+            raise ValueError(
+                "all canary panel tasks must use one stable evaluator execution authority"
+            )
+        return _stable_digest(
+            {
+                "domain": "aide-rsi-multitask-evaluator-authority/v1",
+                **authorities[0],
+            }
+        )
+
+    @property
+    def evaluation_sample_ids(self) -> frozenset[str]:
+        return frozenset(
+            f"{task.definition.task_sha256}:{sample_id}"
+            for task in self.tasks
+            for sample_id in task.evaluator.evaluation_sample_ids
+        )
+
+    @property
+    def evaluation_sample_content_sha256(self) -> frozenset[str]:
+        return frozenset(
+            digest
+            for task in self.tasks
+            for digest in task.evaluator.evaluation_sample_content_sha256 or ()
+        )
+
+    @property
+    def evaluation_sample_public_input_sha256(self) -> frozenset[str]:
+        return frozenset(
+            digest
+            for task in self.tasks
+            for digest in task.evaluator.evaluation_sample_public_input_sha256 or ()
+        )
+
+
+def _task_path_component(task_id: str) -> str:
+    return hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:16]
+
+
+def _panel_seed_schedule_sha256(panel: CanaryPanel) -> str:
+    return _stable_digest(
+        {
+            task.task_id: [
+                [replicate, task.seed_for(replicate)]
+                for replicate in task.replicate_ids
+            ]
+            for task in sorted(panel.tasks, key=lambda item: item.task_id)
+        }
+    )
+
+
+def _panel_execution_schedule_sha256(panel: CanaryPanel) -> str:
+    tasks = sorted(panel.tasks, key=lambda item: item.task_id)
+    schedule = []
+    for task_index, task in enumerate(tasks):
+        for replicate in task.replicate_ids:
+            order = (
+                ["challenger", "incumbent"]
+                if (replicate + task_index) % 2 == 0
+                else ["incumbent", "challenger"]
+            )
+            schedule.append(
+                {
+                    "task_id": task.task_id,
+                    "task_sha256": task.task_sha256,
+                    "shard_sha256": task.shard_sha256,
+                    "replicate_id": replicate,
+                    "seed": task.seed_for(replicate),
+                    "budget_per_run": task.budget_per_run,
+                    "order": order,
+                }
+            )
+    return _stable_digest({"panel_sha256": panel.panel_sha256, "runs": schedule})
+
+
+def _task_pair_gate_template(
+    cfg, *, artifact_root: Path, expected_identity: dict[str, Any] | None = None
+) -> RealCanaryGate:
+    return RealCanaryGate(
+        max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
+        min_valid=cfg.rsi.canary.min_valid,
+        min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
+        min_pairs=cfg.rsi.canary.min_pairs,
+        confidence_level=cfg.rsi.canary.confidence_level,
+        bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
+        min_effect_size=0.0,
+        max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
+        score_scale_floor=cfg.rsi.canary.score_scale_floor,
+        artifact_root=artifact_root,
+        require_artifacts=True,
+        expected_evaluation_identity=expected_identity,
+    )
+
+
+def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
+    """Resolve and pin the operator-supplied multi-task canary panel."""
+    from .trusted_evaluator import create_trusted_evaluator, tree_sha256
+
+    task_configs = list(getattr(cfg.rsi, "canary_panel", []) or [])
+    if not task_configs:
+        return None
+    epoch = getattr(cfg.rsi, "canary_panel_epoch", 0)
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
+        raise ValueError("rsi.canary_panel_epoch must be a nonnegative integer")
+    family_alpha = float(cfg.rsi.canary.experiment_alpha)
+    min_effect = float(cfg.rsi.canary.min_effect_size)
+    max_task_regression = float(cfg.rsi.canary.max_single_task_regression)
+    pair_gate_policy = _task_pair_gate_template(
+        cfg, artifact_root=Path(artifact_root)
+    ).policy_config()
+    protocol_sha = multitask_protocol_sha256(
+        family_alpha,
+        min_effect,
+        max_task_regression,
+        pair_gate_policy=pair_gate_policy,
+    )
+    runtimes = []
+    definitions = []
+    for item in task_configs:
+        task_id = str(getattr(item, "task_id", "") or "").strip()
+        task_family = str(getattr(item, "task_family", "") or "").strip()
+        task_stratum = str(getattr(item, "task_stratum", "") or "").strip()
+        description_value = getattr(item, "task_description_file", None)
+        public_dir_value = getattr(item, "public_data_dir", None)
+        expected_public_digest = str(getattr(item, "public_data_sha256", "") or "")
+        evaluator_config = getattr(item, "evaluator", None)
+        if (
+            not task_id
+            or not task_family
+            or not task_stratum
+            or not description_value
+            or not public_dir_value
+        ):
+            raise ValueError(
+                "each canary panel task requires task_id, independent task_family, task_stratum, task_description_file, and public_data_dir"
+            )
+        description_path = Path(description_value).expanduser()
+        if description_path.is_symlink():
+            raise ValueError("canary task description must be a regular file")
+        description_path = description_path.resolve(strict=True)
+        if not description_path.is_file():
+            raise ValueError("canary task description must be a regular file")
+        task_description = description_path.read_text(encoding="utf-8")
+        if not task_description.strip():
+            raise ValueError("canary task description cannot be empty")
+        public_data_dir = Path(public_dir_value).expanduser()
+        if public_data_dir.is_symlink():
+            raise ValueError("canary public data root must not be a symlink")
+        public_data_dir = public_data_dir.resolve(strict=True)
+        actual_public_digest = tree_sha256(public_data_dir)
+        if actual_public_digest != expected_public_digest:
+            raise ValueError(
+                f"canary task {task_id} public data does not match its SHA-256 pin"
+            )
+        metric_id = str(getattr(evaluator_config, "metric_id", "") or "").strip()
+        metric_maximize = getattr(evaluator_config, "metric_maximize", None)
+        if not metric_id or not isinstance(metric_maximize, bool):
+            raise ValueError(
+                f"canary task {task_id} evaluator requires a fixed metric and direction"
+            )
+        metric = task_metric_type(name=metric_id, maximize=metric_maximize)
+        pinned_description = add_metric(task_description, metric)
+        evaluator = create_trusted_evaluator(
+            evaluator_config,
+            task_description=pinned_description,
+            artifact_root=artifact_root,
+        )
+        if evaluator is None:
+            raise ValueError(f"canary panel task {task_id} evaluator is disabled")
+        if evaluator.evaluation_sample_ids is None:
+            raise ValueError(
+                f"canary panel task {task_id} requires canonical evaluation_sample_ids"
+            )
+        if (
+            evaluator.evaluation_sample_content_sha256 is None
+            or evaluator.evaluation_sample_public_input_sha256 is None
+        ):
+            raise ValueError(
+                f"canary panel task {task_id} requires the first-party evaluator's canonical sample identities"
+            )
+        replicate_ids = tuple(item.replicate_ids)
+        replicate_seeds = tuple(item.replicate_seeds)
+        # The task identity follows the canonical task description, not its
+        # operator-assigned label, so renaming a task cannot create another
+        # independent promotion unit.
+        task_identity = evaluator.task_sha256
+        definition = CanaryPanelTask(
+            task_id=task_id,
+            task_family=task_family,
+            task_stratum=task_stratum,
+            task_sha256=task_identity,
+            evaluator_authority_sha256=evaluator.authority_identity,
+            shard_sha256=evaluator.identity,
+            dataset_sha256=evaluator.dataset_sha256,
+            split_sha256=evaluator.split_sha256,
+            metric_id=evaluator.metric_id,
+            metric_maximize=evaluator.metric_maximize,
+            sample_ids=tuple(sorted(evaluator.evaluation_sample_ids)),
+            public_input_sha256=tuple(
+                sorted(evaluator.evaluation_sample_public_input_sha256)
+            ),
+            sample_content_sha256=tuple(
+                sorted(evaluator.evaluation_sample_content_sha256)
+            ),
+            replicate_ids=replicate_ids,
+            replicate_seeds=replicate_seeds,
+            budget_per_run=item.budget_per_run,
+            public_data_sha256=actual_public_digest,
+        )
+        definitions.append(definition)
+        runtimes.append(
+            _CanaryPanelTaskRuntime(
+                task_id,
+                task_family,
+                pinned_description,
+                metric,
+                evaluator,
+                public_data_dir,
+                definition,
+            )
+        )
+    panel = CanaryPanel(
+        epoch=epoch,
+        tasks=tuple(definitions),
+        protocol_sha256=protocol_sha,
+    )
+    return _CanaryPanelRuntime(
+        panel,
+        tuple(sorted(runtimes, key=lambda item: item.task_id)),
+    )
+
+
+def _validate_search_panel_roles(search, panel_runtime) -> None:
+    if search is None:
+        raise ValueError("multi-task promotion requires a trusted search evaluator")
+    search_ids = set(search.evaluation_sample_ids or ())
+    search_public = set(search.evaluation_sample_public_input_sha256 or ())
+    search_content = set(search.evaluation_sample_content_sha256 or ())
+    for task in panel_runtime.tasks:
+        evaluator = task.evaluator
+        if task.definition.task_sha256 == search.task_sha256:
+            raise ValueError(
+                "canary panel includes the search task as a promotion unit"
+            )
+        if evaluator.metric_id != task.definition.metric_id or (
+            evaluator.metric_maximize is not task.definition.metric_maximize
+        ):
+            raise ValueError("canary panel metric identity changed during construction")
+        if search_ids.intersection(evaluator.evaluation_sample_ids or ()):
+            raise ValueError("canary panel overlaps search evaluation sample IDs")
+        if search_public.intersection(
+            evaluator.evaluation_sample_public_input_sha256 or ()
+        ):
+            raise ValueError("canary panel duplicates search candidate-visible inputs")
+        if search_content.intersection(
+            evaluator.evaluation_sample_content_sha256 or ()
+        ):
+            raise ValueError("canary panel duplicates search sample content")
 
 
 def _used_canary_retirements(
@@ -189,6 +496,11 @@ def _validate_canary_shard_rotation(
         retired_public,
     ):
         raise ValueError("new canary shard reuses retired evaluation samples")
+    if isinstance(canary_evaluator, _CanaryPanelRuntime):
+        retired_tasks = set(state.get("consumed_canary_task_sha256", []))
+        new_tasks = {task.task_sha256 for task in canary_evaluator.panel.tasks}
+        if retired_tasks.intersection(new_tasks):
+            raise ValueError("new canary panel reuses a previously tested task")
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -504,6 +816,199 @@ def _recover_canary_transaction(
     )
 
 
+def _recover_multitask_canary_transaction(
+    *,
+    state: dict[str, Any],
+    state_store: RSIStateStore,
+    rsi_dir: Path,
+    canary_gate: TaskClusteredCanaryGate,
+) -> dict[str, Any]:
+    """Verify and recompute the exact reserved multi-task panel decision."""
+    if state.get("phase") != "CANARY_RUNNING":
+        return state
+    round_no = int(state.get("current_round", state.get("next_round", 0)))
+    canary_root = rsi_dir.parent / f"round-{round_no:03d}" / "canary"
+    transaction_path = canary_root / "transaction.json"
+    decision_path = canary_root / "decision.json"
+    if not transaction_path.is_file() or not decision_path.is_file():
+        return _abort_canary_recovery(
+            state=state,
+            state_store=state_store,
+            rsi_dir=rsi_dir,
+            round_no=round_no,
+            reason="incomplete_multitask_canary_burned_panel",
+            transaction_present=transaction_path.is_file(),
+            decision_present=decision_path.is_file(),
+        )
+    if transaction_path.is_symlink() or decision_path.is_symlink():
+        raise ValueError("multi-task canary records must be regular files")
+    transaction = json.loads(transaction_path.read_text(encoding="utf-8"))
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    if not isinstance(transaction, dict) or not isinstance(decision, dict):
+        raise TypeError("multi-task canary records must be JSON objects")
+    if not has_valid_canary_transaction(transaction):
+        raise ValueError("multi-task canary transaction has no host attestation")
+    panel = CanaryPanel.from_dict(transaction.get("panel"))
+    if (
+        panel.to_dict() != canary_gate.panel.to_dict()
+        or transaction.get("panel_sha256") != panel.panel_sha256
+        or transaction.get("protocol_sha256") != panel.protocol_sha256
+        or state.get("active_canary_panel_sha256") != panel.panel_sha256
+        or state.get("statistical_protocol_sha256") != panel.protocol_sha256
+        or transaction.get("statistical_epoch_sha256")
+        != state.get("statistical_epoch_sha256")
+        or decision.get("statistical_epoch_sha256")
+        != state.get("statistical_epoch_sha256")
+        or panel.panel_sha256 not in state.get("consumed_canary_panel_sha256", [])
+    ):
+        raise ValueError("reserved canary panel does not match durable authority")
+    budget = StatisticalBudget.from_dict(state.get("statistical_budget", {}))
+    budget_digest = budget.digest()
+    if (
+        budget.panel_sha256 != panel.panel_sha256
+        or budget.protocol_sha256 != panel.protocol_sha256
+        or transaction.get("statistical_budget_sha256") != budget_digest
+        or decision.get("statistical_budget_sha256") != budget_digest
+        or transaction.get("promotion_attempt_index") != budget.attempt_index
+        or decision.get("promotion_attempt_index") != budget.attempt_index
+        or transaction.get("allocated_alpha") != budget.last_allocation
+        or decision.get("allocated_alpha") != budget.last_allocation
+        or state.get("canary_attempt_count") != budget.attempt_index
+        or budget.attempt_index != canary_gate.promotion_attempt_index
+    ):
+        raise ValueError("multi-task canary alpha reservation does not match state")
+    task_digests = {task.task_sha256 for task in panel.tasks}
+    if (
+        not task_digests <= set(state.get("consumed_canary_task_sha256", []))
+        or set(transaction.get("task_sha256s", [])) != task_digests
+    ):
+        raise ValueError("reserved task identities were not durably consumed")
+    stored_authorities = _stored_evaluator_identity(state)
+    if (
+        not isinstance(stored_authorities, dict)
+        or transaction.get("canary_authority_identity")
+        != stored_authorities.get("canary")
+        or transaction.get("canary_shard_identity") != panel.panel_sha256
+        or transaction.get("canary_shard_epoch") != panel.epoch
+        or transaction.get("gate_policy_sha256")
+        != state.get("canary_gate_policy_sha256")
+        or decision.get("panel_sha256") != panel.panel_sha256
+        or decision.get("protocol_sha256") != panel.protocol_sha256
+    ):
+        raise ValueError("multi-task canary authority does not match durable state")
+    for name, panel_values in (
+        (
+            "evaluation_sample_ids",
+            [f"{t.task_sha256}:{s}" for t in panel.tasks for s in t.sample_ids],
+        ),
+        (
+            "evaluation_sample_content_sha256",
+            [h for t in panel.tasks for h in t.sample_content_sha256],
+        ),
+        (
+            "evaluation_sample_public_input_sha256",
+            [h for t in panel.tasks for h in t.public_input_sha256],
+        ),
+    ):
+        recorded = transaction.get(name)
+        if not isinstance(recorded, list) or set(recorded) != set(panel_values):
+            raise ValueError(f"multi-task transaction {name} do not match its panel")
+    if int(transaction.get("round", -1)) != round_no:
+        raise ValueError("multi-task canary round does not match durable state")
+    seed_schedule_sha256 = _panel_seed_schedule_sha256(panel)
+    if (
+        transaction.get("seed_schedule_sha256") != seed_schedule_sha256
+        or decision.get("seed_schedule_sha256") != seed_schedule_sha256
+        or transaction.get("canary_schedule_sha256")
+        != _panel_execution_schedule_sha256(panel)
+        or decision.get("canary_schedule_sha256")
+        != _panel_execution_schedule_sha256(panel)
+    ):
+        raise ValueError(
+            "multi-task canary execution schedule does not match its panel"
+        )
+    incumbent = PolicyGenome.from_dict(transaction["incumbent"])
+    challenger = PolicyGenome.from_dict(transaction["challenger"])
+    incumbent_digest = _policy_digest(incumbent)
+    challenger_digest = _policy_digest(challenger)
+    if (
+        incumbent_digest != transaction.get("incumbent_digest")
+        or challenger_digest != transaction.get("candidate_digest")
+        or state.get("incumbent_digest") != incumbent_digest
+        or state.get("pending_digest") != challenger_digest
+        or decision.get("incumbent_digest") != incumbent_digest
+        or decision.get("candidate_digest") != challenger_digest
+    ):
+        raise ValueError("multi-task canary policy identities do not match state")
+    if not has_valid_canary_attestation(decision):
+        raise ValueError("multi-task canary decision has no host attestation")
+    transaction_digest = hashlib.sha256(transaction_path.read_bytes()).hexdigest()
+    if decision.get("transaction_sha256") != transaction_digest:
+        raise ValueError("multi-task decision does not bind its reservation")
+    gate_config_digest = _stable_digest(canary_gate.authority_config())
+    if decision.get("gate_config_sha256") != gate_config_digest:
+        raise ValueError("multi-task gate configuration changed after reservation")
+
+    expected_paths = []
+    for task in sorted(panel.tasks, key=lambda item: item.task_id):
+        for replicate in sorted(task.replicate_ids):
+            for side in ("challenger", "incumbent"):
+                expected_paths.append(
+                    f"task-{_task_path_component(task.task_id)}/rep-{replicate:04d}/{side}/journal.json"
+                )
+    evidence = decision.get("journal_evidence")
+    if (
+        not isinstance(evidence, list)
+        or [item.get("path") for item in evidence if isinstance(item, dict)]
+        != expected_paths
+    ):
+        raise ValueError("multi-task decision does not bind every task journal")
+    from aide.journal import Journal
+    from aide.utils import serialize
+
+    paired_journals: dict[str, list[tuple[Any, Any]]] = {
+        task_id: [] for task_id in panel.task_ids
+    }
+    for task in sorted(panel.tasks, key=lambda item: item.task_id):
+        for replicate in sorted(task.replicate_ids):
+            loaded = {}
+            for side in ("challenger", "incumbent"):
+                relative = f"task-{_task_path_component(task.task_id)}/rep-{replicate:04d}/{side}/journal.json"
+                journal_path = canary_root / relative
+                if journal_path.is_symlink() or not journal_path.is_file():
+                    raise ValueError("multi-task canary journal is missing")
+                item = evidence[expected_paths.index(relative)]
+                if (
+                    item.get("sha256")
+                    != hashlib.sha256(journal_path.read_bytes()).hexdigest()
+                ):
+                    raise ValueError("multi-task canary journal digest mismatch")
+                loaded[side] = serialize.load_json(journal_path, Journal)
+            paired_journals[task.task_id].append(
+                (loaded["challenger"], loaded["incumbent"])
+            )
+    recomputed = canary_gate.evaluate_panel(paired_journals).to_dict()
+    if decision.get("gate_result") != recomputed or bool(
+        decision.get("passed")
+    ) != bool(recomputed["passed"]):
+        raise ValueError("multi-task canary decision does not recompute")
+    winner = challenger if recomputed["passed"] else incumbent
+    winner.save(rsi_dir / "incumbent_policy.json")
+    try:
+        (rsi_dir / "pending_policy.json").unlink()
+    except FileNotFoundError:
+        pass
+    return state_store.write(
+        phase="IDLE",
+        current_round=round_no,
+        next_round=round_no,
+        incumbent_digest=_policy_digest(winner),
+        pending_digest=None,
+        active_canary_panel_sha256=None,
+        last_canary=decision,
+    )
+
+
 def _abort_canary_recovery(
     *,
     state: dict[str, Any],
@@ -531,6 +1036,7 @@ def _abort_canary_recovery(
         current_round=round_no,
         next_round=round_no,
         pending_digest=None,
+        active_canary_panel_sha256=None,
         last_canary=aborted,
     )
     _write_json(
@@ -644,10 +1150,18 @@ def _external_memory(worlds, mode: str) -> str:
     raise ValueError(f"unsupported rsi.memory_mode: {mode}")
 
 
-def _episode_cfg(cfg, *, log_dir: Path, workspace_dir: Path):
+def _episode_cfg(
+    cfg,
+    *,
+    log_dir: Path,
+    workspace_dir: Path,
+    data_dir: Path | None = None,
+):
     round_cfg = copy.deepcopy(cfg)
     round_cfg.log_dir = log_dir.resolve()
     round_cfg.workspace_dir = workspace_dir.resolve()
+    if data_dir is not None:
+        round_cfg.data_dir = data_dir.resolve()
     return round_cfg
 
 
@@ -674,6 +1188,8 @@ def _run_live_episode(
     resume: bool = False,
     provenance: dict[str, Any] | None = None,
     trusted_evaluator=None,
+    data_dir_override: Path | None = None,
+    seed: int | None = None,
 ):
     """Run one real online episode under exactly one exploration policy."""
     from omegaconf import OmegaConf
@@ -683,7 +1199,23 @@ def _run_live_episode(
     from aide.utils import serialize
     from aide.utils.config import prep_agent_workspace, save_run
 
-    round_cfg = _episode_cfg(cfg, log_dir=log_dir, workspace_dir=workspace_dir)
+    if seed is not None:
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise ValueError("episode seed must be a nonnegative integer")
+        random.seed(seed)
+        try:
+            import numpy as np
+        except ImportError:
+            pass
+        else:
+            np.random.seed(seed % (2**32))
+
+    round_cfg = _episode_cfg(
+        cfg,
+        log_dir=log_dir,
+        workspace_dir=workspace_dir,
+        data_dir=data_dir_override,
+    )
     _prepare_workspace(round_cfg, prep_agent_workspace, fresh=not resume)
 
     journal_path = round_cfg.log_dir / "journal.json"
@@ -900,15 +1432,22 @@ def _run_rsi_unlocked() -> None:
         task_description=task_desc,
         artifact_root=rsi_dir / "artifacts",
     )
-    canary_evaluator = create_trusted_evaluator(
-        cfg.rsi.canary_evaluator,
-        task_description=task_desc,
+    if bool(getattr(cfg.rsi.canary_evaluator, "enabled", False)):
+        raise ValueError(
+            "single-task canary_evaluator is not authorized for promotions; configure rsi.canary_panel"
+        )
+    canary_panel_runtime = _build_canary_panel(
+        cfg,
+        task_metric_type=TaskMetric,
+        add_metric=add_task_metric,
         artifact_root=rsi_dir / "artifacts",
     )
+    if canary_panel_runtime is not None:
+        _validate_search_panel_roles(trusted_evaluator, canary_panel_runtime)
     state_store = RSIStateStore(
         rsi_dir / "state.json",
         require_attestation=(
-            trusted_evaluator is not None or canary_evaluator is not None
+            trusted_evaluator is not None or canary_panel_runtime is not None
         ),
         anchor_url=os.environ.get("AIDE_RSI_STATE_ANCHOR_URL"),
         anchor_token=os.environ.get("AIDE_RSI_STATE_ANCHOR_TOKEN"),
@@ -917,7 +1456,6 @@ def _run_rsi_unlocked() -> None:
             "AIDE_RSI_STATE_ANCHOR_TLS_CERT_SHA256"
         ),
     )
-    _validate_trusted_evaluator_roles(trusted_evaluator, canary_evaluator, task_metric)
     incumbent_path = rsi_dir / "incumbent_policy.json"
     pending_path = rsi_dir / "pending_policy.json"
     split_manager = PersistentSplitManager(
@@ -926,32 +1464,32 @@ def _run_rsi_unlocked() -> None:
 
     state_file_exists = state_store.path.exists()
     state = state_store.load()
-    configured_canary_epoch = getattr(cfg.rsi.canary_evaluator, "shard_epoch", 0)
+    configured_canary_epoch = getattr(cfg.rsi, "canary_panel_epoch", 0)
     if configured_canary_epoch is None:
         configured_canary_epoch = 0
     if isinstance(configured_canary_epoch, bool) or not isinstance(
         configured_canary_epoch, int
     ):
-        raise TypeError("canary_evaluator.shard_epoch must be an integer")
+        raise TypeError("rsi.canary_panel_epoch must be an integer")
     canary_epoch = configured_canary_epoch
     if canary_epoch < 0:
         raise ValueError("canary_evaluator.shard_epoch must be nonnegative")
     configured_evaluator_identity = {
         "search": trusted_evaluator.identity if trusted_evaluator is not None else None,
         "canary": (
-            canary_evaluator.authority_identity
-            if canary_evaluator is not None
+            canary_panel_runtime.authority_identity
+            if canary_panel_runtime is not None
             else None
         ),
     }
     configured_canary_shard_identity = (
-        canary_evaluator.identity if canary_evaluator is not None else None
+        canary_panel_runtime.identity if canary_panel_runtime is not None else None
     )
     stored_evaluator_identity = _stored_evaluator_identity(state)
     existing_worlds = pool.load_all()
     legacy_current_identity = {
         "search": trusted_evaluator.identity if trusted_evaluator is not None else None,
-        "canary": canary_evaluator.identity if canary_evaluator is not None else None,
+        "canary": configured_evaluator_identity["canary"],
     }
     legacy_canary_upgrade = (
         state_file_exists
@@ -988,7 +1526,7 @@ def _run_rsi_unlocked() -> None:
         elif stored_shard != configured_canary_shard_identity:
             _validate_canary_shard_rotation(
                 state=state,
-                canary_evaluator=canary_evaluator,
+                canary_evaluator=canary_panel_runtime,
                 shard_identity=configured_canary_shard_identity,
                 shard_epoch=canary_epoch,
                 base_log=base_log,
@@ -1029,6 +1567,31 @@ def _run_rsi_unlocked() -> None:
         state = state_store.write(canary_experiment_alpha=configured_experiment_alpha)
     elif float(state["canary_experiment_alpha"]) != configured_experiment_alpha:
         raise ValueError("rsi.canary.experiment_alpha changed for an existing RSI run")
+    configured_protocol_sha256 = (
+        canary_panel_runtime.panel.protocol_sha256
+        if canary_panel_runtime is not None
+        else None
+    )
+    if configured_protocol_sha256 is not None:
+        stored_protocol_sha256 = state.get("statistical_protocol_sha256")
+        if stored_protocol_sha256 is None:
+            state = state_store.write(
+                statistical_protocol_sha256=configured_protocol_sha256
+            )
+        elif stored_protocol_sha256 != configured_protocol_sha256:
+            raise ValueError(
+                "multi-task statistical protocol changed; start a new statistical epoch"
+            )
+        expected_statistical_epoch = statistical_epoch_sha256(
+            configured_experiment_alpha, configured_protocol_sha256
+        )
+        stored_statistical_epoch = state.get("statistical_epoch_sha256")
+        if stored_statistical_epoch is None:
+            state = state_store.write(
+                statistical_epoch_sha256=expected_statistical_epoch
+            )
+        elif stored_statistical_epoch != expected_statistical_epoch:
+            raise ValueError("statistical epoch changed; start a fresh RSI experiment")
     if "statistical_budget" not in state:
         statistical_budget = StatisticalBudget.migrate_legacy(
             configured_experiment_alpha, int(state.get("canary_attempt_count", 0))
@@ -1042,52 +1605,47 @@ def _run_rsi_unlocked() -> None:
         ):
             raise ValueError("durable statistical budget does not match RSI state")
     canary_block_reason = None
-    if trusted_evaluator is None or canary_evaluator is None:
-        canary_block_reason = "promotion requires separately configured trusted search and canary evaluators"
+    if trusted_evaluator is None or canary_panel_runtime is None:
+        canary_block_reason = "promotion requires a trusted search evaluator and a reserved multi-task canary panel"
     elif (
-        trusted_evaluator.evaluation_sample_ids is None
-        or canary_evaluator.evaluation_sample_ids is None
+        state.get("phase") == "CANARY_RUNNING"
+        and state.get("active_canary_panel_sha256")
+        != canary_panel_runtime.panel.panel_sha256
     ):
-        canary_block_reason = (
-            "promotion requires canonical evaluation_sample_ids in both split manifests"
-        )
-    elif set(trusted_evaluator.evaluation_sample_ids) & set(
-        canary_evaluator.evaluation_sample_ids
-    ):
-        canary_block_reason = "search and canary evaluation samples overlap"
-    elif (
-        trusted_evaluator.evaluation_sample_public_input_sha256 is not None
-        and canary_evaluator.evaluation_sample_public_input_sha256 is not None
-        and trusted_evaluator.evaluation_sample_public_input_sha256.intersection(
-            canary_evaluator.evaluation_sample_public_input_sha256
-        )
-    ):
-        canary_block_reason = "search and canary candidate-visible inputs overlap"
-    elif (
-        trusted_evaluator.metric_id != canary_evaluator.metric_id
-        or trusted_evaluator.metric_maximize != canary_evaluator.metric_maximize
-        or trusted_evaluator.task_sha256 != canary_evaluator.task_sha256
-    ):
-        canary_block_reason = (
-            "search and canary evaluators do not share task and metric identity"
-        )
-    if canary_evaluator is not None and canary_evaluator.evaluation_sample_ids:
-        used_ids, used_content_hashes, used_public_hashes = _used_canary_retirements(
+        raise ValueError("active canary transaction panel changed on restart")
+    elif canary_panel_runtime is not None:
+        retired_ids, retired_content, retired_public = _used_canary_retirements(
             base_log, state
         )
-        active = state.get("phase") == "CANARY_RUNNING"
         if (
             _canary_shard_overlaps_retired(
-                canary_evaluator.evaluation_sample_ids,
-                canary_evaluator.evaluation_sample_content_sha256,
-                used_ids,
-                used_content_hashes,
-                canary_evaluator.evaluation_sample_public_input_sha256,
-                used_public_hashes,
+                canary_panel_runtime.evaluation_sample_ids,
+                canary_panel_runtime.evaluation_sample_content_sha256,
+                retired_ids,
+                retired_content,
+                canary_panel_runtime.evaluation_sample_public_input_sha256,
+                retired_public,
             )
-            and not active
+            and state.get("phase") != "CANARY_RUNNING"
         ):
-            canary_block_reason = "canary sample shard has already been consumed"
+            canary_block_reason = (
+                "a canary sample in this panel has already been consumed"
+            )
+        panel_sha = canary_panel_runtime.panel.panel_sha256
+        if (
+            panel_sha in state.get("consumed_canary_panel_sha256", [])
+            and state.get("phase") != "CANARY_RUNNING"
+        ):
+            canary_block_reason = (
+                "the multi-task canary panel has already been consumed"
+            )
+        prior_tasks = set(state.get("consumed_canary_task_sha256", []))
+        panel_tasks = {task.task_sha256 for task in canary_panel_runtime.panel.tasks}
+        if (
+            prior_tasks.intersection(panel_tasks)
+            and state.get("phase") != "CANARY_RUNNING"
+        ):
+            canary_block_reason = "a task identity from this panel was already used for promotion evidence"
     canary_attempt_count = state.get("canary_attempt_count", 0)
     if (
         isinstance(canary_attempt_count, bool)
@@ -1096,72 +1654,73 @@ def _run_rsi_unlocked() -> None:
     ):
         raise ValueError("durable canary attempt count is invalid")
 
-    def build_canary_gate(attempt_index: int | None) -> RealCanaryGate:
-        return RealCanaryGate(
-            max_normalized_regression=cfg.rsi.canary.max_normalized_regression,
-            min_valid=cfg.rsi.canary.min_valid,
-            min_pass_fraction=cfg.rsi.canary.min_pass_fraction,
-            min_pairs=cfg.rsi.canary.min_pairs,
-            confidence_level=cfg.rsi.canary.confidence_level,
-            bootstrap_samples=cfg.rsi.canary.bootstrap_samples,
-            min_effect_size=cfg.rsi.canary.min_effect_size,
-            max_single_pair_regression=cfg.rsi.canary.max_single_pair_regression,
-            score_scale_floor=cfg.rsi.canary.score_scale_floor,
-            artifact_root=rsi_dir / "artifacts",
-            require_artifacts=True,
-            expected_evaluation_identity=(
-                {
-                    **canary_evaluator._identity_fields(),
-                    "trusted_evaluator_identity": canary_evaluator.identity,
-                }
-                if canary_evaluator is not None
-                else {}
-            ),
-            promotion_block_reason=canary_block_reason,
+    def build_canary_gate(attempt_index: int) -> TaskClusteredCanaryGate:
+        if canary_panel_runtime is None:
+            raise ValueError("a multi-task canary panel is required for promotion")
+        pair_gates = {}
+        for task in canary_panel_runtime.tasks:
+            pair_gates[task.task_id] = _task_pair_gate_template(
+                cfg,
+                artifact_root=rsi_dir / "artifacts",
+                expected_identity={
+                    **task.evaluator._identity_fields(),
+                    "trusted_evaluator_identity": task.evaluator.identity,
+                },
+            )
+        return TaskClusteredCanaryGate(
+            panel=canary_panel_runtime.panel,
+            pair_gates=pair_gates,
             promotion_attempt_index=attempt_index,
-            experiment_alpha=(
-                configured_experiment_alpha if attempt_index is not None else None
+            family_alpha=configured_experiment_alpha,
+            allocated_alpha=sequential_alpha(
+                configured_experiment_alpha, attempt_index
             ),
+            min_effect_size=float(cfg.rsi.canary.min_effect_size),
+            max_task_regression=float(cfg.rsi.canary.max_single_task_regression),
         )
 
-    canary_gate = build_canary_gate(
-        statistical_budget.attempt_index
-        if statistical_budget.attempt_index > 0
+    gate_template = (
+        build_canary_gate(max(1, statistical_budget.attempt_index))
+        if canary_panel_runtime is not None
         else None
     )
-    gate_policy_digest = _stable_digest(
-        {
-            **canary_gate.policy_config(),
-            "configured_repeats": max(1, int(cfg.rsi.canary.repeats)),
-        }
+    gate_policy_digest = (
+        _stable_digest(gate_template.policy_config())
+        if gate_template is not None
+        else None
     )
     stored_gate_policy_digest = state.get("canary_gate_policy_sha256")
-    if stored_gate_policy_digest is None:
+    if gate_policy_digest is not None and stored_gate_policy_digest is None:
         state = state_store.write(canary_gate_policy_sha256=gate_policy_digest)
-    elif stored_gate_policy_digest != gate_policy_digest:
+    elif (
+        gate_policy_digest is not None
+        and stored_gate_policy_digest != gate_policy_digest
+    ):
         raise ValueError("canary promotion gate policy changed for an existing RSI run")
-    try:
-        state = _recover_canary_transaction(
-            state=state,
-            state_store=state_store,
-            rsi_dir=rsi_dir,
-            canary_gate=canary_gate,
-        )
-    except Exception as exc:
-        if state.get("phase") != "CANARY_RUNNING":
-            raise
-        # Invalid or partial signed evidence cannot authorize promotion. Burn
-        # the already-reserved shard and discard the challenger so restart never
-        # retries a result set that may have been observed.
-        state = _abort_canary_recovery(
-            state=state,
-            state_store=state_store,
-            rsi_dir=rsi_dir,
-            round_no=int(state.get("current_round", state.get("next_round", 0))),
-            reason=f"canary_recovery_rejected_{type(exc).__name__}",
-            transaction_present=False,
-            decision_present=False,
-        )
+    if state.get("phase") == "CANARY_RUNNING":
+        if gate_template is None:
+            raise ValueError("active multi-task canary panel is not configured")
+        active_index = StatisticalBudget.from_dict(
+            state["statistical_budget"]
+        ).attempt_index
+        active_gate = build_canary_gate(active_index)
+        try:
+            state = _recover_multitask_canary_transaction(
+                state=state,
+                state_store=state_store,
+                rsi_dir=rsi_dir,
+                canary_gate=active_gate,
+            )
+        except Exception as exc:
+            state = _abort_canary_recovery(
+                state=state,
+                state_store=state_store,
+                rsi_dir=rsi_dir,
+                round_no=int(state.get("current_round", state.get("next_round", 0))),
+                reason=f"multitask_canary_recovery_rejected_{type(exc).__name__}",
+                transaction_present=True,
+                decision_present=True,
+            )
     retired_worlds = state.get("retired_qualification_worlds", [])
     if retired_worlds:
         split_manager.retire_qualification(list(retired_worlds))
@@ -1240,190 +1799,253 @@ def _run_rsi_unlocked() -> None:
                 last_canary=skipped,
             )
 
-        # Replay qualification only grants pending status. Before it can control a
-        # discovery world it must beat the incumbent in a paired real canary from
-        # fresh, equivalent starting states.
+        # Replay qualification only grants pending status. General-policy
+        # promotion requires one entire predeclared, multi-task panel.
         if pending is not None and phase in {"IDLE", "CANARY_RUNNING"}:
-            # Resource envelope is chosen by the incumbent authority, not by the
-            # unqualified challenger. Both policies receive exactly the same grid.
-            canary_grid = AdaptiveReplayPolicy(incumbent).plan_grid(
-                cycle_summaries,
-                fallback_width=cfg.rsi.fallback_width,
-                fallback_depth=cfg.rsi.fallback_depth,
-                hard_max_width=cfg.rsi.hard_max_width,
-                hard_max_depth=cfg.rsi.hard_max_depth,
-            )
-            canary_budget = min(
-                int(cfg.rsi.steps_per_round), max(1, int(cfg.rsi.canary.attempts))
-            )
-            # The signed counter covers completed and aborted reservations. It
-            # is migrated conservatively from the last completed round above.
-            reserved_budget = StatisticalBudget.from_dict(
-                state["statistical_budget"]
-            ).reserve()
-            promotion_attempt_index = reserved_budget.attempt_index
-            active_canary_gate = build_canary_gate(promotion_attempt_index)
-            canary_repeats = max(
-                1, int(cfg.rsi.canary.repeats), active_canary_gate.min_pairs
-            )
-            canary_root = base_log / f"round-{outer:03d}" / "canary"
-            canary_sample_ids = (
-                sorted(canary_evaluator.evaluation_sample_ids)
-                if canary_evaluator is not None
-                and canary_evaluator.evaluation_sample_ids is not None
-                else []
-            )
-            canary_content_hashes = (
-                sorted(canary_evaluator.evaluation_sample_content_sha256)
-                if canary_evaluator is not None
-                and canary_evaluator.evaluation_sample_content_sha256 is not None
-                else []
-            )
-            canary_public_hashes = (
-                sorted(canary_evaluator.evaluation_sample_public_input_sha256)
-                if canary_evaluator is not None
-                and canary_evaluator.evaluation_sample_public_input_sha256 is not None
-                else []
-            )
-            consumed = set(state.get("consumed_canary_sample_ids", []))
-            consumed.update(canary_sample_ids)
-            consumed_content = set(
-                state.get("consumed_canary_sample_content_sha256", [])
-            )
-            consumed_content.update(canary_content_hashes)
-            consumed_public = set(state.get("consumed_canary_public_input_sha256", []))
-            consumed_public.update(canary_public_hashes)
-            # Commit shard retirement to HMAC-authenticated state before any
-            # evaluator can observe a canary score. Deleting transaction files
-            # therefore cannot make a completed shard reusable.
-            state = state_store.write(
-                phase="CANARY_RUNNING",
-                current_round=outer,
-                next_round=outer,
-                consumed_canary_sample_ids=sorted(consumed),
-                consumed_canary_sample_content_sha256=sorted(consumed_content),
-                consumed_canary_public_input_sha256=sorted(consumed_public),
-                canary_attempt_count=promotion_attempt_index,
-                statistical_budget=reserved_budget.to_dict(),
-            )
-            _write_json(
-                canary_root / "transaction.json",
-                sign_canary_transaction(
+            if canary_panel_runtime is None:
+                raise ValueError(
+                    "pending policy reached canary without a multi-task panel"
+                )
+            state = state_store.load()
+            panel = canary_panel_runtime.panel
+            panel_sha256 = panel.panel_sha256
+            consumed_tasks = set(state.get("consumed_canary_task_sha256", []))
+            panel_task_hashes = {task.task_sha256 for task in panel.tasks}
+            panel_already_used = panel_sha256 in state.get(
+                "consumed_canary_panel_sha256", []
+            ) or bool(consumed_tasks.intersection(panel_task_hashes))
+            if phase == "IDLE" and panel_already_used:
+                skipped = {
+                    "reason": "canary panel or task identities were already consumed; rotate to a fresh panel"
+                }
+                _write_json(
+                    base_log / f"round-{outer:03d}" / "canary" / "skipped.json",
+                    skipped,
+                )
+                pending = None
+                if pending_path.exists():
+                    pending_path.unlink()
+                state = state_store.write(
+                    phase="IDLE",
+                    current_round=outer,
+                    next_round=outer,
+                    pending_digest=None,
+                    last_canary=skipped,
+                )
+            else:
+                canary_grid = AdaptiveReplayPolicy(incumbent).plan_grid(
+                    cycle_summaries,
+                    fallback_width=cfg.rsi.fallback_width,
+                    fallback_depth=cfg.rsi.fallback_depth,
+                    hard_max_width=cfg.rsi.hard_max_width,
+                    hard_max_depth=cfg.rsi.hard_max_depth,
+                )
+                active_index = (
+                    StatisticalBudget.from_dict(
+                        state["statistical_budget"]
+                    ).attempt_index
+                    + 1
+                )
+                reserved_budget = StatisticalBudget.from_dict(
+                    state["statistical_budget"]
+                ).reserve(
+                    panel_sha256=panel_sha256,
+                    protocol_sha256=panel.protocol_sha256,
+                )
+                if reserved_budget.attempt_index != active_index:
+                    raise ValueError(
+                        "statistical budget did not reserve the next attempt"
+                    )
+                active_canary_gate = build_canary_gate(active_index)
+                if (
+                    active_canary_gate.allocated_alpha
+                    != reserved_budget.last_allocation
+                ):
+                    raise ValueError("gate alpha differs from the durable reservation")
+                canary_root = base_log / f"round-{outer:03d}" / "canary"
+                canary_root.mkdir(parents=True, exist_ok=True)
+
+                from .trusted_evaluator import tree_sha256
+
+                for task in canary_panel_runtime.tasks:
+                    if (
+                        tree_sha256(task.public_data_dir)
+                        != task.definition.public_data_sha256
+                    ):
+                        raise ValueError(
+                            f"canary task {task.task_id} public data changed after panel construction"
+                        )
+                sample_ids = sorted(canary_panel_runtime.evaluation_sample_ids)
+                content_hashes = sorted(
+                    canary_panel_runtime.evaluation_sample_content_sha256
+                )
+                public_hashes = sorted(
+                    canary_panel_runtime.evaluation_sample_public_input_sha256
+                )
+                all_sample_ids = set(state.get("consumed_canary_sample_ids", []))
+                all_sample_ids.update(sample_ids)
+                all_content_hashes = set(
+                    state.get("consumed_canary_sample_content_sha256", [])
+                )
+                all_content_hashes.update(content_hashes)
+                all_public_hashes = set(
+                    state.get("consumed_canary_public_input_sha256", [])
+                )
+                all_public_hashes.update(public_hashes)
+                all_panel_hashes = set(state.get("consumed_canary_panel_sha256", []))
+                all_panel_hashes.add(panel_sha256)
+                all_task_hashes = set(state.get("consumed_canary_task_sha256", []))
+                all_task_hashes.update(panel_task_hashes)
+                # The complete panel, all task identities, and alpha allocation
+                # are durable before the first authoritative result is observed.
+                state = state_store.write(
+                    phase="CANARY_RUNNING",
+                    current_round=outer,
+                    next_round=outer,
+                    active_canary_panel_sha256=panel_sha256,
+                    statistical_protocol_sha256=panel.protocol_sha256,
+                    consumed_canary_panel_sha256=sorted(all_panel_hashes),
+                    consumed_canary_task_sha256=sorted(all_task_hashes),
+                    consumed_canary_sample_ids=sorted(all_sample_ids),
+                    consumed_canary_sample_content_sha256=sorted(all_content_hashes),
+                    consumed_canary_public_input_sha256=sorted(all_public_hashes),
+                    canary_attempt_count=active_index,
+                    statistical_budget=reserved_budget.to_dict(),
+                )
+                transaction = sign_canary_transaction(
                     {
                         "round": outer,
-                        "repeats": canary_repeats,
+                        "panel": panel.to_dict(),
+                        "panel_sha256": panel_sha256,
+                        "protocol_sha256": panel.protocol_sha256,
+                        "statistical_epoch_sha256": state.get(
+                            "statistical_epoch_sha256"
+                        ),
                         "incumbent": incumbent.to_dict(),
                         "challenger": pending.to_dict(),
                         "incumbent_digest": _policy_digest(incumbent),
                         "candidate_digest": _policy_digest(pending),
-                        "evaluation_sample_ids": canary_sample_ids,
-                        "evaluation_sample_content_sha256": canary_content_hashes,
-                        "evaluation_sample_public_input_sha256": canary_public_hashes,
-                        "canary_authority_identity": canary_evaluator.authority_identity,
-                        "canary_shard_identity": canary_evaluator.identity,
-                        "canary_shard_epoch": canary_epoch,
-                        "promotion_attempt_index": promotion_attempt_index,
+                        "evaluation_sample_ids": sample_ids,
+                        "evaluation_sample_content_sha256": content_hashes,
+                        "evaluation_sample_public_input_sha256": public_hashes,
+                        "task_sha256s": sorted(panel_task_hashes),
+                        "seed_schedule_sha256": _panel_seed_schedule_sha256(panel),
+                        "canary_schedule_sha256": _panel_execution_schedule_sha256(
+                            panel
+                        ),
+                        "canary_authority_identity": canary_panel_runtime.authority_identity,
+                        "canary_shard_identity": panel_sha256,
+                        "canary_shard_epoch": panel.epoch,
+                        "promotion_attempt_index": active_index,
+                        "allocated_alpha": reserved_budget.last_allocation,
                         "statistical_budget_sha256": reserved_budget.digest(),
+                        "gate_policy_sha256": gate_policy_digest,
                     }
-                ),
-            )
-            paired_journals = []
-            for rep in range(canary_repeats):
-                rep_root = canary_root / f"rep-{rep:02d}"
-                # Alternate execution order so persistent external conditions do not
-                # always favor the policy that runs first. Each side still starts
-                # from a fresh equivalent workspace with the same real-attempt budget.
-                if rep % 2 == 0:
-                    challenger_journal, _ = _run_live_episode(
-                        cfg=cfg,
-                        task_desc=task_desc,
-                        task_metric=task_metric,
-                        policy=pending,
-                        prior_worlds=live_prior_worlds,
-                        grid=canary_grid,
-                        budget=canary_budget,
-                        log_dir=rep_root / "challenger",
-                        workspace_dir=base_workspace
-                        / f"round-{outer:03d}-canary-{rep:02d}-challenger",
-                        candidate_artifact_root=rsi_dir / "artifacts",
-                        provenance={
-                            "round": outer,
-                            "episode_role": "canary_challenger",
-                            "canary_rep": rep,
-                        },
-                        trusted_evaluator=canary_evaluator,
-                    )
-                    incumbent_journal, _ = _run_live_episode(
-                        cfg=cfg,
-                        task_desc=task_desc,
-                        task_metric=task_metric,
-                        policy=incumbent,
-                        prior_worlds=live_prior_worlds,
-                        grid=canary_grid,
-                        budget=canary_budget,
-                        log_dir=rep_root / "incumbent",
-                        workspace_dir=base_workspace
-                        / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
-                        candidate_artifact_root=rsi_dir / "artifacts",
-                        provenance={
-                            "round": outer,
-                            "episode_role": "canary_incumbent",
-                            "canary_rep": rep,
-                        },
-                        trusted_evaluator=canary_evaluator,
-                    )
-                else:
-                    incumbent_journal, _ = _run_live_episode(
-                        cfg=cfg,
-                        task_desc=task_desc,
-                        task_metric=task_metric,
-                        policy=incumbent,
-                        prior_worlds=live_prior_worlds,
-                        grid=canary_grid,
-                        budget=canary_budget,
-                        log_dir=rep_root / "incumbent",
-                        workspace_dir=base_workspace
-                        / f"round-{outer:03d}-canary-{rep:02d}-incumbent",
-                        candidate_artifact_root=rsi_dir / "artifacts",
-                        provenance={
-                            "round": outer,
-                            "episode_role": "canary_incumbent",
-                            "canary_rep": rep,
-                        },
-                        trusted_evaluator=canary_evaluator,
-                    )
-                    challenger_journal, _ = _run_live_episode(
-                        cfg=cfg,
-                        task_desc=task_desc,
-                        task_metric=task_metric,
-                        policy=pending,
-                        prior_worlds=live_prior_worlds,
-                        grid=canary_grid,
-                        budget=canary_budget,
-                        log_dir=rep_root / "challenger",
-                        workspace_dir=base_workspace
-                        / f"round-{outer:03d}-canary-{rep:02d}-challenger",
-                        candidate_artifact_root=rsi_dir / "artifacts",
-                        provenance={
-                            "round": outer,
-                            "episode_role": "canary_challenger",
-                            "canary_rep": rep,
-                        },
-                        trusted_evaluator=canary_evaluator,
-                    )
-                paired_journals.append((challenger_journal, incumbent_journal))
+                )
+                _write_json(canary_root / "transaction.json", transaction)
 
-            result = active_canary_gate.evaluate_series(paired_journals)
-            canary_payload = result.to_dict()
-            canary_payload.update(
-                {
+                task_pairs: dict[str, list[tuple[Any, Any]]] = {
+                    task_id: [] for task_id in panel.task_ids
+                }
+                journal_evidence = []
+                for task_index, task_runtime in enumerate(canary_panel_runtime.tasks):
+                    task = task_runtime.definition
+                    task_component = _task_path_component(task.task_id)
+                    for replicate in sorted(task.replicate_ids):
+                        pair_root = (
+                            canary_root
+                            / f"task-{task_component}"
+                            / f"rep-{replicate:04d}"
+                        )
+                        outcomes = {}
+                        order = (
+                            ("challenger", "incumbent")
+                            if (replicate + task_index) % 2 == 0
+                            else ("incumbent", "challenger")
+                        )
+                        for side in order:
+                            policy = pending if side == "challenger" else incumbent
+                            side_workspace = (
+                                f"round-{outer:03d}-canary-{panel_sha256[:12]}-"
+                                f"task-{task_component}-rep-{replicate:04d}-{side}"
+                            )
+                            if (
+                                tree_sha256(task_runtime.public_data_dir)
+                                != task.public_data_sha256
+                            ):
+                                raise ValueError(
+                                    f"canary task {task.task_id} public data changed before evaluation"
+                                )
+                            journal, _ = _run_live_episode(
+                                cfg=cfg,
+                                task_desc=task_runtime.task_description,
+                                task_metric=task_runtime.task_metric,
+                                policy=policy,
+                                prior_worlds=[],
+                                grid=canary_grid,
+                                budget=task.budget_per_run,
+                                log_dir=pair_root / side,
+                                workspace_dir=base_workspace / side_workspace,
+                                candidate_artifact_root=rsi_dir / "artifacts",
+                                provenance={
+                                    "round": outer,
+                                    "episode_role": f"multitask_canary_{side}",
+                                    "canary_panel_sha256": panel_sha256,
+                                    "canary_protocol_sha256": panel.protocol_sha256,
+                                    "canary_task_id": task.task_id,
+                                    "canary_task_sha256": task.task_sha256,
+                                    "canary_task_family": task.task_family,
+                                    "canary_replicate_id": replicate,
+                                    "canary_replicate_seed": task.seed_for(replicate),
+                                    "provider_rng_seeded": False,
+                                },
+                                trusted_evaluator=task_runtime.evaluator,
+                                data_dir_override=task_runtime.public_data_dir,
+                                seed=task.seed_for(replicate),
+                            )
+                            if (
+                                tree_sha256(task_runtime.public_data_dir)
+                                != task.public_data_sha256
+                            ):
+                                raise ValueError(
+                                    f"canary task {task.task_id} public data changed during evaluation"
+                                )
+                            outcomes[side] = journal
+                        task_pairs[task.task_id].append(
+                            (outcomes["challenger"], outcomes["incumbent"])
+                        )
+                        for side in ("challenger", "incumbent"):
+                            relative = (
+                                f"task-{task_component}/rep-{replicate:04d}/"
+                                f"{side}/journal.json"
+                            )
+                            journal_path = canary_root / relative
+                            if journal_path.is_symlink() or not journal_path.is_file():
+                                raise ValueError(
+                                    "canary live run did not persist its journal"
+                                )
+                            journal_evidence.append(
+                                {
+                                    "path": relative,
+                                    "sha256": hashlib.sha256(
+                                        journal_path.read_bytes()
+                                    ).hexdigest(),
+                                }
+                            )
+
+                result = active_canary_gate.evaluate_panel(task_pairs)
+                canary_payload = {
+                    **result.to_dict(),
                     "candidate_digest": _policy_digest(pending),
                     "incumbent_digest": _policy_digest(incumbent),
-                    "budget_each": canary_budget,
-                    "repeats": canary_repeats,
-                    "promotion_attempt_index": promotion_attempt_index,
+                    "panel_sha256": panel_sha256,
+                    "protocol_sha256": panel.protocol_sha256,
+                    "statistical_epoch_sha256": state.get("statistical_epoch_sha256"),
+                    "promotion_attempt_index": active_index,
+                    "allocated_alpha": reserved_budget.last_allocation,
                     "statistical_budget_sha256": reserved_budget.digest(),
-                    "execution_order": "alternating",
+                    "seed_schedule_sha256": _panel_seed_schedule_sha256(panel),
+                    "canary_schedule_sha256": _panel_execution_schedule_sha256(panel),
                     "gate_result": result.to_dict(),
                     "transaction_sha256": hashlib.sha256(
                         (canary_root / "transaction.json").read_bytes()
@@ -1431,43 +2053,26 @@ def _run_rsi_unlocked() -> None:
                     "gate_config_sha256": _stable_digest(
                         active_canary_gate.authority_config()
                     ),
-                    "journal_evidence": [
-                        {
-                            "path": f"rep-{rep:02d}/{side}/journal.json",
-                            "sha256": hashlib.sha256(
-                                (
-                                    canary_root
-                                    / f"rep-{rep:02d}"
-                                    / side
-                                    / "journal.json"
-                                ).read_bytes()
-                            ).hexdigest(),
-                        }
-                        for rep in range(canary_repeats)
-                        for side in ("challenger", "incumbent")
-                    ],
+                    "journal_evidence": journal_evidence,
                 }
-            )
-            signed_canary_payload = sign_canary_decision(canary_payload)
-            _write_json(canary_root / "decision.json", signed_canary_payload)
-            canary_gate = active_canary_gate
-            if result.passed:
-                incumbent = pending
-                incumbent.save(incumbent_path)
-            # Commit the recovery state before deleting the pending policy. If a
-            # crash lands here, the transaction and decision reconcile the winner.
-            state_store.write(
-                phase="IDLE",
-                current_round=outer,
-                next_round=outer,
-                incumbent_digest=_policy_digest(incumbent),
-                pending_digest=None,
-                last_canary=signed_canary_payload,
-            )
-            pending = None
-            if pending_path.exists():
-                pending_path.unlink()
-            phase = "IDLE"
+                signed_canary_payload = sign_canary_decision(canary_payload)
+                _write_json(canary_root / "decision.json", signed_canary_payload)
+                if result.passed:
+                    incumbent = pending
+                    incumbent.save(incumbent_path)
+                state_store.write(
+                    phase="IDLE",
+                    current_round=outer,
+                    next_round=outer,
+                    incumbent_digest=_policy_digest(incumbent),
+                    pending_digest=None,
+                    active_canary_panel_sha256=None,
+                    last_canary=signed_canary_payload,
+                )
+                pending = None
+                if pending_path.exists():
+                    pending_path.unlink()
+                phase = "IDLE"
 
         # The qualified incumbent alone controls the real round's width/depth. If a
         # challenger just failed canary, its grid cannot leak into live authority.
@@ -1584,7 +2189,7 @@ def _run_rsi_unlocked() -> None:
                 seed_candidates = developer.propose(
                     incumbent, split.development, evaluator, count=ecfg.llm_candidates
                 )
-            except Exception as exc:  # noqa: BLE001 - optional proposer is best-effort
+            except Exception as exc:  # optional proposer is best-effort
                 _write_json(
                     round_rsi_dir / "llm_policy_developer_error.json",
                     {"error": repr(exc)},

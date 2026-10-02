@@ -1,3 +1,6 @@
+from collections import defaultdict
+from pathlib import Path
+
 from setuptools import find_packages, setup
 
 with open("README.md", "r") as f:
@@ -5,6 +8,37 @@ with open("README.md", "r") as f:
 
 with open("requirements.txt", "r") as f:
     requirements = f.read().splitlines()
+
+
+def vendor_data_files():
+    """Ship the complete LocalJevFabric source tree in wheel data files."""
+    vendor_root = Path("vendor/LocalJevFabric-v1.5.0")
+    if not vendor_root.is_dir():
+        return []
+    files_by_destination = defaultdict(list)
+    for path in sorted(vendor_root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative_parent = path.relative_to(vendor_root).parent
+        destination = (
+            Path("share/aideml-rsi/vendor/LocalJevFabric-v1.5.0")
+            / relative_parent
+        )
+        files_by_destination[str(destination)].append(str(path))
+    return [
+        (destination, files)
+        for destination, files in sorted(files_by_destination.items())
+    ]
+
+
+def qualification_data_files():
+    """Ship integrity metadata for archive and wheel-installed tooling."""
+    files = [
+        str(path)
+        for path in (Path("TCB_MANIFEST.json"), Path("RELEASE_FREEZE_MANIFEST.json"))
+        if path.is_file()
+    ]
+    return [("share/aideml-rsi", files)] if files else []
 
 setup(
     name="aideml-rsi",
@@ -16,6 +50,8 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/Wecoai/aideml",
     packages=find_packages(),
+    py_modules=["rsi_anchor_service"],
+    data_files=vendor_data_files() + qualification_data_files(),
     package_data={
         "aide": [
             "../requirements.txt",
@@ -39,6 +75,8 @@ setup(
             "aide-rsi = aide.rsi.runner:run_rsi",
             "aide-rsi-replay = aide.rsi.cli:main",
             "aide-rsi-jev = aide.rsi.jev_cli:main",
+            "aide-rsi-anchor = rsi_anchor_service:main",
+            "aide-rsi-statistics = tools.qualify_canary_statistics:main",
         ],
     },
 )

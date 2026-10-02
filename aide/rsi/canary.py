@@ -10,10 +10,17 @@ from typing import Any
 
 from .evidence import has_trusted_evaluation
 from .statistics import (
+    MULTITASK_MIN_RUNS_PER_TASK,
+    MULTITASK_PROTOCOL_ID,
     SPENDING_RULE_ID,
     SPENDING_RULE_VERSION,
+    CanaryPanel,
+    effect_is_positive,
     exact_sign_min_pairs,
+    multitask_protocol_config,
+    multitask_protocol_sha256,
     sequential_alpha,
+    task_effect_decision,
 )
 
 
@@ -58,6 +65,304 @@ class CanarySeriesResult:
             "reason": self.reason,
             "pairs": [asdict(x) for x in self.pairs],
         }
+
+
+@dataclass(frozen=True)
+class TaskCanaryEffect:
+    task_id: str
+    task_family: str
+    task_stratum: str
+    runs: int
+    median_normalized_effect: float
+    positive: bool
+    pair_results: tuple[CanaryResult, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "task_family": self.task_family,
+            "task_stratum": self.task_stratum,
+            "runs": self.runs,
+            "median_normalized_effect": self.median_normalized_effect,
+            "positive": self.positive,
+            "pair_results": [asdict(result) for result in self.pair_results],
+        }
+
+
+@dataclass(frozen=True)
+class TaskFamilyCanaryEffect:
+    """One inference unit after aggregating all correlated tasks in a family."""
+
+    task_family: str
+    task_stratum: str
+    task_count: int
+    median_normalized_effect: float
+    positive: bool
+    task_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MultiTaskCanaryResult:
+    passed: bool
+    panel_sha256: str
+    protocol_sha256: str
+    promotion_attempt_index: int
+    allocated_alpha: float
+    p_value: float | None
+    median_task_effect: float | None
+    worst_task_effect: float | None
+    positive_tasks: int
+    total_tasks: int
+    reason: str
+    task_effects: tuple[TaskCanaryEffect, ...]
+    critical_positive_families: int | None = None
+    positive_families: int = 0
+    total_families: int = 0
+    median_family_effect: float | None = None
+    family_effects: tuple[TaskFamilyCanaryEffect, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "panel_sha256": self.panel_sha256,
+            "protocol_id": MULTITASK_PROTOCOL_ID,
+            "protocol_sha256": self.protocol_sha256,
+            "promotion_attempt_index": self.promotion_attempt_index,
+            "allocated_alpha": self.allocated_alpha,
+            "p_value": self.p_value,
+            "median_task_effect": self.median_task_effect,
+            "worst_task_effect": self.worst_task_effect,
+            "positive_tasks": self.positive_tasks,
+            "total_tasks": self.total_tasks,
+            "critical_positive_families": self.critical_positive_families,
+            "positive_families": self.positive_families,
+            "total_families": self.total_families,
+            "median_family_effect": self.median_family_effect,
+            "reason": self.reason,
+            "task_effects": [effect.to_dict() for effect in self.task_effects],
+            "family_effects": [effect.to_dict() for effect in self.family_effects],
+        }
+
+
+class TaskClusteredCanaryGate:
+    """Promotion gate whose independent evidence units are task families.
+
+    Replicate results are reduced to one median effect per task before the
+    family median; only independent family effects enter the exact sign test.
+    Ties count as non-wins and every panel task must produce the predeclared
+    number of trusted paired runs.
+    """
+
+    def __init__(
+        self,
+        *,
+        panel: CanaryPanel,
+        pair_gates: dict[str, RealCanaryGate],
+        promotion_attempt_index: int,
+        family_alpha: float,
+        allocated_alpha: float,
+        min_effect_size: float,
+        max_task_regression: float,
+    ):
+        if set(pair_gates) != set(panel.task_ids):
+            raise ValueError("pair evaluator gates must exactly match panel tasks")
+        pair_policies = [gate.policy_config() for gate in pair_gates.values()]
+        if any(policy != pair_policies[0] for policy in pair_policies[1:]):
+            raise ValueError("all task pair gates must use the same fixed protocol")
+        self.pair_gate_policy = pair_policies[0]
+        if (
+            isinstance(promotion_attempt_index, bool)
+            or not isinstance(promotion_attempt_index, int)
+            or promotion_attempt_index < 1
+        ):
+            raise ValueError("promotion attempt index must be positive")
+        expected_protocol_sha256 = multitask_protocol_sha256(
+            family_alpha,
+            min_effect_size,
+            max_task_regression,
+            pair_gate_policy=self.pair_gate_policy,
+        )
+        expected_allocation = sequential_alpha(family_alpha, promotion_attempt_index)
+        if (
+            not math.isfinite(allocated_alpha)
+            or not 0 < allocated_alpha < 1
+            or not math.isclose(allocated_alpha, expected_allocation, rel_tol=1e-12)
+            or not math.isfinite(min_effect_size)
+            or not math.isfinite(max_task_regression)
+            or max_task_regression < 0
+        ):
+            raise ValueError(
+                "invalid multi-task promotion thresholds or allocated alpha"
+            )
+        if panel.protocol_sha256 != expected_protocol_sha256:
+            raise ValueError("canary panel protocol does not match gate parameters")
+        self.panel = panel
+        self.pair_gates = dict(pair_gates)
+        self.promotion_attempt_index = promotion_attempt_index
+        self.family_alpha = float(family_alpha)
+        self.allocated_alpha = float(allocated_alpha)
+        self.min_effect_size = float(min_effect_size)
+        self.max_task_regression = float(max_task_regression)
+
+    def authority_config(self) -> dict[str, Any]:
+        return {
+            "protocol_id": MULTITASK_PROTOCOL_ID,
+            "protocol": multitask_protocol_config(
+                self.family_alpha,
+                self.min_effect_size,
+                self.max_task_regression,
+                pair_gate_policy=self.pair_gate_policy,
+            ),
+            "protocol_sha256": self.panel.protocol_sha256,
+            "panel": self.panel.to_dict(),
+            "panel_sha256": self.panel.panel_sha256,
+            "promotion_attempt_index": self.promotion_attempt_index,
+            "allocated_alpha": self.allocated_alpha,
+            "min_effect_size": self.min_effect_size,
+            "max_task_regression": self.max_task_regression,
+            "task_pair_gate_configs": {
+                task_id: self.pair_gates[task_id].authority_config()
+                for task_id in self.panel.task_ids
+            },
+        }
+
+    def policy_config(self) -> dict[str, Any]:
+        """Static rule and task authority pinned for the statistical epoch."""
+        return {
+            "protocol_id": MULTITASK_PROTOCOL_ID,
+            "protocol": multitask_protocol_config(
+                self.family_alpha,
+                self.min_effect_size,
+                self.max_task_regression,
+                pair_gate_policy=self.pair_gate_policy,
+            ),
+            "protocol_sha256": self.panel.protocol_sha256,
+            "pair_gate_policy": self.pair_gate_policy,
+        }
+
+    def evaluate_panel(
+        self,
+        task_pairs: dict[str, Iterable[tuple[Any, Any]]],
+    ) -> MultiTaskCanaryResult:
+        if set(task_pairs) != set(self.panel.task_ids):
+            return MultiTaskCanaryResult(
+                False,
+                self.panel.panel_sha256,
+                self.panel.protocol_sha256,
+                self.promotion_attempt_index,
+                self.allocated_alpha,
+                None,
+                None,
+                None,
+                0,
+                len(task_pairs),
+                "canary task result set does not match the reserved panel",
+                (),
+            )
+        task_definitions = {task.task_id: task for task in self.panel.tasks}
+        effects: list[TaskCanaryEffect] = []
+        invalid = False
+        for task_id in self.panel.task_ids:
+            definition = task_definitions[task_id]
+            results = tuple(
+                self.pair_gates[task_id].evaluate_pair(candidate, incumbent)
+                for candidate, incumbent in task_pairs[task_id]
+            )
+            if (
+                len(results) != len(definition.replicate_ids)
+                or len(results) < MULTITASK_MIN_RUNS_PER_TASK
+            ):
+                invalid = True
+                continue
+            deltas = [result.normalized_delta for result in results]
+            if not all(math.isfinite(delta) for delta in deltas):
+                invalid = True
+                continue
+            task_effect = float(median(deltas))
+            effects.append(
+                TaskCanaryEffect(
+                    task_id,
+                    definition.task_family,
+                    definition.task_stratum,
+                    len(results),
+                    task_effect,
+                    effect_is_positive(task_effect, self.min_effect_size),
+                    results,
+                )
+            )
+        if invalid or len(effects) != len(self.panel.tasks):
+            return MultiTaskCanaryResult(
+                False,
+                self.panel.panel_sha256,
+                self.panel.protocol_sha256,
+                self.promotion_attempt_index,
+                self.allocated_alpha,
+                None,
+                None,
+                None,
+                sum(effect.positive for effect in effects),
+                len(effects),
+                "every reserved task needs all trusted paired runs",
+                tuple(effects),
+            )
+        family_tasks: dict[str, list[TaskCanaryEffect]] = {}
+        for effect in effects:
+            family_tasks.setdefault(effect.task_family, []).append(effect)
+        family_effects = tuple(
+            TaskFamilyCanaryEffect(
+                task_family=family,
+                task_stratum=members[0].task_stratum,
+                task_count=len(members),
+                median_normalized_effect=float(
+                    median(member.median_normalized_effect for member in members)
+                ),
+                positive=effect_is_positive(
+                    float(
+                        median(member.median_normalized_effect for member in members)
+                    ),
+                    self.min_effect_size,
+                ),
+                task_ids=tuple(sorted(member.task_id for member in members)),
+            )
+            for family, members in sorted(family_tasks.items())
+        )
+        family_effect_values = [
+            effect.median_normalized_effect for effect in family_effects
+        ]
+        decision = task_effect_decision(
+            family_effect_values,
+            allocated_alpha=self.allocated_alpha,
+            minimum_practical_effect=self.min_effect_size,
+            maximum_task_regression=self.max_task_regression,
+        )
+        worst_task_effect = min(effect.median_normalized_effect for effect in effects)
+        task_regression_safe = worst_task_effect >= -self.max_task_regression
+        passed = decision["passed"] and task_regression_safe
+        reason = decision["reason"]
+        if decision["passed"] and not task_regression_safe:
+            reason = "worst-task regression exceeded the panel safety limit"
+        return MultiTaskCanaryResult(
+            passed,
+            self.panel.panel_sha256,
+            self.panel.protocol_sha256,
+            self.promotion_attempt_index,
+            self.allocated_alpha,
+            decision["p_value"],
+            float(median(effect.median_normalized_effect for effect in effects)),
+            worst_task_effect,
+            sum(effect.positive for effect in effects),
+            len(effects),
+            reason,
+            tuple(effects),
+            critical_positive_families=decision["critical_positive_independent_units"],
+            positive_families=decision["positive_independent_units"],
+            total_families=decision["total_independent_units"],
+            median_family_effect=decision["median_independent_unit_effect"],
+            family_effects=family_effects,
+        )
 
 
 class RealCanaryGate:

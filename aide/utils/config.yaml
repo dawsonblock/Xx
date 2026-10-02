@@ -156,6 +156,16 @@ rsi:
     max_open_files: 256
     # Increment exactly once for each fresh canary data/split shard.
     shard_epoch: 0
+  # A single task is no longer sufficient evidence for general policy promotion.
+  # Configure at least 20 distinct tasks and 20 independent task-family clusters,
+  # balanced across at least 3 broad task strata.
+  # Each item binds its task prompt, public training data, pinned evaluator, and
+  # fixed replicate schedule and seed values before any canary result is observed.
+  # replicate_ids and replicate_seeds must be sorted/aligned and each seed is
+  # applied to local Python/NumPy RNGs. Do not reuse seeds across independent
+  # task families; LLM providers may remain nondeterministic.
+  canary_panel_epoch: 0
+  canary_panel: []
   canary:
     attempts: 4
     # Repeated, order-balanced incumbent/challenger canaries reduce sensitivity to
@@ -168,6 +178,7 @@ rsi:
     bootstrap_samples: 10000
     min_effect_size: 0.0
     max_single_pair_regression: 0.25
+    max_single_task_regression: 0.25
     min_valid: 1
     # Total one-sided sign-test error budget across sequential promotions.
     experiment_alpha: 0.05

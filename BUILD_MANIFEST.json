@@ -147,5 +147,8 @@
     "sequential alpha spending assumes valid per-attempt paired sign-test p-values; independence across rollout seeds and tasks has not been qualified",
     "HTTPS anchor certificate renewal requires an explicit pin migration; the repository does not provide an anchor service",
     "a whole-directory rollback without an external monotonic anchor can roll back both the promotion attempt index and its alpha budget"
-  ]
+  ],
+  "manifest_status": "Historical v1.3.5 build manifest; all embedded validation counts and source claims describe earlier snapshots only.",
+  "current_authoritative_release_record": "RELEASE_FREEZE_MANIFEST.json",
+  "current_release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE"
 }

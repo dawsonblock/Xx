@@ -110,7 +110,7 @@ Passing replay grants only `pending` status.
 
 ## Repeated paired online canary
 
-A pending challenger and incumbent run fresh paired canaries with equal budgets and the incumbent-selected resource grid. Execution order alternates across repetitions. A deterministic bootstrap lower bound enforces non-inferiority, while a one-sided exact sign test spends a total experiment alpha budget across sequential promotions. The signed attempt index determines the per-attempt alpha and minimum pair count; the runner increases repeats as the budget shrinks. Valid family-wise control depends on independent paired rollout outcomes and is not a claim of task-population generalization.
+A pending challenger and incumbent run paired canaries on a precommitted multi-task panel with equal per-task budgets and the incumbent-selected resource grid. Repeated runs become one median task effect; tasks in the same declared dependence family become one median family effect; only family effects enter the one-sided exact sign test. The 20-task and 20-family minimums, stratum balance, practical-effect threshold, worst-task regression limit, per-attempt alpha, task/shard identities, seed schedule, budgets, and execution order are fixed in the signed protocol and reservation. An incomplete transaction burns its panel and alpha allocation. This addresses seed and within-family pseudo-replication, but validity still depends on independent, representative family clusters; real-panel qualification remains necessary.
 
 Canary traces are evidence only and are not inserted into the discovery replay pool.
 

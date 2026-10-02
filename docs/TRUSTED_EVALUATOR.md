@@ -100,26 +100,35 @@ deployed checkpoint service.
 
 ## Canary promotion statistics
 
-Promotion uses paired canary repetitions. A one-sided exact sign test spends
-the experiment-wide alpha budget as `alpha_i = alpha / (i * (i + 1))`. Both
-the total alpha and authenticated durable canary-attempt index `i` are
-immutable/monotonic state; `i` increases for each reserved shard. With the
-default 0.05 budget, at least six all-positive pairs are needed
-at attempt one and seven at attempt two; the runner expands the configured
-repeat count as needed. A deterministic bootstrap lower bound still enforces
-the non-inferiority margin. The default bootstrap confidence level is 95%, the
-median effect floor is zero, and the worst-pair regression ceiling is 0.25
-normalized units. The static gate policy digest is pinned in durable state, so
-operators cannot change these thresholds between generations. Recovery signs
-and recomputes every per-attempt gate setting with the decision.
+General policy promotion uses an immutable multi-task `CanaryPanel`. Each panel
+contains at least 20 distinct task identities from at least 20 independent
+task-family clusters, with at least three paired runs per task. It also fixes
+at least three broad task strata, with at least three independent families per
+stratum and no stratum above half the family clusters. Incumbent and challenger are run with the same
+fixed task seed and budget; execution order is fixed and alternates according
+to the signed schedule. The median normalized paired effect within each task
+is the task-level estimate; correlated task estimates in the same family are
+reduced to one median family effect. A one-sided exact sign test then operates
+across independent family effects, with ties at the practical-effect threshold
+counted as non-wins. Seeds estimate within-task variation and never increase
+the nominal independent-family count.
 
-The alpha schedule controls sequential false positives only when each attempt's
-sign-test assumptions hold, including independent paired rollout outcomes. The
-bootstrap describes variation across those rollout repetitions; neither method
-estimates task-population uncertainty or establishes generalization. The same
-retired canary shard is evaluated within a transaction. Multi-task and
-seed-level independence still require qualification on fresh representative
-shards.
+The gate also requires the configured minimum median task effect and rejects a
+panel if any task exceeds the maximum regression limit. Families are
+predeclared dependence clusters and receive equal weight; strata are
+predeclared for domain balance. Panel composition, evaluator/shard identities,
+sample hashes, seed schedule, run budgets, metric definition, execution order,
+protocol digest, statistical epoch, and allocated alpha are authenticated
+before any score is observed. The alpha schedule is `alpha_i = family_alpha / (i * (i + 1))`; a reservation spends alpha before execution and cannot be refunded. A missing or incomplete signed decision burns the panel rather than retrying it. Recovery verifies journal hashes and recomputes task and family effects, including the exact critical family count required at the reserved alpha.
+
+The statistical protocol assumes genuinely independent family clusters and
+valid paired outcomes. The synthetic calibration suite tests correlated runs
+within tasks and correlated task effects within families; it does not establish
+that an operator's real family panel is independent or representative. If two
+families share a plausible outcome shock, they must be combined as one
+inference cluster. Provider-side LLM randomness may remain uncontrolled even
+though the local Python/NumPy seed schedule is fixed. Real multi-task controls
+and long-run power/generalization qualification remain release gates.
 
 Replay development, validation, and qualification worlds are trajectory splits,
 not independent data holds. Replay qualification reuses measured scores and
