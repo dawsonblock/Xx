@@ -1,6 +1,6 @@
 {
   "dependency_lock_local_install_artifact": "qualification/repair-1.3.6/dependency-lock-install.json",
-  "dependency_lock_local_install_artifact_sha256": "e750f6bef1a7b2a731c276dab98216529ef1349cfcf1fad97ad957252c46eda6",
+  "dependency_lock_local_install_artifact_sha256": "7b18d22160b56195bb3ebb5b543a4f4c92d4171bebfd41d9cbdadf69311235b7",
   "dependency_lock_scope": "Python 3.12 security/statistical CI and package qualification tools; not the complete optional AIDE research stack",
   "dependency_lock_sha256": "f8ed88219bbf3f5e801bf8cdabe4c732008213150c5197abcccd7b0caa37f1be",
   "dependency_manifest_files_sha256": {
@@ -10,7 +10,57 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
   },
   "dependency_manifest_sha256": "83fe5ee4d929a49424139c60891bc7f12ffa395f55cea78833d70b854c2ab3f7",
-  "hosted_workflow_runs": null,
+  "hosted_workflow_runs": {
+    "artifact_sha256": "ca12456670d90b99827fd673dd32c65c95288fdde5b26a38e9d187f7a5eba9e8",
+    "qualified_code_commit": "f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60",
+    "qualified_source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+    "runs": {
+      "linter": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073431578,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073431578"
+      },
+      "linux_bubblewrap": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073466228,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073466228"
+      },
+      "macos_nested_candidate_timeout": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073467955,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073467955"
+      },
+      "macos_seatbelt": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073467509,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073467509"
+      },
+      "package_completeness": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073431645,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073431645"
+      },
+      "windows_rsi_state_lock": {
+        "conclusion": "success",
+        "head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b",
+        "run_id": 37073466895,
+        "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/37073466895"
+      }
+    },
+    "schema_version": 1,
+    "workflow_head_sha": "60c594feb2f5636080c41b999c9d7fbd71399f9b"
+  },
   "limitations": [
     "the hashed requirements-rsi-ci lock covers Python 3.12 security/statistical CI only; optional full AIDE research dependencies are outside this lock",
     "external anchor service is not independently deployed or rollback-qualified",
@@ -100,13 +150,13 @@
   },
   "tcb_manifest_sha256": "160ff4583eff605414bad1f88ba3ed815695c499e59d61a3ea6f8129945b1984",
   "validation": {
-    "dependency_lock_local_install": "INVALID_OR_STALE",
-    "dependency_lock_qualification": "LOCK_PRESENT_HOSTED_NOT_CONFIRMED",
-    "execution_order_balance": "LOCAL_TESTS_PASS_HOSTED_NOT_RUN",
+    "dependency_lock_local_install": "PASS_LOCAL",
+    "dependency_lock_qualification": "HOSTED_MATRIX_PASS",
+    "execution_order_balance": "PASS_HOSTED",
     "external_anchor_rollback_qualification": "NOT_RUN",
-    "hosted_platform_qualification": "NOT_CONFIRMED",
+    "hosted_platform_qualification": "PASS",
     "in_memory_synthetic_lineage_stress": "PASS_NOT_STATESTORE_OR_ANCHOR_QUALIFICATION",
-    "linux_reference_evaluator_e2e": "NOT_RUN_HOSTED",
+    "linux_reference_evaluator_e2e": "PASS",
     "local_full_pytest": {
       "artifact": "qualification/repair-1.3.6/pytest-junit.xml",
       "errors": 0,

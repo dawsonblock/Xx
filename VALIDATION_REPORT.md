@@ -17,7 +17,7 @@ All checks below were run locally against the code-qualified source in a fresh P
 - `pip install --require-hashes -r requirements-rsi-ci.lock` passed; 67 distributions. The lock digest and installed inventory are in [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json).
 - Wheel and source distribution built; `tools/verify_package.py` confirmed required runtime components. A clean wheel smoke passed. This qualification used the CI lock and did not install the full optional AIDE research/provider dependency set.
 
-The one local skip is environment/integration dependent. Hosted platform workflows for this exact source digest have not yet completed; previous green runs used a superseded digest and are not counted here.
+The one local skip is environment/integration dependent. Fresh hosted Linux Bubblewrap, macOS Seatbelt, nested-timeout, Windows state-lock, lint, and package workflows all passed on workflow head `60c594feb2f5636080c41b999c9d7fbd71399f9b`, which preserves the same qualified source snapshot digest. Exact run links are listed in [`RELEASE_QUALIFICATION_MANIFEST.md`](RELEASE_QUALIFICATION_MANIFEST.md).
 
 ## Protocol V6 synthetic calibration
 

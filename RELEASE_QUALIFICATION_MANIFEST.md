@@ -37,18 +37,18 @@ The dependency lock covers the Python 3.12 security/statistical CI and package-q
 
 ## Hosted qualification
 
-Fresh hosted runs for source snapshot `e8949265…` are **PENDING**. Earlier green workflows were run against a superseded source digest and are retained only as historical evidence. The initial linter run on commit `f4fe8b4` failed because generated release manifests had not yet been committed; that run is not qualification evidence for this snapshot.
+All six fresh hosted workflows passed on workflow head `60c594feb2f5636080c41b999c9d7fbd71399f9b`. The executable source remains qualified at `f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60`; the workflow head contains only qualification/report/manifest updates after that code snapshot, and the executable source snapshot digest is unchanged.
 
-| Gate | Current state |
+| Gate | Hosted result |
 |---|---|
-| Linux Bubblewrap first-party trusted-evaluator E2E | PENDING fresh run |
-| macOS Seatbelt first-party trusted-evaluator E2E | PENDING fresh run |
-| macOS nested candidate timeout cleanup | PENDING fresh run |
-| Windows RSI state lock/statistics | PENDING fresh run |
-| Linter and generated-manifest check | PENDING fresh run |
-| Package completeness | PENDING fresh run |
+| Linux Bubblewrap first-party trusted-evaluator E2E | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073466228) |
+| macOS Seatbelt first-party trusted-evaluator E2E | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073467509) |
+| macOS nested candidate timeout cleanup | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073467955) |
+| Windows RSI state lock/statistics | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073466895) |
+| Linter and generated-manifest check | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073431578) |
+| Package completeness | [PASS](https://github.com/dawsonblock/Xx/actions/runs/37073431645) |
 
-The active hosted run record will be [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json) and must bind every run to the same workflow head and source snapshot. Superseded results are named accordingly under `qualification/repair-1.3.6/`.
+The run IDs, workflow head, qualified code commit, and source snapshot are recorded in [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json). Superseded workflow results remain named accordingly and are not used as current evidence.
 
 ## Statistical calibration summary
 

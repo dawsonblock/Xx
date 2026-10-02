@@ -8,7 +8,7 @@
 
 TrustedEvaluator represents host-visible paths and sandbox-only paths separately. The first-party reference adapter runs in the host namespace because it starts a nested candidate sandbox; its request contains real host paths. Operator-supplied evaluator bundles use paths mounted in the outer Bubblewrap or Seatbelt namespace. Missing evaluator, candidate, dataset, configuration, split, or output artifacts fail closed. The reference adapter is trusted host code; candidate code runs in its own strict sandbox, receives only candidate-visible inputs, and does not receive hidden labels through the adapter contract.
 
-The outer timeout cleanup records and kills the nested candidate process group. The repository has hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout E2E workflows. Fresh workflow results for the current source digest are pending; prior runs against older source identities are historical only.
+The outer timeout cleanup records and kills the nested candidate process group. The repository's fresh hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout E2E workflows passed on workflow head `60c594feb2f5636080c41b999c9d7fbd71399f9b` with the current source snapshot digest. The Windows authority-path, linter, and package workflows also passed. Exact run identities are in [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json).
 
 ## Canary schedule and inference protocol
 
@@ -42,7 +42,7 @@ A local writer lock prevents concurrent local controllers from making conflictin
 
 ## Remaining limits
 
-- Fresh hosted platform, lint, and package runs for this source snapshot are pending.
+- Hosted Linux/macOS/Windows, lint, and package runs passed for this source snapshot; see the release qualification record.
 - No frozen real-task null/degraded/improvement corpus has been run through the complete trusted promotion path.
 - No independently administered external anchor or destructive whole-host rollback campaign has been run.
 - The Python 3.12 lock covers security/statistical CI and package qualification, not all optional research/provider dependencies.
