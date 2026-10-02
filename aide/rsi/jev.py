@@ -11,7 +11,6 @@ from typing import Any, Callable, Mapping
 
 import requests
 
-
 _SECRET_PATTERNS = [
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b", re.I),

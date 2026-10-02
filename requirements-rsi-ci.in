@@ -2,7 +2,7 @@
 # Full AIDE task dependencies remain in requirements.txt; this file is the
 # minimal, fully locked set used by the security/statistical CI gates.
 backoff==2.2.1
-black==24.3.0
+black==26.3.1
 build==1.2.2.post1
 anthropic==0.20.0
 coolname==2.2.0

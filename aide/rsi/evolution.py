@@ -8,7 +8,6 @@ from .evaluator import ReplayEvaluator
 from .policy import AdaptiveReplayPolicy
 from .types import PolicyGenome, ReplayWorld
 
-
 # beta is deliberately excluded: it is swept offline and selected between live
 # cycles instead of being mutated inside the structural policy search.
 _FLOAT_FIELDS = {
