@@ -16,6 +16,10 @@ WORKDIR /app
 # Copy only the files needed for installation
 COPY requirements.txt setup.py README.md ./
 COPY aide ./aide
+COPY rsi_anchor_service.py ./
+COPY tools ./tools
+COPY vendor ./vendor
+COPY TCB_MANIFEST.json RELEASE_FREEZE_MANIFEST.json SOURCE_TREE_MANIFEST.json requirements-rsi-ci.in requirements-rsi-ci.lock ./
 
 # Create virtual environment and install dependencies
 RUN python -m venv /opt/venv && \

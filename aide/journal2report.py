@@ -19,8 +19,8 @@ def journal2report(journal: Journal, task_desc: dict, rcfg: StageConfig):
         ],
     }
     context_prompt = (
-        f"Here is the research journal of the agent: <journal>{report_input}<\\journal>, "
-        f"and the task description is: <task>{task_desc}<\\task>."
+        f"Here is the research journal of the agent: <journal>{report_input}</journal>, "
+        f"and the task description is: <task>{task_desc}</task>."
     )
     return query(
         system_message=system_prompt_dict,

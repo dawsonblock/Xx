@@ -7,6 +7,7 @@ on:
       - aide/rsi/reference_evaluator.py
       - aide/rsi/canary.py
       - aide/rsi/runner.py
+      - aide/rsi/sandbox.py
       - aide/rsi/state.py
       - aide/rsi/statistics.py
       - aide/rsi/trusted_evaluator.py
@@ -32,6 +33,7 @@ on:
       - aide/rsi/reference_evaluator.py
       - aide/rsi/canary.py
       - aide/rsi/runner.py
+      - aide/rsi/sandbox.py
       - aide/rsi/state.py
       - aide/rsi/statistics.py
       - aide/rsi/trusted_evaluator.py
