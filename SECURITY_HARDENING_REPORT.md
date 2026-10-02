@@ -1,41 +1,53 @@
-# Security and Statistical Qualification Status
+# Security and statistical qualification status
 
 ## Release status
 
-**Unreleased; qualification incomplete.** Package metadata remains `1.3.5`. This repair closes the first-party Linux evaluator namespace mismatch and changes the canary schedule/statistical protocol. A release is not qualified until the explicit gates in [`RELEASE_QUALIFICATION_MANIFEST.md`](RELEASE_QUALIFICATION_MANIFEST.md) pass against one committed source snapshot. The machine-readable source and authority identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json), [`SOURCE_TREE_MANIFEST.json`](SOURCE_TREE_MANIFEST.json), and [`TCB_MANIFEST.json`](TCB_MANIFEST.json).
-
-The pre-repair source and qualification artifacts are preserved under [`qualification/history/1.3.5-pre-repair/`](qualification/history/1.3.5-pre-repair/). They describe the frozen pre-repair snapshot only.
+**Unreleased; qualification incomplete.** Package metadata remains `1.3.5`. The code-qualified source is commit `f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60`, source snapshot SHA-256 `e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4`. Current authority and source identities are recorded in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json), [`SOURCE_TREE_MANIFEST.json`](SOURCE_TREE_MANIFEST.json), and [`TCB_MANIFEST.json`](TCB_MANIFEST.json). Pre-repair and V5 evidence are retained under `qualification/history/` and do not qualify this source.
 
 ## Trusted evaluator process namespaces
 
-The trusted evaluator now represents host-visible paths and sandbox-only paths with separate immutable path sets. The first-party reference adapter executes in the host namespace because it must start a nested candidate sandbox; every path in its request is a real host path. Operator-supplied evaluator bundles use paths mounted into the outer Bubblewrap or Seatbelt namespace. Construction fails closed if a required evaluator, candidate, dataset, config, split, or output path is missing. The reference adapter never receives `/evaluator`, `/scratch`, or other paths that exist only inside the outer Bubblewrap namespace.
+TrustedEvaluator represents host-visible paths and sandbox-only paths separately. The first-party reference adapter runs in the host namespace because it starts a nested candidate sandbox; its request contains real host paths. Operator-supplied evaluator bundles use paths mounted in the outer Bubblewrap or Seatbelt namespace. Missing evaluator, candidate, dataset, configuration, split, or output artifacts fail closed. The reference adapter is trusted host code; candidate code runs in its own strict sandbox, receives only candidate-visible inputs, and does not receive hidden labels through the adapter contract.
 
-The reference adapter remains trusted host code. Candidate code runs in its separate strict inner sandbox and receives only public inputs. It cannot access hidden labels through the adapter contract. The evaluator timeout cleanup records and kills the nested candidate process group. Hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout first-party E2E workflows passed on the current source digest; exact run identities are in [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json).
+The outer timeout cleanup records and kills the nested candidate process group. The repository has hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout E2E workflows. Fresh workflow results for the current source digest are pending; prior runs against older source identities are historical only.
 
-## Canary order and inference
+## Canary schedule and inference protocol
 
-The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V5`. Every canary task has exactly four paired incumbent/challenger runs. The scheduler canonicalizes tasks and assigns ABBA or BAAB order before any result is read. Replicate IDs are evidence labels only and cannot select order. Each task has two challenger-first and two incumbent-first pairs. The complete schedule is included in the signed transaction and checked again during recovery. Panels now require at least 40 independent task-family clusters; this floor was raised after power calibration showed weak sensitivity at 20 clusters.
+The active protocol is `MULTITASK_PROMOTION_PROTOCOL_V6` (`9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861`). Each task has four paired incumbent/challenger runs. Tasks are canonicalized and assigned ABBA or BAAB order before any result is observed; caller replicate IDs do not control order. The complete schedule is included in the signed transaction and checked during recovery.
 
-Runs reduce to one median effect per task. Related tasks reduce to one median family effect. Independent task-family clusters, rather than seeds or repeated runs, are the units in the exact one-sided sign test. The protocol binds minimum task/family/stratum coverage, practical-effect and regression limits, panel identity, seed schedule, evaluator/data identities, and the fixed alpha allocation `alpha_i = family_alpha / 500`. Once observations begin, an interrupted panel is burned and its alpha allocation is not refunded.
+Each run set reduces to one task effect; related tasks reduce to one predeclared family effect. Family clusters, not seeds or runs, are the independent units for the exact one-sided sign test. A panel needs at least 40 declared independent family clusters, minimum task and stratum coverage, practical-effect and regression constraints. The protocol fixes the 500-attempt horizon and allocation:
 
-The synthetic campaign models within-task and within-family correlation, heteroscedasticity, heavy-tailed noise, ties, shared paired environment effects, and order-sensitive first/second-run, time, load, cache, provider, and family effects. Sequence nuisance magnitudes are swept across `0.01`, `0.05`, `0.10`, and `0.25`. Synthetic calibration cannot prove that real task families are independent or representative. Real null, degraded, and planted-improvement panels remain required.
+```text
+alpha_i = family_alpha / 500
+```
 
-The V5 release-scale local campaign used 20,000 familywise null lineages and observed 910 false promotions (4.55%; 95% Wilson interval 4.27%–4.85%), below the configured family alpha of 5%. All 25 correlation cells and all 32 sequence-scenario/magnitude checks passed their calibration limits. The calibrated minimum panel was raised to 40 independent families because estimated power for a 0.02 effect was 4.36% at 20 families, 42.32% at 40, and 69.60% at 60. At 40 families, estimated power for a 0.03 effect was 88.46%. This remains synthetic evidence and does not establish real-task independence, real workload power, or generalization.
+At family alpha 0.05, each attempt receives 0.0001. Once authoritative observations begin, an interrupted panel is burned and its allocation is not refunded. Protocol V6 binds the canonical per-sample row associations `sample_id → public_input_sha256 → full_record_sha256` through evaluator results, panel serialization, signed transaction, authenticated reservation state, and recovery. Altered, detached, or inconsistent records fail validation.
+
+## Synthetic statistical evidence
+
+The V6 synthetic qualification artifact uses 20,000 familywise null lineages, a fixed 500-attempt horizon, 5,000 power replicates per cell, 80 tasks across 40 declared family clusters, four paired runs per task, and 500 in-memory lineage attempts.
+
+- Familywise null: 910/20,000 promotions (4.55%); 95% Wilson interval 4.2698%–4.8477%.
+- Correlation checks: 25/25 tested seed/family-correlation cells passed.
+- Sequence nuisance: 32/32 scenario/magnitude combinations passed; maximum observed rate 0.020%, maximum 95% Wilson upper bound 0.0514%.
+- Power at a 0.02 effect for 20/30/40/50/60 families: 4.36% / 16.22% / 42.32% / 52.22% / 69.60%; at 0.03: 19.94% / 56.04% / 88.46% / 92.40% / 95.52%.
+- The 500-attempt synthetic lineage campaign recorded 45 crashes, 30 failed panels, 346 rejections, 79 promotions, and spent the full alpha budget. It is an in-memory simulator; it is not state-store or remote-anchor crash qualification.
+
+These results validate only the specified synthetic models. They do not demonstrate real family independence, representativeness, real-task power, or AIDE improvement. The 40-family minimum has weak power for modest effects.
 
 ## Persistent state and promotion authority
 
-Promotion recovery verifies HMAC-authenticated durable state, the signed canary reservation, policy identities, panel and protocol digests, statistical attempt and alpha records, journal content hashes, and trusted evaluation artifacts. It recomputes the gate before changing the incumbent. An incomplete canary burns its panel and abandons its pending challenger. Signed state records retired panel, task, sample-ID, public-input, and full-record identities.
+Promotion recovery verifies authenticated durable state, signed canary reservation, policy identities, panel/protocol identity, alpha allocation, journal hashes, and trusted evaluation artifacts. It recomputes the gate before changing the incumbent. An incomplete canary burns its panel and allocated alpha. Signed state records consumed panel, task, sample-ID, public-input, full-record, and row-identity digests.
 
-The per-experiment writer lock prevents two local controllers from making conflicting state transitions. Once configured, an external state anchor is sticky and bound to its normalized authority and pinned TLS certificate. The client supports monotonic compare-and-swap; this repository does not deploy or independently administer the anchor service. A local service conformance test is not evidence of independently stored or rollback-resistant production state.
+A local writer lock prevents concurrent local controllers from making conflicting state transitions. Configured external anchoring is sticky and bound to its authority identity and pinned TLS certificate; the client implements monotonic compare-and-swap. The project does not deploy or independently administer an anchor service. Local anchor tests do not establish rollback-resistant deployment.
 
-## Remaining security and deployment limits
+## Remaining limits
 
-- No independently administered anchor service or destructive whole-host snapshot rollback campaign has been run for this repair snapshot.
-- Hosted Linux/macOS/Windows confinement, linter, and package checks passed against the current source digest; this evidence does not cover an independently administered anchor or real-task promotion corpus.
-- No frozen real-task qualification corpus or complete trusted-evaluator null/degraded/improvement campaign is available in this checkout.
-- The CI lock pins the Python 3.12 security/statistical/packaging toolchain. It does not lock every optional AIDE research dependency or provider runtime.
-- Host-held HMAC secrets are not hardware-backed or split across independent signing services. Same-account compromise can expose them.
-- Task-family independence and representativeness remain operator assumptions; synthetic results do not establish real-world generalization.
-- Statistical protocol changes require a new statistical epoch and fresh alpha budget. The recursive policy cannot alter the referee, evidence verifier, sandbox, protocol, or promotion code.
+- Fresh hosted platform, lint, and package runs for this source snapshot are pending.
+- No frozen real-task null/degraded/improvement corpus has been run through the complete trusted promotion path.
+- No independently administered external anchor or destructive whole-host rollback campaign has been run.
+- The Python 3.12 lock covers security/statistical CI and package qualification, not all optional research/provider dependencies.
+- Host-held HMAC secrets are not hardware-backed or split among independent signing services; compromise of the trusted account can expose signing authority.
+- Family independence and representativeness remain assumptions requiring externally reviewable task provenance.
+- A real multi-generation experiment has not established that the policy-improvement process improves itself.
 
-No release tag or unattended-promotion claim should be made while any required gate is `NOT_RUN` or `NOT_CONFIRMED`.
+No release tag or unattended-promotion claim is supported while required gates remain pending or unrun. See [`RELEASE_QUALIFICATION_MANIFEST.md`](RELEASE_QUALIFICATION_MANIFEST.md) for the authoritative gate list.

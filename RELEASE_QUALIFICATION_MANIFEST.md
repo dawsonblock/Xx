@@ -1,45 +1,78 @@
 # Repair qualification record
 
-## Status
+## Release status
 
-**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`. This record tracks the repair branch and does not authorize a release tag or unattended promotion.
+**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`. This record does not authorize a release tag or unattended promotion. Qualification claims apply only to the exact source identity below; historical results are not carried forward as current evidence.
 
 ## Source identity
 
-The repair starts at qualified source commit `a2bdaedd0492b98e9ab0ee1726b14008766fc512`. The pre-repair evidence head `5665eee7957e32865b390c1c001616848d711446` and its tree `1843f1e5946af1b12b0e2b20eae36032e8f84518` are retained in the local tag `pre-repair-1.3.5-5665eee`. Baseline manifests and qualification outputs were copied byte-for-byte to [`qualification/history/1.3.5-pre-repair/`](qualification/history/1.3.5-pre-repair/) and checked against their recorded SHA-256 values.
+- Qualified source commit: `f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60`
+- Qualified Git tree: `4b3382db21c06f546db38b68c18306325b8afa7c`
+- Source snapshot SHA-256: `e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4`
+- Package version: `1.3.5` (unreleased repair branch)
+- Current statistical protocol: `MULTITASK_PROMOTION_PROTOCOL_V6`
+- Protocol SHA-256: `9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861`
 
-The active machine-readable identities are:
+The pre-repair source and its qualification evidence remain preserved under [`qualification/history/1.3.5-pre-repair/`](qualification/history/1.3.5-pre-repair/). The superseded V5 repair artifacts are preserved under [`qualification/history/repair-1.3.6-before-row-identity-v6/`](qualification/history/repair-1.3.6-before-row-identity-v6/). Neither set qualifies V6.
 
-- [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json): source, dependency, TCB, and qualification status.
-- [`SOURCE_TREE_MANIFEST.json`](SOURCE_TREE_MANIFEST.json): full per-file source inventory and canonical digest.
-- [`TCB_MANIFEST.json`](TCB_MANIFEST.json): security and authority code, tests, workflows, config, and build inputs.
-- [`BUILD_MANIFEST.json`](BUILD_MANIFEST.json): package and qualification state.
+The current source and authority inventories are [`SOURCE_TREE_MANIFEST.json`](SOURCE_TREE_MANIFEST.json), [`TCB_MANIFEST.json`](TCB_MANIFEST.json), [`BUILD_MANIFEST.json`](BUILD_MANIFEST.json), and [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json). The latter intentionally keeps the release state incomplete.
 
-The committed code snapshot is `ca80a2b13a052e67053d2aeed37ffccf02722545`, with source-manifest SHA-256 `21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1`. The V5 statistical campaign was regenerated from this commit in the hash-locked Python 3.12 environment; its complete statistical implementation source-file manifest matches the current V5 implementation. The root freeze reports `COMMITTED_SOURCE_SNAPSHOT`. All six hosted workflows passed on workflow head `2feae7327076c7a2705730dc14fba12135a91403` and bind the same source-manifest digest. Earlier runs on a superseded digest are preserved as [`hosted-workflow-runs-superseded-510406.json`](qualification/repair-1.3.6/hosted-workflow-runs-superseded-510406.json) and are not used as qualification evidence.
+## V6 repair scope
 
-## Repair scope
+V6 preserves the prior Linux host-path / sandbox-path separation, first-party evaluator E2E coverage, deterministic four-run ABBA/BAAB ordering, family-level inference, and the fixed 500-attempt alpha allocation. It repairs sample identity binding end to end: each canonical record binds a sample ID to its public-input digest and full-record digest, and that record list is carried through reference evaluation, panel construction, signed transaction, authenticated reservation state, and recovery verification. Detached or altered row identities fail validation.
 
-The current change set separates host paths from outer-sandbox paths in `TrustedEvaluator`, adds first-party reference-evaluator E2E coverage to mandatory hosted Linux and macOS workflows, canonicalizes Python runtime paths for Seatbelt, and replaces caller-ID parity ordering with a signed, canonical four-run ABBA/BAAB schedule. Protocol V5 raises the minimum panel to 40 independent task-family clusters after power calibration found weak sensitivity at 20. A universal hash-locked Python 3.12 CI dependency set is installed with `--require-hashes` in the relevant workflows.
+## Local qualification
 
-## Qualification gates
-
-| Gate | Required evidence | Current state |
+| Gate | Evidence | Result |
 |---|---|---|
-| Local focused multi-task/statistics/anchor tests | Native arm64 Python 3.12 lock environment | PASS: 42 tests |
-| Full local suite | [`qualification/repair-1.3.6/pytest-junit.xml`](qualification/repair-1.3.6/pytest-junit.xml) | PASS: 225 passed, 1 skipped |
-| Linux Bubblewrap first-party E2E | [Hosted run 36992613936](https://github.com/dawsonblock/Xx/actions/runs/36992613936) | PASS on qualification head `2feae73`; evaluator, candidate isolation, and manifest checks passed |
-| macOS Seatbelt first-party E2E | [Hosted run 36992613548](https://github.com/dawsonblock/Xx/actions/runs/36992613548) | PASS on qualification head `2feae73` |
-| macOS nested candidate timeout cleanup | [Hosted run 36992613511](https://github.com/dawsonblock/Xx/actions/runs/36992613511) | PASS on qualification head `2feae73` |
-| Windows state lock, anchor, and statistics tests | [Hosted run 36992614515](https://github.com/dawsonblock/Xx/actions/runs/36992614515) | PASS on qualification head `2feae73` |
-| Linter and generated-manifest check | [Hosted run 36992602943](https://github.com/dawsonblock/Xx/actions/runs/36992602943) | PASS on qualification head `2feae73` |
-| Package completeness | [Hosted run 36992603013](https://github.com/dawsonblock/Xx/actions/runs/36992603013) | PASS on qualification head `2feae73`; wheel/sdist build and clean install passed |
-| Null, nuisance-order, power, and synthetic lineage campaign | [`qualification/repair-1.3.6/multitask-statistical-qualification.json`](qualification/repair-1.3.6/multitask-statistical-qualification.json) | PASS: 20,000 familywise lineages, 25 correlation cells, 32 sequence-bias checks, 500 synthetic attempts; 4.55% null familywise rate (95% Wilson 4.27%–4.85%) |
-| Frozen real-task null/degraded/improvement controls | Complete trusted evaluation and promotion path | NOT_RUN; no qualification corpus is present |
-| External monotonic anchor rollback campaign | Separately administered service and destructive host rollback | NOT_RUN; no external service is deployed |
+| Full local test suite | [`pytest-junit.xml`](qualification/repair-1.3.6/pytest-junit.xml) | PASS: 229 passed, 1 skipped |
+| Targeted canary/recovery/identity tests | local Python 3.12 hash-locked environment | PASS: 23 passed |
+| Compile check | `python -m compileall -q aide tests tools rsi_anchor_service.py` | PASS |
+| Ruff and Black | exact repository workflow file sets; locked versions | PASS |
+| Hash-locked CI tool environment | [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json) | PASS: 67 distributions, Python 3.12.0, NumPy 1.26.2 |
+| Wheel and source distribution | `tools/verify_package.py` and clean wheel smoke | PASS for required packaged RSI runtime components |
+| Statistical null/power and in-memory lineage calibration | [`multitask-statistical-qualification.json`](qualification/repair-1.3.6/multitask-statistical-qualification.json) | PASS for the documented synthetic models only |
 
-The clean hash-lock install passed in a fresh native arm64 macOS Python 3.12.0 environment with 67 distributions; Linux, macOS, and Windows hosted workflows also installed the lock successfully. See [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json) for the local inventory. The lock covers the security/statistical CI and packaging toolchain, not every optional AIDE research dependency.
+The dependency lock covers the Python 3.12 security/statistical CI and package-qualification toolchain. It does **not** lock every optional AIDE research/provider runtime dependency; it is not a complete production-runtime lock.
 
-The exact run IDs, final workflow head, and bound source snapshot are recorded in [`hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json) and included in `RELEASE_FREEZE_MANIFEST.json`. These hosted passes close the platform CI gates; they do not close the independent-anchor or real-task qualification gates below.
+## Hosted qualification
+
+Fresh hosted runs for source snapshot `e8949265…` are **PENDING**. Earlier green workflows were run against a superseded source digest and are retained only as historical evidence. The initial linter run on commit `f4fe8b4` failed because generated release manifests had not yet been committed; that run is not qualification evidence for this snapshot.
+
+| Gate | Current state |
+|---|---|
+| Linux Bubblewrap first-party trusted-evaluator E2E | PENDING fresh run |
+| macOS Seatbelt first-party trusted-evaluator E2E | PENDING fresh run |
+| macOS nested candidate timeout cleanup | PENDING fresh run |
+| Windows RSI state lock/statistics | PENDING fresh run |
+| Linter and generated-manifest check | PENDING fresh run |
+| Package completeness | PENDING fresh run |
+
+The active hosted run record will be [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json) and must bind every run to the same workflow head and source snapshot. Superseded results are named accordingly under `qualification/repair-1.3.6/`.
+
+## Statistical calibration summary
+
+The V6 synthetic artifact uses 20,000 familywise null lineages, a fixed 500-attempt horizon, 5,000 power replicates per cell, 80 tasks grouped into 40 declared family clusters, four paired runs per task, and 500 in-memory lineage attempts.
+
+- Familywise null: 910/20,000 promotions (4.55%); 95% Wilson interval 4.2698%–4.8477%, below the configured 5% family alpha for the modeled scenarios.
+- Correlation grid: 25/25 tested seed/family-correlation cells passed the artifact's calibration criterion.
+- Sequence nuisance: 32/32 tested scenario/magnitude combinations passed; maximum observed rate 0.020% and maximum 95% Wilson upper bound 0.0514%.
+- Power at effect `0.02` for 20/30/40/50/60 families: 4.36% / 16.22% / 42.32% / 52.22% / 69.60%. At effect `0.03`: 19.94% / 56.04% / 88.46% / 92.40% / 95.52%.
+- Synthetic lineage: 500 attempts, 500 unique panels, 45 simulated crashes, 30 failed panels, 346 rejections, 79 promotions, and 0.05 alpha spent. This is an in-memory simulation, not an RSIStateStore or external-anchor recovery qualification.
+
+These results establish behavior under the simulator's assumptions; they do not prove that real task families are independent or representative, nor do they demonstrate AIDE improvement. The production minimum is 40 independent family clusters; power remains limited for subtle effects.
+
+## Unclosed release gates
+
+| Gate | State |
+|---|---|
+| Fresh hosted matrix on the current source snapshot | PENDING |
+| Frozen real-task null, degraded, and planted-improvement controls through the complete trusted promotion path | NOT_RUN; no qualification corpus is present |
+| Independently administered external monotonic anchor and destructive host rollback test | NOT_RUN; no external service is deployed |
+| Complete reproducible lock for optional AIDE research/provider dependencies | NOT_RUN |
+| Real multi-generation AIDE-RSI experiment demonstrating improvement of the improvement process | NOT_RUN |
+
+Do not mark this build release-qualified while any required gate is pending or not run.
 
 ## Reproducible commands
 
@@ -54,8 +87,5 @@ python tools/qualify_canary_statistics.py \
   --tasks 80 --task-families 40 --runs-per-task 4 \
   --lineage-attempts 500 \
   --output qualification/repair-1.3.6/multitask-statistical-qualification.json
-python tools/generate_release_manifests.py
 python tools/generate_release_manifests.py --check
 ```
-
-The qualification artifact and manifests must identify the same committed code snapshot. Historical CI links, test counts, package digests, and statistics are retained under `qualification/history/1.3.5-pre-repair/` and do not qualify this repair.
