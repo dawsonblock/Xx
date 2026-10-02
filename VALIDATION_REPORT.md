@@ -2,7 +2,7 @@
 
 ## Release state
 
-**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`; this report does not authorize a release tag or unattended promotion. The current committed source snapshot is `ca80a2b13a052e67053d2aeed37ffccf02722545` with source-manifest SHA-256 `21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1`. The V5 statistical campaign was regenerated from this commit in the hash-locked environment; its source-file hashes match the statistical implementation. Earlier hosted workflows were run against a superseded digest and are preserved separately; they do not qualify this snapshot. The statistical artifact, test report, dependency install attestation, and complete source/TCB manifests are stored under [`qualification/repair-1.3.6/`](qualification/repair-1.3.6/) and at the repository root.
+**UNRELEASED_QUALIFICATION_INCOMPLETE.** Package metadata remains `1.3.5`; this report does not authorize a release tag or unattended promotion. The current committed source snapshot is `ca80a2b13a052e67053d2aeed37ffccf02722545` with source-manifest SHA-256 `21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1`. The V5 statistical campaign was regenerated from this commit in the hash-locked environment; its source-file hashes match the statistical implementation. All six hosted workflows passed on workflow head `2feae7327076c7a2705730dc14fba12135a91403` and bind that source digest. The statistical artifact, test report, dependency install attestation, hosted run record, and complete source/TCB manifests are stored under [`qualification/repair-1.3.6/`](qualification/repair-1.3.6/) and at the repository root.
 
 The pre-repair source, reports, manifests, dependency files, JUnit output, and statistical/hosted evidence remain preserved under [`qualification/history/1.3.5-pre-repair/`](qualification/history/1.3.5-pre-repair/). Their results do not qualify this repair.
 
@@ -18,7 +18,7 @@ Run on native arm64 macOS with a fresh Python 3.12.0 virtual environment install
 - `pip install --require-hashes -r requirements-rsi-ci.lock`: passed in a fresh arm64 Python 3.12.0 environment; 67 installed distributions. Lock SHA-256 and inventory are in [`dependency-lock-install.json`](qualification/repair-1.3.6/dependency-lock-install.json).
 - Built the wheel and source distribution; `tools/verify_package.py` passed. A clean wheel install passed the statistics/anchor CLI help checks, bundled vendor-path check, and local anchor compare-and-swap/read smoke. The wheel smoke used the CI lock and deliberately did not install the full optional AIDE runtime dependency set.
 
-The Python 3.12 hash lock and full local suite passed in a fresh local environment. Hosted platform checks are pending against the current source digest; the older successful runs do not apply to this snapshot.
+The Python 3.12 hash lock and full local suite passed in a fresh local environment. Hosted Linux, macOS, Windows, lint, and package checks also passed on the recorded source digest; run IDs are in [`hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json).
 
 ## Protocol V5 synthetic statistical calibration
 
@@ -36,7 +36,7 @@ These simulations establish behavior under their modeled family/sign assumptions
 ## Implemented repair scope
 
 - TrustedEvaluator now separates real host paths from paths available only inside Bubblewrap. The first-party reference adapter receives host paths so it can launch its separately sandboxed candidate; required paths and artifacts fail closed.
-- Linux and macOS hosted workflows include first-party trusted-evaluator end-to-end tests; Windows includes canary schedule and state-lock invariants. These workflows must be rerun on the current source digest before their gates are recorded as passed.
+- Linux and macOS hosted workflows include first-party trusted-evaluator end-to-end tests; Windows includes canary schedule and state-lock invariants. All passed on the recorded source digest; see [`hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json).
 - Canary order is derived from canonical task order and ordinal, independent of caller replicate IDs. Each task receives a precommitted ABBA or BAAB schedule with exact within-task balance; the complete schedule is signed and rechecked during recovery.
 - Statistical inference aggregates runs to a task effect and tasks to a declared independent-family effect before the exact sign test. Legacy single-task series fields are labeled and excluded from V5 panel authority.
 - The repair lock, source/TCB inventory, historical baseline, and release manifests are content addressed.

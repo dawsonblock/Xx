@@ -10,7 +10,57 @@
     "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
   },
   "dependency_manifest_sha256": "83fe5ee4d929a49424139c60891bc7f12ffa395f55cea78833d70b854c2ab3f7",
-  "hosted_workflow_runs": null,
+  "hosted_workflow_runs": {
+    "artifact_sha256": "7e29abf097cdcac032efacc8e28f86d3f283208b7d7c742503fe132c878f6acf",
+    "qualified_code_commit": "ca80a2b13a052e67053d2aeed37ffccf02722545",
+    "qualified_source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+    "runs": {
+      "linter": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992602943,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992602943"
+      },
+      "linux_bubblewrap": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992613936,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613936"
+      },
+      "macos_nested_candidate_timeout": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992613511,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613511"
+      },
+      "macos_seatbelt": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992613548,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613548"
+      },
+      "package_completeness": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992603013,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992603013"
+      },
+      "windows_rsi_state_lock": {
+        "conclusion": "success",
+        "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+        "run_id": 36992614515,
+        "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+        "url": "https://github.com/dawsonblock/Xx/actions/runs/36992614515"
+      }
+    },
+    "schema_version": 1,
+    "workflow_head_sha": "2feae7327076c7a2705730dc14fba12135a91403"
+  },
   "limitations": [
     "the hashed requirements-rsi-ci lock covers Python 3.12 security/statistical CI only; optional full AIDE research dependencies are outside this lock",
     "external anchor service is not independently deployed or rollback-qualified",
@@ -100,12 +150,12 @@
   "tcb_manifest_sha256": "d4f82fcc58b100623063f89eaaeae6931bd9e9a05fb84dbad2659fbbfb7f81cc",
   "validation": {
     "dependency_lock_local_install": "PASS_LOCAL",
-    "dependency_lock_qualification": "LOCAL_HASHED_INSTALL_PASS_HOSTED_NOT_CONFIRMED",
-    "execution_order_balance": "LOCAL_TESTS_PASS_HOSTED_NOT_RUN",
+    "dependency_lock_qualification": "HOSTED_MATRIX_PASS",
+    "execution_order_balance": "PASS_HOSTED",
     "external_anchor_rollback_qualification": "NOT_RUN",
-    "hosted_platform_qualification": "NOT_CONFIRMED",
+    "hosted_platform_qualification": "PASS",
     "in_memory_synthetic_lineage_stress": "PASS_NOT_STATESTORE_OR_ANCHOR_QUALIFICATION",
-    "linux_reference_evaluator_e2e": "NOT_RUN_HOSTED",
+    "linux_reference_evaluator_e2e": "PASS",
     "local_full_pytest": {
       "artifact": "qualification/repair-1.3.6/pytest-junit.xml",
       "errors": 0,

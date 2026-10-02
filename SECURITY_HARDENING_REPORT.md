@@ -10,7 +10,7 @@ The pre-repair source and qualification artifacts are preserved under [`qualific
 
 The trusted evaluator now represents host-visible paths and sandbox-only paths with separate immutable path sets. The first-party reference adapter executes in the host namespace because it must start a nested candidate sandbox; every path in its request is a real host path. Operator-supplied evaluator bundles use paths mounted into the outer Bubblewrap or Seatbelt namespace. Construction fails closed if a required evaluator, candidate, dataset, config, split, or output path is missing. The reference adapter never receives `/evaluator`, `/scratch`, or other paths that exist only inside the outer Bubblewrap namespace.
 
-The reference adapter remains trusted host code. Candidate code runs in its separate strict inner sandbox and receives only public inputs. It cannot access hidden labels through the adapter contract. The evaluator timeout cleanup records and kills the nested candidate process group. Earlier hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout E2E runs passed, but their source digest is superseded by the release-freeze status fix; fresh runs are required for the current committed source.
+The reference adapter remains trusted host code. Candidate code runs in its separate strict inner sandbox and receives only public inputs. It cannot access hidden labels through the adapter contract. The evaluator timeout cleanup records and kills the nested candidate process group. Hosted Linux Bubblewrap, native macOS Seatbelt, and nested-timeout first-party E2E workflows passed on the current source digest; exact run identities are in [`qualification/repair-1.3.6/hosted-workflow-runs.json`](qualification/repair-1.3.6/hosted-workflow-runs.json).
 
 ## Canary order and inference
 
@@ -31,7 +31,7 @@ The per-experiment writer lock prevents two local controllers from making confli
 ## Remaining security and deployment limits
 
 - No independently administered anchor service or destructive whole-host snapshot rollback campaign has been run for this repair snapshot.
-- Hosted Linux/macOS/Windows confinement, linter, and package checks must be rerun against the current source digest; prior run records are not treated as qualification for this snapshot.
+- Hosted Linux/macOS/Windows confinement, linter, and package checks passed against the current source digest; this evidence does not cover an independently administered anchor or real-task promotion corpus.
 - No frozen real-task qualification corpus or complete trusted-evaluator null/degraded/improvement campaign is available in this checkout.
 - The CI lock pins the Python 3.12 security/statistical/packaging toolchain. It does not lock every optional AIDE research dependency or provider runtime.
 - Host-held HMAC secrets are not hardware-backed or split across independent signing services. Same-account compromise can expose them.
