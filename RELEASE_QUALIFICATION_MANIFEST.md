@@ -1,9 +1,10 @@
 # Current statistical-authority qualification
 
 The current source snapshot is frozen at qualified code commit
-`095c810b18dfc731f14f543bdbe13e30f3f9f830` (Git tree
-`e12bc9ad1f6c1c815e19f9cd69975dd7d3604384`). Its package version remains
-`1.3.5`; this is an unreleased qualification milestone, not v1.4.0.
+`a2bdaedd0492b98e9ab0ee1726b14008766fc512` (Git tree
+`1668745a7ee0455536e0c7eb056da3e20cffb178`). The qualification metadata head
+is `925f1bc6172b150f8c85c8821187d15916188ba1`. Package version remains `1.3.5`;
+this is an unreleased qualification milestone, not v1.4.0.
 
 The canonical machine-readable identity and qualification record is
 [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json), with selected
@@ -11,29 +12,40 @@ authority-critical file hashes in [`TCB_MANIFEST.json`](TCB_MANIFEST.json) and
 the reproducible synthetic campaign in
 [`qualification/multitask-statistical-qualification.json`](qualification/multitask-statistical-qualification.json).
 
-Local results on 2026-10-01: 208 passed and 1 skipped in the full project
-suite; synthetic family-wise null calibration passed 20,000 100-attempt
-lineages (3.37% false-promotion rate; 95% Wilson interval 3.13%–3.63% under
-the 5% family alpha); all 25 within-seed/family-correlation scenarios passed;
-and an in-memory 500-panel synthetic lineage stress completed. Power is
-attempt-dependent and falls at late attempts as the precommitted alpha budget
-shrinks. The report and artifact document the observed power rather than
-implying all-attempt high power.
+Local results: 209 passed and 1 skipped in the full project suite. The new
+`MULTITASK_PROMOTION_PROTOCOL_V2` fixes a 500-attempt Bonferroni horizon and
+allocates `alpha_i = family_alpha / 500`. A 20,000-lineage, 500-attempt
+synthetic null campaign observed 222 false-promotion lineages (1.11%; 95%
+Wilson interval 0.974%–1.265%) under the 5% family alpha. All 25 correlation
+sensitivity cells passed, and a 500-attempt in-memory lineage consumed its
+full alpha budget without panel reuse. This is synthetic evidence only.
+
+Power is inadequate at the current minimum panel size: for a 0.02 effect,
+estimated power was 4.36%, 15.78%, and 43.38% with 20, 30, and 40 independent
+family clusters. No adequate-power or real-task-improvement claim is made.
+External-anchor deployment and real multi-task controls remain unqualified;
+the release stays blocked.
+
+The synthetic statistical artifact was generated at commit
+`f611f0fd65bd8a965fd003f53a2220f7990286cc`. The final qualified code commit
+differs only in three platform workflow files; the artifact's complete set of
+statistical/evaluator source hashes matches the final source.
 
 Hosted CI completed successfully on metadata head
-`6ef0a90bca7f0244517696d1b333ead0198c9791`; its canonical source snapshot
-digest matches qualified code commit `095c810b18dfc731f14f543bdbe13e30f3f9f830`.
+`925f1bc6172b150f8c85c8821187d15916188ba1`; its canonical source snapshot
+digest matches qualified code commit `a2bdaedd0492b98e9ab0ee1726b14008766fc512`.
 The run IDs are also embedded in the freeze manifest:
 
-- [Linux Bubblewrap](https://github.com/dawsonblock/Xx/actions/runs/36958334793)
-- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36958334934)
-- [Windows RSI state lock](https://github.com/dawsonblock/Xx/actions/runs/36958334828)
-- [Linter](https://github.com/dawsonblock/Xx/actions/runs/36958334772)
-- [Package completeness](https://github.com/dawsonblock/Xx/actions/runs/36958334826)
+- [Linux Bubblewrap](https://github.com/dawsonblock/Xx/actions/runs/36962280344)
+- [macOS nested candidate timeout](https://github.com/dawsonblock/Xx/actions/runs/36962279795)
+- [Windows RSI state lock](https://github.com/dawsonblock/Xx/actions/runs/36962280860)
+- [Linter](https://github.com/dawsonblock/Xx/actions/runs/36962253573)
+- [Package completeness](https://github.com/dawsonblock/Xx/actions/runs/36962253578)
 
-Independent external-anchor deployment and rollback qualification, real
-multi-task identical/degraded/stronger controls, and real AIDE-RSI lineage
-qualification remain not run. No release tag should be cut from this record.
+Adequate power qualification, independent external-anchor deployment and
+rollback qualification, real multi-task identical/degraded/stronger controls,
+and real AIDE-RSI lineage qualification remain incomplete. No release tag
+should be cut from this record.
 
 ## Historical qualification snapshots
 

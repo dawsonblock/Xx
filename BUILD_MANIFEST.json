@@ -85,14 +85,14 @@
       "correct 128 MiB minimum memory validation",
       "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels",
       "HTTPS state anchors require an out-of-band TLS leaf-certificate SHA-256 pin, verified before bearer credentials are sent",
-      "sequential canary promotion uses a durable attempt index and a summable exact sign-test alpha-spending schedule",
-      "canary repetition count grows to meet the current sequential sign-test threshold",
+      "multi-task exact family-cluster sign test uses protocol V2 with a fixed 500-attempt Bonferroni alpha horizon",
+      "task replicates aggregate within task and family before promotion inference; seeds do not count as independent families",
       "100-attempt interrupted-canary recovery test preserves retired sample identities after reservation deletion",
       "the experiment alpha budget and static canary gate thresholds are immutable in HMAC-authenticated state",
-      "legacy attempt counters seed conservatively from persisted round progress when enabling alpha spending",
+      "legacy nonzero attempt counters require a fresh statistical epoch and cannot be silently migrated",
       "the configured experiment alpha and static canary gate policy digest are immutable in authenticated RSI state",
-      "Linux hosted workflow runs the sequential-alpha, TLS-pin, and 100-attempt crash-recovery regressions",
-      "Windows hosted workflow runs sequential-alpha, TLS-pin, and interrupted-canary recovery regressions"
+      "Linux Bubblewrap and authority regression workflow is manually dispatchable after release manifests are frozen",
+      "Windows state-lock and authority regression workflow is manually dispatchable after release manifests are frozen"
     ],
     "validation": {
       "full_project_pytest": "178 passed, 1 skipped (macOS local)",
@@ -153,5 +153,45 @@
   ],
   "manifest_status": "Historical v1.3.5 build manifest; all embedded validation counts and source claims describe earlier snapshots only.",
   "current_authoritative_release_record": "RELEASE_FREEZE_MANIFEST.json",
-  "current_release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE"
+  "current_release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
+  "current_statistical_authority_validation": {
+    "qualified_code_commit": "a2bdaedd0492b98e9ab0ee1726b14008766fc512",
+    "qualified_code_git_tree": "1668745a7ee0455536e0c7eb056da3e20cffb178",
+    "metadata_head": "925f1bc6172b150f8c85c8821187d15916188ba1",
+    "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+    "statistical_protocol": "MULTITASK_PROMOTION_PROTOCOL_V2",
+    "promotion_attempt_horizon": 500,
+    "alpha_allocation": "family_alpha / 500",
+    "local_pytest": "209 passed, 1 skipped",
+    "synthetic_null_calibration": {
+      "lineages": 20000,
+      "attempts_per_lineage": 500,
+      "false_promotions": 222,
+      "observed_familywise_rate": 0.0111,
+      "wilson_95": [
+        0.009738979516161561,
+        0.012648793339497541
+      ],
+      "configured_family_alpha": 0.05
+    },
+    "power_at_effect_0_02": {
+      "independent_families_20": 0.0436,
+      "independent_families_30": 0.1578,
+      "independent_families_40": 0.4338,
+      "qualification": "inadequate at current minimum; do not claim adequate power"
+    },
+    "hosted_workflows": {
+      "linux_bubblewrap": "https://github.com/dawsonblock/Xx/actions/runs/36962280344",
+      "macos_nested_candidate_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36962279795",
+      "windows_rsi_state_lock": "https://github.com/dawsonblock/Xx/actions/runs/36962280860",
+      "linter": "https://github.com/dawsonblock/Xx/actions/runs/36962253573",
+      "package_completeness": "https://github.com/dawsonblock/Xx/actions/runs/36962253578"
+    },
+    "still_unqualified": [
+      "adequate power at the minimum panel size",
+      "independently deployed external anchor and full-directory rollback",
+      "real-task multi-task null, degraded, and stronger controls",
+      "real multi-generation AIDE-RSI improvement"
+    ]
+  }
 }

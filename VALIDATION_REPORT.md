@@ -4,55 +4,54 @@
 
 This is the current validation record for the unreleased branch
 `fix/aide-rsi-authority-closure`. The qualified code snapshot is commit
-`095c810b18dfc731f14f543bdbe13e30f3f9f830`, Git tree
-`e12bc9ad1f6c1c815e19f9cd69975dd7d3604384`, with package metadata still at
-`1.3.5`. It is not a v1.4.0 release. The canonical source, TCB, statistical
-artifact, and test identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json)
+`a2bdaedd0492b98e9ab0ee1726b14008766fc512`, Git tree
+`1668745a7ee0455536e0c7eb056da3e20cffb178`; the metadata head carrying this
+record is `925f1bc6172b150f8c85c8821187d15916188ba1`. Package metadata remains
+`1.3.5`; this is not a v1.4.0 release. The canonical source, TCB, statistical
+artifact, and hosted-run identities are in [`RELEASE_FREEZE_MANIFEST.json`](RELEASE_FREEZE_MANIFEST.json)
 and [`TCB_MANIFEST.json`](TCB_MANIFEST.json).
 
-Local qualification on 2026-10-01:
+Local validation:
 
-- Full project suite: **208 passed, 1 skipped** (209 tests; JUnit artifact
-  hash is recorded in the release freeze manifest).
-- Compile check, Ruff, Black, and `git diff --check`: passed.
-- Synthetic null calibration: **674 false-promotion lineages / 20,000**
-  (3.37%); 95% Wilson interval **3.13%–3.63%**, below the experiment-wide
-  alpha of 5% for this configured 100-attempt campaign.
-- Correlation sensitivity: **25/25** seed-correlation × family-correlation
-  cells passed. Each cell used 20,000 simulated attempts; the highest observed
-  false-promotion rate was 2.235%, with a highest 95% Wilson upper bound of
-  2.449% against the first-attempt alpha allocation of 2.5%.
-- Power sensitivity: for a 0.02 effect at attempt 1, estimated power was
-  70.9%, 86.5%, and 92.5% with 20, 30, and 40 independent family clusters.
-  At attempt 100 it was 0.6%, 6.8%, and 17.8%, respectively. This shows the
-  current conservative spending schedule has low late-attempt power; these
-  curves are synthetic and are not evidence of AIDE task improvement.
-- Synthetic in-memory lineage stress: 500 panel attempts, 47 crashes after
-  reservation, 26 failed panels, 500 unique panels, and alpha remaining
-  `0.0000998004`. This exercises the in-memory budget/lineage model; it does
-  not qualify `RSIStateStore`, an external anchor, or crash behavior in a
-  deployed experiment.
-- Wheel and source distribution contents were checked; a clean wheel install
-  exercised the statistics and anchor entry points, bundled LocalJevFabric,
-  and a local anchor compare-and-swap/read smoke test.
-- The calibration tool also completed a reduced smoke campaign from both the
-  installed wheel and extracted source distribution without Git metadata; each
-  resolved the frozen commit/tree from its bundled release freeze.
+- Full project suite: **209 passed, 1 skipped** (210 tests; the skip is the
+  optional bundled JEV integration package absent from this checkout).
+- `compileall`, Ruff, Black, and `git diff --check`: passed.
+- The fixed V2 protocol reserves 500 promotion attempts at `alpha_i = 0.05 / 500`.
+  A 20,000-lineage synthetic null campaign over all 500 attempts observed 222
+  false-promotion lineages (**1.11%**, 95% Wilson interval **0.974%–1.265%**),
+  below the 5% experiment-wide family alpha.
+- All 25 seed-correlation × within-family-correlation sensitivity cells passed.
+  The largest per-attempt Monte Carlo estimate was 3/20,000 (**0.015%**); its
+  Wilson upper bound is 0.044%, so the simulation does not resolve the 0.01%
+  per-attempt allocation precisely. The exact family-cluster sign test and the
+  full-lineage result remain the relevant checks under the predeclared
+  independence assumptions.
+- Power remains a release blocker: at a 0.02 effect and the 500-attempt
+  allocation, estimated power was **4.36%, 15.78%, and 43.38%** with 20, 30,
+  and 40 independent family clusters. These synthetic values do not support a
+  claim of adequate power at the current minimum panel size.
+- The 500-attempt in-memory lineage stress retired 500 panels, spent the full
+  0.05 alpha budget, and left zero alpha available. It does not qualify
+  `RSIStateStore`, external-anchor crash behavior, or deployment rollback.
+
+The synthetic statistical artifact was produced from commit
+`f611f0fd65bd8a965fd003f53a2220f7990286cc`. Comparing that commit with the
+qualified code commit shows only three platform-workflow changes; the
+statistical/evaluator source files hashed by the campaign are identical.
 
 Hosted Linux Bubblewrap, macOS nested-candidate timeout, Windows writer-lock,
 linter, and package-completeness workflows all passed on metadata head
-`6ef0a90bca7f0244517696d1b333ead0198c9791`, whose qualified source snapshot
-digest matches code commit `095c810b18dfc731f14f543bdbe13e30f3f9f830`. Their
-run IDs and URLs are recorded in the canonical freeze manifest.
+`925f1bc6172b150f8c85c8821187d15916188ba1`. Their exact run IDs and URLs are in
+the canonical freeze manifest.
 
-Still unqualified: an independently deployed external anchor and
-whole-directory rollback, real multi-task identical/degraded/stronger controls,
-and genuine multi-generation AIDE-RSI improvement. The requirements files are
-not a locked dependency set. Synthetic independence assumptions do not prove
-that real task-family clusters are independent or representative. See the
-machine-readable freeze for exact `NOT_RUN` and `NOT_CONFIRMED` statuses. Older
-sections below are historical validation for earlier commits and must not be
-attributed to this source.
+Still unqualified: adequate power for the minimum panel, an independently
+deployed external anchor and whole-directory rollback, real multi-task
+identical/degraded/stronger controls, and genuine multi-generation AIDE-RSI
+improvement. Requirements files are not a locked dependency set. Synthetic
+independence assumptions do not prove that real task-family clusters are
+independent or representative. Do not release or tag v1.4.0 from this record.
+Older sections below are historical validation for earlier commits and must
+not be attributed to this source.
 
 ## Unreleased hardening closure branch
 
