@@ -1,8 +1,8 @@
 # Current statistical-authority qualification
 
 The current source snapshot is frozen at qualified code commit
-`c4603ac4128f9e45480c286457ad4a1eeac48ee4` (Git tree
-`0587067e04f7d67c1bbbf2f3d491c54ad6885173`). Its package version remains
+`6342e665e684891c66c891db4dbcf51bafc1612d` (Git tree
+`6a9eb8a29d72781e47902fee11c0bbec7403dc56`). Its package version remains
 `1.3.5`; this is an unreleased qualification milestone, not v1.4.0.
 
 The canonical machine-readable identity and qualification record is
