@@ -14,6 +14,8 @@ on:
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/generate_release_manifests.py
       - .github/workflows/macos-nested-timeout.yml
   push:
     branches: [main, fix/aide-rsi-authority-closure]
@@ -29,6 +31,8 @@ on:
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/generate_release_manifests.py
       - .github/workflows/macos-nested-timeout.yml
 
 permissions:
@@ -54,3 +58,4 @@ jobs:
           tests/test_rsi_trusted_evaluator.py::test_outer_timeout_kills_nested_reference_candidate
           tests/test_rsi_anchor_service.py
           tests/test_rsi_statistics_budget.py
+          tests/test_rsi_statistics_qualification_tool.py

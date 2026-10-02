@@ -11,6 +11,8 @@ on:
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/generate_release_manifests.py
       - .github/workflows/windows-rsi-state-lock.yml
   push:
     branches: [main, fix/aide-rsi-authority-closure]
@@ -23,6 +25,8 @@ on:
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_anchor_service.py
       - tests/test_rsi_statistics_budget.py
+      - tests/test_rsi_statistics_qualification_tool.py
+      - tools/generate_release_manifests.py
       - .github/workflows/windows-rsi-state-lock.yml
 
 permissions:
@@ -51,3 +55,4 @@ jobs:
           tests/test_rsi_v120.py::test_sequential_canary_alpha_spending_is_durable_and_pair_count_scales
           tests/test_rsi_anchor_service.py
           tests/test_rsi_statistics_budget.py
+          tests/test_rsi_statistics_qualification_tool.py
