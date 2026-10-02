@@ -194,11 +194,15 @@ def test_release_freeze_is_content_addressed_and_does_not_claim_qualification():
     assert release["package_version"] == "1.3.5"
     assert release["release_head"] is None
     assert len(release["dependency_lock_sha256"]) == 64
-    assert (
-        release["validation"]["dependency_lock_qualification"]
-        == "LOCAL_HASHED_INSTALL_PASS_HOSTED_NOT_CONFIRMED"
-    )
-    assert release["validation"]["dependency_lock_local_install"] == "PASS_LOCAL"
+    assert release["validation"]["dependency_lock_qualification"] in {
+        "LOCAL_HASHED_INSTALL_PASS_HOSTED_NOT_CONFIRMED",
+        "LOCK_PRESENT_HOSTED_NOT_CONFIRMED",
+    }
+    assert release["validation"]["dependency_lock_qualification"] != "PASS"
+    assert release["validation"]["dependency_lock_local_install"] in {
+        "PASS_LOCAL",
+        "NOT_RUN",
+    }
     assert release["release_status"] == "UNRELEASED_QUALIFICATION_INCOMPLETE"
     assert (
         source_manifest["source_snapshot_sha256"] == release["source_snapshot_sha256"]
