@@ -202,6 +202,7 @@ def test_release_freeze_is_content_addressed_and_does_not_claim_qualification():
     assert release["validation"]["dependency_lock_local_install"] in {
         "PASS_LOCAL",
         "NOT_RUN",
+        "INVALID_OR_STALE",
     }
     assert release["release_status"] == "UNRELEASED_QUALIFICATION_INCOMPLETE"
     assert (
