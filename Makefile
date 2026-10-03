@@ -1,10 +1,12 @@
 .PHONY: docker docker-build docker-run install test-rsi clean install-jev jev-doctor jev-fabric
 
 # Docker image name
-IMAGE_NAME = aide-dream-rsi
+VERSION := $(shell cat VERSION)
+IMAGE_NAME = aide-dream-rsi:$(VERSION)
+SANDBOX_IMAGE = aideml-rsi-sandbox:$(VERSION)
 
 # Python version and venv
-PYTHON = python3.10
+PYTHON = python3.12
 VENV_NAME = .venv
 
 # Default directories for logs and workspaces
@@ -27,6 +29,7 @@ docker: docker-build docker-run
 
 # Build Docker image
 docker-build:
+	$(PYTHON) tools/generate_release_manifests.py --check
 	docker build -t $(IMAGE_NAME) .
 
 # Run Docker container
@@ -57,9 +60,10 @@ clean:
 
 # Build the same dependency-complete image for strict OCI candidate execution.
 # Then configure: rsi.sandbox.backend=container
-#                 rsi.sandbox.container_image=aideml-rsi-sandbox:1.3.3
+#                 rsi.sandbox.container_image=$(SANDBOX_IMAGE)
 sandbox-image:
-	docker build -t aideml-rsi-sandbox:1.3.3 .
+	$(PYTHON) tools/generate_release_manifests.py --check
+	docker build -t $(SANDBOX_IMAGE) .
 
 
 # Install the bundled LocalJevFabric control-plane dependency.

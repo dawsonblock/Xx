@@ -1,34 +1,32 @@
 # syntax=docker/dockerfile:1
 
 # Build stage
-FROM python:3.10-slim AS builder
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS builder
 
-# Install build dependencies
+# Set working directory
+WORKDIR /app
+
+# The build context itself must match the frozen source identity.
+COPY . .
+RUN python tools/generate_release_manifests.py --check && \
+    test -f requirements-runtime.lock
+
+# Install build dependencies only after source and lock admission.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# Copy only the files needed for installation
-COPY requirements.txt setup.py README.md ./
-COPY aide ./aide
-COPY rsi_anchor_service.py ./
-COPY tools ./tools
-COPY vendor ./vendor
-COPY TCB_MANIFEST.json RELEASE_FREEZE_MANIFEST.json SOURCE_TREE_MANIFEST.json requirements-rsi-ci.in requirements-rsi-ci.lock ./
-
-# Create virtual environment and install dependencies
+# A release runtime requires a fully hashed runtime lock. The CI lock only
+# qualifies the narrower security/statistical toolchain.
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install -e .
+    pip install --no-cache-dir --require-hashes -r requirements-runtime.lock && \
+    pip install --no-deps -e .
 
 # Runtime stage
-FROM python:3.10-slim
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # Install runtime dependencies
 RUN apt-get update && \

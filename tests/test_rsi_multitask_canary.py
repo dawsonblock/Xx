@@ -414,6 +414,79 @@ def test_panel_rejects_small_unbalanced_or_overlapping_task_sets():
         CanaryPanel(0, tuple(shared_seed_schedule), panel.protocol_sha256)
 
 
+def test_v6_rejects_each_panel_minimum_and_reused_sample_id():
+    panel = _panel()
+    tasks = list(panel.tasks)
+    tasks[1] = replace(tasks[1], task_family=tasks[0].task_family)
+    with pytest.raises(ValueError, match="40 independent"):
+        CanaryPanel(0, tuple(tasks), panel.protocol_sha256)
+
+    one_stratum = tuple(replace(task, task_stratum="only") for task in panel.tasks)
+    with pytest.raises(ValueError, match="3 task strata"):
+        CanaryPanel(0, one_stratum, panel.protocol_sha256)
+
+    sparse_stratum = tuple(
+        replace(task, task_stratum="a" if index < 20 else "b" if index < 39 else "c")
+        for index, task in enumerate(panel.tasks)
+    )
+    with pytest.raises(ValueError, match="3 independent families"):
+        CanaryPanel(0, sparse_stratum, panel.protocol_sha256)
+
+    with pytest.raises(ValueError, match="exactly 4 paired runs"):
+        replace(
+            panel.tasks[0], replicate_ids=(0, 1, 2), replicate_seeds=(101, 202, 303)
+        )
+
+    duplicate_id = list(panel.tasks)
+    duplicate_id[1] = replace(duplicate_id[1], sample_ids=duplicate_id[0].sample_ids)
+    with pytest.raises(ValueError, match="reuse sample IDs"):
+        CanaryPanel(0, tuple(duplicate_id), panel.protocol_sha256)
+
+
+def test_v6_attempt_501_has_no_alpha_allocation():
+    with pytest.raises(ValueError):
+        sequential_alpha(0.05, 501)
+
+
+def test_benchmark_taxonomy_change_invalidates_panel_digest():
+    panel = _panel()
+    first = CanaryPanel(panel.epoch, panel.tasks, panel.protocol_sha256, "a" * 64)
+    second = CanaryPanel(panel.epoch, panel.tasks, panel.protocol_sha256, "b" * 64)
+    assert first.panel_sha256 != second.panel_sha256
+
+
+def test_practical_effect_is_precommitted_and_recorded_in_decision():
+    panel = _panel()
+    policy = _pair_gate().task_pair_policy_config()
+    changed_protocol = multitask_protocol_sha256(
+        0.05, 0.01, 0.25, pair_gate_policy=policy
+    )
+    assert changed_protocol != panel.protocol_sha256
+    pair_gates = {task_id: _pair_gate() for task_id in panel.task_ids}
+    with pytest.raises(ValueError, match="protocol does not match"):
+        TaskClusteredCanaryGate(
+            panel=panel,
+            pair_gates=pair_gates,
+            promotion_attempt_index=1,
+            family_alpha=0.05,
+            allocated_alpha=sequential_alpha(0.05, 1),
+            min_effect_size=0.01,
+            max_task_regression=0.25,
+        )
+    changed_panel = CanaryPanel(panel.epoch, panel.tasks, changed_protocol)
+    gate = TaskClusteredCanaryGate(
+        panel=changed_panel,
+        pair_gates=pair_gates,
+        promotion_attempt_index=1,
+        family_alpha=0.05,
+        allocated_alpha=sequential_alpha(0.05, 1),
+        min_effect_size=0.01,
+        max_task_regression=0.25,
+    )
+    result = gate.evaluate_panel({})
+    assert result.to_dict()["minimum_practical_effect"] == 0.01
+
+
 def test_panel_digest_binds_each_sample_id_to_its_content_hashes():
     panel = _panel()
     original = panel.tasks[0]

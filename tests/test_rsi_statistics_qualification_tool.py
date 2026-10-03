@@ -211,7 +211,7 @@ def test_release_freeze_is_content_addressed_and_does_not_claim_qualification():
     assert source_manifest["files"]
 
 
-def test_release_freeze_reads_pytest_counts_from_junit_xml(tmp_path, monkeypatch):
+def test_release_freeze_rejects_unbound_junit_xml(tmp_path, monkeypatch):
     qualification = tmp_path / "qualification/repair-1.3.6"
     qualification.mkdir(parents=True)
     (qualification / "pytest-junit.xml").write_text(
@@ -222,10 +222,7 @@ def test_release_freeze_reads_pytest_counts_from_junit_xml(tmp_path, monkeypatch
 
     result = generate_release_manifests._pytest_validation()
 
-    assert result["status"] == "PASS"
-    assert result["tests"] == 207
-    assert result["passed"] == 206
-    assert result["skipped"] == 1
+    assert result["status"] == "STALE_OR_UNBOUND"
 
 
 def test_release_freeze_ignores_historical_junit_results(tmp_path, monkeypatch):
@@ -260,6 +257,12 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
             generate_release_manifests._source_paths()
         )
     )
+    identity = generate_release_manifests.build_manifests(
+        qualified_code_commit=commit, qualified_code_tree="d" * 40
+    )["IDENTITY_MANIFEST.json"]
+    bound_identity = {
+        key: value for key, value in identity.items() if key.endswith("_sha256")
+    }
     qualification = tmp_path / "qualification"
     qualification.mkdir()
     runs = {
@@ -268,6 +271,7 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
             "url": f"https://github.com/example/repo/actions/runs/{index}",
             "head_sha": workflow_head,
             "source_snapshot_sha256": source_snapshot,
+            **bound_identity,
             "conclusion": "success",
         }
         for index, name in enumerate(
@@ -278,6 +282,7 @@ def test_release_freeze_records_only_complete_matching_hosted_workflow_evidence(
         "schema_version": 1,
         "qualified_code_commit": commit,
         "qualified_source_snapshot_sha256": source_snapshot,
+        **bound_identity,
         "workflow_head_sha": workflow_head,
         "runs": runs,
     }

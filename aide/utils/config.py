@@ -218,6 +218,7 @@ class RSIConfig:
     # authorize a policy promotion.
     canary_panel: list[RSICanaryPanelTaskConfig] = field(default_factory=list)
     canary_panel_epoch: int = 0
+    benchmark_family_manifest_path: str | None = None
     canary: RSICanaryConfig = field(default_factory=RSICanaryConfig)
     jev: RSIJevConfig = field(default_factory=RSIJevConfig)
     evolution: RSIEvolutionConfig = field(default_factory=RSIEvolutionConfig)

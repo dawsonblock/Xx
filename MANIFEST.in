@@ -1,9 +1,13 @@
-include SECURITY_HARDENING_REPORT.md
 include TCB_MANIFEST.json
+include IDENTITY_MANIFEST.json
+include BUILD_MANIFEST.json
 include RELEASE_FREEZE_MANIFEST.json
 include SOURCE_TREE_MANIFEST.json
+include VERSION
+include BENCHMARK_FAMILY_MANIFEST.json
 include requirements-rsi-ci.in
 include requirements-rsi-ci.lock
+include requirements-runtime.lock
 include rsi_anchor_service.py
 include tools/qualify_canary_statistics.py
 recursive-include tools *.py

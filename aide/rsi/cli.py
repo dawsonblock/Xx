@@ -5,6 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from aide.version import package_version
+
 from .evaluator import ReplayEvaluator
 from .evolution import PolicyEvolutionEngine
 from .policy import AdaptiveReplayPolicy
@@ -39,6 +41,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="aide-rsi-replay", description="Offline DREAM-RSI replay tools"
     )
+    parser.add_argument("--version", action="version", version=package_version())
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_build = sub.add_parser(

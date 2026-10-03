@@ -16,6 +16,7 @@ on:
       - rsi_anchor_service.py
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_reference_evaluator.py
+      - tests/test_rsi_bubblewrap_adversarial.py
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_v120.py
       - tests/test_rsi_anchor_service.py
@@ -42,6 +43,7 @@ on:
       - rsi_anchor_service.py
       - tests/test_rsi_recovery_hardening.py
       - tests/test_rsi_reference_evaluator.py
+      - tests/test_rsi_bubblewrap_adversarial.py
       - tests/test_rsi_trusted_evaluator.py
       - tests/test_rsi_v120.py
       - tests/test_rsi_anchor_service.py
@@ -84,6 +86,7 @@ jobs:
         # test job as root so Bubblewrap can complete namespace setup.
         run: |
           sudo env PYTHONPATH=. "$pythonLocation/bin/python" -m pytest -q \
+            tests/test_rsi_bubblewrap_adversarial.py \
             tests/test_rsi_reference_evaluator.py \
             tests/test_rsi_trusted_evaluator.py::test_first_party_reference_evaluator_is_wired_through_trusted_runner \
             tests/test_rsi_trusted_evaluator.py::test_reference_evaluator_uses_host_paths_on_linux \

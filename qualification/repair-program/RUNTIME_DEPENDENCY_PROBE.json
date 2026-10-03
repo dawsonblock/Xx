@@ -1,0 +1,22 @@
+{
+  "aggregate_tcb_sha256": "965ee44bf4c790da681ae6cd782a48efe9ecb996d57a32a8576ac8a68042a34e",
+  "benchmark_family_manifest_sha256": "ccb2b2d51ce8f4db5bd2d2ded718c2fc679aefaaeb515fdee151522eb5775c4d",
+  "dependency_lock_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+  "docker_base_image_digest": "dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+  "evaluator_sha256": "4d88fc9abb750936f8a6974f4126ac7c161a14f4d9e16f4dc2a7979d8da404ab",
+  "install_command": "docker run --rm --cpus 4 --memory 8g --platform linux/arm64 <pinned-python-base> sh -c \"apt-get update; apt-get install build-essential gcc; python -m venv /tmp/runtime-venv; /tmp/runtime-venv/bin/python -m pip install --no-cache-dir --require-hashes -r /requirements-runtime.lock; /tmp/runtime-venv/bin/python -m pip check\"",
+  "install_exit_code": 137,
+  "last_package_seen": "nvidia-cublas==13.1.1.3",
+  "lock_generation_command": "uv pip compile requirements.txt --universal --python-version 3.12 --generate-hashes --output-file requirements-runtime.lock",
+  "lock_resolved_packages": 271,
+  "pip_check_executed": false,
+  "qualified": false,
+  "runtime_dependency_lock_sha256": "a98e4dd2e52927cad048beb8f175d5196cb2013a6e4e6f9e3defdec681b5fe1c",
+  "schema_version": 1,
+  "scope": "fresh disposable Linux aarch64 Python 3.12 full-runtime dependency installation",
+  "source_snapshot_sha256": "0a7087e08259823f57c2245d78b64dcb24378c640f15c59f440b0973e1ce67c6",
+  "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861",
+  "status": "BLOCKED",
+  "stop_reason": "host free space fell from about 15 GiB to about 12 GiB while downloading a 542.8 MB CUDA wheel; full dependency stack could threaten active work",
+  "stopped_by_operator": true
+}

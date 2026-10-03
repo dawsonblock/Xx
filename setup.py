@@ -1,7 +1,65 @@
+import json
+import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
 from setuptools import find_packages, setup
+from setuptools.command.bdist_wheel import bdist_wheel
+from setuptools.command.sdist import sdist
+
+
+def require_current_manifests():
+    subprocess.run(
+        [sys.executable, "tools/generate_release_manifests.py", "--check"],
+        check=True,
+    )
+
+
+class CheckedSdist(sdist):
+    def run(self):
+        require_current_manifests()
+        super().run()
+
+    def make_distribution(self):
+        source = json.loads(Path("SOURCE_TREE_MANIFEST.json").read_text())
+        generated = {
+            "BUILD_MANIFEST.json",
+            "IDENTITY_MANIFEST.json",
+            "RELEASE_FREEZE_MANIFEST.json",
+            "SOURCE_TREE_MANIFEST.json",
+            "TCB_MANIFEST.json",
+            "BENCHMARK_FAMILY_MANIFEST.json",
+        }
+        metadata = {
+            "PKG-INFO",
+            "SOURCES.txt",
+            "dependency_links.txt",
+            "top_level.txt",
+            "requires.txt",
+            "entry_points.txt",
+        }
+        self.filelist.files = [
+            name
+            for name in self.filelist.files
+            if name in source["files"]
+            or name in generated
+            or (
+                name.startswith("aideml_rsi.egg-info/")
+                and name.rsplit("/", 1)[-1] in metadata
+            )
+        ]
+        self.filelist.extend(sorted(source["files"]))
+        self.filelist.sort()
+        self.filelist.remove_duplicates()
+        super().make_distribution()
+
+
+class CheckedWheel(bdist_wheel):
+    def run(self):
+        require_current_manifests()
+        super().run()
+
 
 with open("README.md", "r") as f:
     long_description = f.read()
@@ -36,10 +94,15 @@ def qualification_data_files():
         str(path)
         for path in (
             Path("TCB_MANIFEST.json"),
+            Path("IDENTITY_MANIFEST.json"),
+            Path("BUILD_MANIFEST.json"),
             Path("RELEASE_FREEZE_MANIFEST.json"),
             Path("SOURCE_TREE_MANIFEST.json"),
+            Path("VERSION"),
+            Path("BENCHMARK_FAMILY_MANIFEST.json"),
             Path("requirements-rsi-ci.in"),
             Path("requirements-rsi-ci.lock"),
+            Path("requirements-runtime.lock"),
         )
         if path.is_file()
     ]
@@ -48,7 +111,7 @@ def qualification_data_files():
 
 setup(
     name="aideml-rsi",
-    version="1.3.5",
+    version=Path("VERSION").read_text(encoding="utf-8").strip(),
     author="Weco AI",
     author_email="contact@weco.ai",
     description="AIDE with replay-based recursive self-improvement of exploration",
@@ -58,6 +121,7 @@ setup(
     packages=find_packages(),
     py_modules=["rsi_anchor_service"],
     data_files=vendor_data_files() + qualification_data_files(),
+    cmdclass={"sdist": CheckedSdist, "bdist_wheel": CheckedWheel},
     package_data={
         "aide": [
             "../requirements.txt",
@@ -73,7 +137,7 @@ setup(
         "Operating System :: OS Independent",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
-    python_requires=">=3.10",
+    python_requires=">=3.10,<3.13",
     install_requires=requirements,
     entry_points={
         "console_scripts": [

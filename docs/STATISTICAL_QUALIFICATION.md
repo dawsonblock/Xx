@@ -4,8 +4,20 @@ Promotion inference uses independent task-family clusters. Seeds are paired with
 
 `MULTITASK_PROMOTION_PROTOCOL_V6` fixes the protocol identity and records:
 
-- at least 40 distinct tasks and at least 40 independent task-family clusters;
-- exactly 4 paired runs per task, reduced to one median task effect;
+<!-- BEGIN GENERATED V6 POLICY -->
+| Policy | V6 value |
+| --- | ---: |
+| Minimum distinct tasks | 40 |
+| Minimum independent families | 40 |
+| Minimum strata | 3 |
+| Minimum families per stratum | 3 |
+| Paired runs per task | 4 |
+| Promotion attempt horizon | 500 |
+| Family alpha | 0.05 |
+| Per-attempt alpha | 0.0001 |
+<!-- END GENERATED V6 POLICY -->
+
+- exactly four paired runs per task are reduced to one median task effect;
 - one median task effect per family cluster for inference;
 - at least 3 broad task strata, at least 3 independent families per stratum, and no stratum above half of the panel;
 - equal family weights, a predeclared practical-effect threshold, and a worst-task regression limit;

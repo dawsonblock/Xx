@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sysconfig
+from pathlib import Path
+
+from aide.version import package_version
 
 from .jev import JevAdvisor
 
@@ -13,6 +15,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="aide-rsi-jev", description="AIDE-DREAM-RSI JEV integration tools"
     )
+    parser.add_argument("--version", action="version", version=package_version())
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_doctor = sub.add_parser("doctor", help="verify typed SystemOne connectivity")

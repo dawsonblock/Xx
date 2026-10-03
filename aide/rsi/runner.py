@@ -7,6 +7,7 @@ import math
 import os
 import random
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -227,11 +228,19 @@ def _task_pair_gate_template(
 
 def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
     """Resolve and pin the operator-supplied multi-task canary panel."""
+    from .benchmark import load_manifest, manifest_sha256, validate_panel_assignments
     from .trusted_evaluator import create_trusted_evaluator, tree_sha256
 
     task_configs = list(getattr(cfg.rsi, "canary_panel", []) or [])
     if not task_configs:
         return None
+    benchmark_path_value = getattr(cfg.rsi, "benchmark_family_manifest_path", None)
+    if not benchmark_path_value:
+        raise ValueError(
+            "live canary panel requires a frozen benchmark family manifest"
+        )
+    benchmark_manifest = load_manifest(Path(benchmark_path_value).expanduser())
+    benchmark_sha256 = manifest_sha256(benchmark_manifest)
     epoch = getattr(cfg.rsi, "canary_panel_epoch", 0)
     if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
         raise ValueError("rsi.canary_panel_epoch must be a nonnegative integer")
@@ -369,7 +378,9 @@ def _build_canary_panel(cfg, *, task_metric_type, add_metric, artifact_root):
         epoch=epoch,
         tasks=tuple(definitions),
         protocol_sha256=protocol_sha,
+        benchmark_family_manifest_sha256=benchmark_sha256,
     )
+    validate_panel_assignments(benchmark_manifest, panel)
     return _CanaryPanelRuntime(
         panel,
         tuple(sorted(runtimes, key=lambda item: item.task_id)),
@@ -900,6 +911,12 @@ def _recover_multitask_canary_transaction(
         panel.to_dict() != canary_gate.panel.to_dict()
         or transaction.get("panel_sha256") != panel.panel_sha256
         or transaction.get("protocol_sha256") != panel.protocol_sha256
+        or transaction.get("benchmark_family_manifest_sha256")
+        != panel.benchmark_family_manifest_sha256
+        or decision.get("benchmark_family_manifest_sha256")
+        != panel.benchmark_family_manifest_sha256
+        or state.get("benchmark_family_manifest_sha256")
+        != panel.benchmark_family_manifest_sha256
         or state.get("active_canary_panel_sha256") != panel.panel_sha256
         or state.get("statistical_protocol_sha256") != panel.protocol_sha256
         or transaction.get("statistical_epoch_sha256")
@@ -1622,6 +1639,18 @@ def _run_rsi_unlocked() -> None:
         else None
     )
     if configured_protocol_sha256 is not None:
+        configured_benchmark_sha256 = (
+            canary_panel_runtime.panel.benchmark_family_manifest_sha256
+        )
+        stored_benchmark_sha256 = state.get("benchmark_family_manifest_sha256")
+        if stored_benchmark_sha256 is None:
+            state = state_store.write(
+                benchmark_family_manifest_sha256=configured_benchmark_sha256
+            )
+        elif stored_benchmark_sha256 != configured_benchmark_sha256:
+            raise ValueError(
+                "benchmark family manifest changed; start a fresh RSI experiment"
+            )
         stored_protocol_sha256 = state.get("statistical_protocol_sha256")
         if stored_protocol_sha256 is None:
             state = state_store.write(
@@ -1760,7 +1789,7 @@ def _run_rsi_unlocked() -> None:
                 rsi_dir=rsi_dir,
                 canary_gate=active_gate,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - fail closed on any recovery error
             state = _abort_canary_recovery(
                 state=state,
                 state_store=state_store,
@@ -1979,6 +2008,7 @@ def _run_rsi_unlocked() -> None:
                         "panel": panel.to_dict(),
                         "panel_sha256": panel_sha256,
                         "protocol_sha256": panel.protocol_sha256,
+                        "benchmark_family_manifest_sha256": panel.benchmark_family_manifest_sha256,
                         "statistical_epoch_sha256": state.get(
                             "statistical_epoch_sha256"
                         ),
@@ -2105,6 +2135,7 @@ def _run_rsi_unlocked() -> None:
                     "incumbent_digest": _policy_digest(incumbent),
                     "panel_sha256": panel_sha256,
                     "protocol_sha256": panel.protocol_sha256,
+                    "benchmark_family_manifest_sha256": panel.benchmark_family_manifest_sha256,
                     "statistical_epoch_sha256": state.get("statistical_epoch_sha256"),
                     "promotion_attempt_index": active_index,
                     "allocated_alpha": reserved_budget.last_allocation,
@@ -2254,7 +2285,7 @@ def _run_rsi_unlocked() -> None:
                 seed_candidates = developer.propose(
                     incumbent, split.development, evaluator, count=ecfg.llm_candidates
                 )
-            except Exception as exc:  # optional proposer is best-effort
+            except Exception as exc:  # noqa: BLE001 - optional proposer is best-effort
                 _write_json(
                     round_rsi_dir / "llm_policy_developer_error.json",
                     {"error": repr(exc)},
@@ -2359,6 +2390,11 @@ def _run_rsi_unlocked() -> None:
 
 def run_rsi() -> None:
     """Run one serialized RSI controller against the configured log directory."""
+    if sys.argv[1:] == ["--version"]:
+        from aide.version import package_version
+
+        print(package_version())
+        return
     from aide.utils.config import load_cfg
 
     cfg = load_cfg()

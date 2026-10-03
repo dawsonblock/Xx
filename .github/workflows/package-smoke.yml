@@ -15,10 +15,11 @@ jobs:
       - name: Build wheel and source distribution
         run: |
           python -m pip install --disable-pip-version-check --require-hashes -r requirements-rsi-ci.lock
+          python tools/generate_release_manifests.py --check
           python -m build --sdist --wheel
           wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           sdist=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
-          python tools/verify_package.py --wheel "$wheel" --sdist "$sdist"
+          python tools/verify_package.py --integrity-only --wheel "$wheel" --sdist "$sdist"
       - name: Install wheel in a clean environment and exercise entry points
         run: |
           python -m venv /tmp/aideml-rsi-wheel

@@ -1,0 +1,236 @@
+{
+  "git_head_before_checkpoint_commit": "71c4dc0d6cfeffaf5d26f45f46ef29b34d47c0b5",
+  "identity": {
+    "aggregate_tcb_sha256": "965ee44bf4c790da681ae6cd782a48efe9ecb996d57a32a8576ac8a68042a34e",
+    "benchmark_family_manifest_sha256": "ccb2b2d51ce8f4db5bd2d2ded718c2fc679aefaaeb515fdee151522eb5775c4d",
+    "dependency_lock_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+    "docker_build_context_sha256": "44f0397352df09cf785b162b53300efa5c879d7598fe8bedb5939265546044b2",
+    "evaluator_sha256": "4d88fc9abb750936f8a6974f4126ac7c161a14f4d9e16f4dc2a7979d8da404ab",
+    "release_tcb_sha256": "47e9c8e0032a9ef54d5bedeb188d8d098d18786da06291f109338bb35eb6f3af",
+    "runtime_dependency_lock_sha256": "a98e4dd2e52927cad048beb8f175d5196cb2013a6e4e6f9e3defdec681b5fe1c",
+    "runtime_tcb_sha256": "00967c12f9fe491ea028b6b3f25c662a277cc74a661798725d50a195dd494c30",
+    "sandbox_tcb_sha256": "a0459580a6926ef4880f89aa204b7b35280ef2a86abb55948948bc44d4d3a1d5",
+    "source_snapshot_sha256": "44f0397352df09cf785b162b53300efa5c879d7598fe8bedb5939265546044b2",
+    "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861",
+    "statistical_tcb_sha256": "b42ab591e29522edcf554dacbca2bf14a7146d7b04be343bfebb6ae0b5195bbe"
+  },
+  "local_platform": "macOS-26.2-arm64-arm-64bit",
+  "local_test_observation": {
+    "authoritative": false,
+    "command": "python -m pytest -q tests",
+    "exit_code": 0,
+    "failed": 0,
+    "junit_sha256": null,
+    "observed_source_snapshot_sha256": "a4e13c518c8fd154a61a30ed04bfbce7e0446a290624e3931a85934b187e2b9a",
+    "passed": 267,
+    "platform": "macOS arm64",
+    "python_version": "3.12.0",
+    "qualification_status": "STALE_OR_UNBOUND",
+    "skipped": 3
+  },
+  "mandatory_missing_inputs": [
+    "reviewed frozen real-task 40-family benchmark panel and provenance",
+    "successful hash-locked full-runtime install and verified Docker image",
+    "independently deployed monotonic anchor and credentials",
+    "hosted and clean-room evidence against frozen release source",
+    "complete qualification ledger, artifact provenance, and attestation"
+  ],
+  "phase_statuses": [
+    {
+      "phase": 0,
+      "status": "PASS",
+      "summary": "Forensic baseline recorded in committed JSON and Markdown."
+    },
+    {
+      "phase": 1,
+      "status": "PASS",
+      "summary": "Seven source differences classified; intended repair source is still changing."
+    },
+    {
+      "phase": 2,
+      "status": "BLOCKED",
+      "summary": "Effective TCB groups implemented; final identity awaits source freeze."
+    },
+    {
+      "phase": 3,
+      "status": "BLOCKED",
+      "summary": "Deterministic identity generation implemented; final manifests intentionally stale."
+    },
+    {
+      "phase": 4,
+      "status": "BLOCKED",
+      "summary": "Packaging checks implemented; final artifact build awaits frozen manifests."
+    },
+    {
+      "phase": 5,
+      "status": "BLOCKED",
+      "summary": "Publish workflow requires qualification, but final release verifier and ledger do not yet exist."
+    },
+    {
+      "phase": 6,
+      "status": "BLOCKED",
+      "summary": "Adversarial package verifier and unit tests implemented; no qualified artifact exists."
+    },
+    {
+      "phase": 7,
+      "status": "BLOCKED",
+      "summary": "JUnit envelope binding implemented; no fresh source-bound full-suite evidence exists."
+    },
+    {
+      "phase": 8,
+      "status": "BLOCKED",
+      "summary": "Existing qualification evidence requires matching identities; hosted evidence is stale or absent."
+    },
+    {
+      "phase": 9,
+      "status": "PASS",
+      "summary": "Python 3.12 selected as reference runtime; cross-platform qualification remains separate."
+    },
+    {
+      "phase": 10,
+      "status": "BLOCKED",
+      "summary": "CI lock installed locally; 271-package full-runtime hash lock generated but Linux installation stopped for disk headroom before pip check."
+    },
+    {
+      "phase": 11,
+      "status": "PASS",
+      "summary": "Known version-bearing package, CLI, and image references derive from VERSION."
+    },
+    {
+      "phase": 12,
+      "status": "PASS",
+      "summary": "V6 normative documentation and executable consistency checks implemented."
+    },
+    {
+      "phase": 13,
+      "status": "BLOCKED",
+      "summary": "Adversarial statistical tests added; final source-bound qualification is pending."
+    },
+    {
+      "phase": 14,
+      "status": "BLOCKED",
+      "summary": "Frozen minimum-practical-effect support added; empirical threshold study is pending."
+    },
+    {
+      "phase": 15,
+      "status": "BLOCKED",
+      "summary": "Adversarial JEV unit tests added; final qualification is pending."
+    },
+    {
+      "phase": 16,
+      "status": "BLOCKED",
+      "summary": "Two local Linux Bubblewrap escape tests passed in ephemeral Docker Desktop VM; production lane unrun."
+    },
+    {
+      "phase": 17,
+      "status": "BLOCKED",
+      "summary": "Docker base digest pinned; runtime lock installation and image verification remain unqualified."
+    },
+    {
+      "phase": 18,
+      "status": "BLOCKED",
+      "summary": "Benchmark schema and digest binding implemented; real families are UNREVIEWED."
+    },
+    {
+      "phase": 19,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 20,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 21,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 22,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 23,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 24,
+      "status": "NOT_RUN",
+      "summary": "Independent external anchor is not deployed; rollback qualification cannot run."
+    },
+    {
+      "phase": 25,
+      "status": "NOT_RUN",
+      "summary": "Independent external anchor is not deployed; destructive rollback test cannot run."
+    },
+    {
+      "phase": 26,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 27,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 28,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 29,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 30,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 31,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 32,
+      "status": "NOT_RUN",
+      "summary": "Requires reviewed real-task panel and preceding mandatory qualification gates."
+    },
+    {
+      "phase": 33,
+      "status": "NOT_RUN",
+      "summary": "Final v1.3.6 release gate must run last; VERSION remains 1.3.5."
+    }
+  ],
+  "prior_local_evidence": [
+    {
+      "current_identity_match": false,
+      "path": "qualification/repair-program/DEPENDENCY_QUALIFICATION.json",
+      "recorded_aggregate_tcb_sha256": "d32af005878c126598c9b92a20ee88aa4d37439427d97ae26664ee733c3cafc4",
+      "recorded_source_snapshot_sha256": "42c0718fa2d33dc64264799d11618449ab43167728549c47a7f8cce7abaf8ba9",
+      "sha256": "e3d6a7a6c1ac6d852341956439014c5760c11392acfbeb126258d3a4eec00812"
+    },
+    {
+      "current_identity_match": false,
+      "path": "qualification/repair-program/SANDBOX_QUALIFICATION.json",
+      "recorded_aggregate_tcb_sha256": "4a497f9b59987895b0ece7572299286477f7de29be6471ab824fe17b41242dce",
+      "recorded_source_snapshot_sha256": "89a040e2ca49fe5d0a7bc5afa75b391a0bcc36b8cd9f0f059a0f631bbd5719bf",
+      "sha256": "99265a36592856cccb09ef068cdce7fc6ec909672de06a17f8a6bc8360ec858b"
+    }
+  ],
+  "program": "Xx-main full repair and qualification",
+  "recorded_at_utc": "2026-10-03T06:32:06.756564+00:00",
+  "release_gate_status": "BLOCKED",
+  "release_qualified": false,
+  "runtime_dependency_probe_current_identity_match": false,
+  "runtime_dependency_probe_path": "qualification/repair-program/RUNTIME_DEPENDENCY_PROBE.json",
+  "runtime_dependency_probe_sha256": "b60d82a7f398a537bf1c22135a17352cabbf1497058e2a64c838d7f0af628aa1",
+  "schema_version": 1,
+  "source_snapshot_status_before_checkpoint_commit": "WORKTREE_HAS_UNCOMMITTED_SOURCE_FILES",
+  "version": "1.3.5"
+}

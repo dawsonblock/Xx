@@ -371,6 +371,10 @@ class RSIStateStore:
             r"[0-9a-f]{64}", str(raw["statistical_protocol_sha256"])
         ):
             raise ValueError("durable statistical protocol digest is invalid")
+        if "benchmark_family_manifest_sha256" in raw and not re.fullmatch(
+            r"[0-9a-f]{64}", str(raw["benchmark_family_manifest_sha256"])
+        ):
+            raise ValueError("durable benchmark family manifest digest is invalid")
         if "statistical_epoch_sha256" in raw:
             epoch_digest = raw["statistical_epoch_sha256"]
             if not isinstance(epoch_digest, str) or not re.fullmatch(
@@ -471,6 +475,19 @@ class RSIStateStore:
         next_protocol = updates.get("statistical_protocol_sha256", current_protocol)
         if current_protocol is not None and next_protocol != current_protocol:
             raise ValueError("statistical protocol is immutable within an experiment")
+        current_benchmark = raw.get("benchmark_family_manifest_sha256")
+        next_benchmark = updates.get(
+            "benchmark_family_manifest_sha256", current_benchmark
+        )
+        if current_benchmark is not None and next_benchmark != current_benchmark:
+            raise ValueError(
+                "benchmark family manifest is immutable within an experiment"
+            )
+        if "benchmark_family_manifest_sha256" in updates and (
+            not isinstance(next_benchmark, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", next_benchmark)
+        ):
+            raise ValueError("benchmark family manifest digest must be a SHA-256 value")
         if "statistical_protocol_sha256" in updates and (
             not isinstance(next_protocol, str)
             or not re.fullmatch(r"[0-9a-f]{64}", next_protocol)

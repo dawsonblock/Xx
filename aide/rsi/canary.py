@@ -119,6 +119,7 @@ class MultiTaskCanaryResult:
     total_tasks: int
     reason: str
     task_effects: tuple[TaskCanaryEffect, ...]
+    minimum_practical_effect: float = 0.0
     critical_positive_families: int | None = None
     positive_families: int = 0
     total_families: int = 0
@@ -143,6 +144,7 @@ class MultiTaskCanaryResult:
             "total_families": self.total_families,
             "median_family_effect": self.median_family_effect,
             "reason": self.reason,
+            "minimum_practical_effect": self.minimum_practical_effect,
             "task_effects": [effect.to_dict() for effect in self.task_effects],
             "family_effects": [effect.to_dict() for effect in self.family_effects],
         }
@@ -262,6 +264,7 @@ class TaskClusteredCanaryGate:
                 len(task_pairs),
                 "canary task result set does not match the reserved panel",
                 (),
+                minimum_practical_effect=self.min_effect_size,
             )
         task_definitions = {task.task_id: task for task in self.panel.tasks}
         effects: list[TaskCanaryEffect] = []
@@ -308,6 +311,7 @@ class TaskClusteredCanaryGate:
                 len(effects),
                 "every reserved task needs all trusted paired runs",
                 tuple(effects),
+                minimum_practical_effect=self.min_effect_size,
             )
         family_tasks: dict[str, list[TaskCanaryEffect]] = {}
         for effect in effects:
@@ -358,6 +362,7 @@ class TaskClusteredCanaryGate:
             len(effects),
             reason,
             tuple(effects),
+            minimum_practical_effect=self.min_effect_size,
             critical_positive_families=decision["critical_positive_independent_units"],
             positive_families=decision["positive_independent_units"],
             total_families=decision["total_independent_units"],

@@ -1,5 +1,4 @@
 .git
-.gitignore
 logs/
 workspaces/
 __pycache__/
@@ -15,3 +14,7 @@ __pycache__/
 .coverage
 .pytest_cache/
 .mypy_cache/
+build/
+dist/
+.ruff_cache/
+qualification/

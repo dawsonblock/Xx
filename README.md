@@ -72,7 +72,7 @@ The HMAC key is a host-held secret, not a hardware-backed signer. HMAC state det
 
 ## Installation
 
-The project requires Python 3.10 or newer. For a normal editable install:
+The package supports Python 3.10 through 3.12. The reference qualification and release runtime is Python 3.12.x; support for 3.10 and 3.11 does not imply that those runtimes have been release-qualified. For a normal editable install:
 
 ```bash
 python3 -m venv .venv

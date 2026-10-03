@@ -287,6 +287,7 @@ class CanaryPanel:
     epoch: int
     tasks: tuple[CanaryPanelTask, ...]
     protocol_sha256: str = MULTITASK_PROTOCOL_SHA256
+    benchmark_family_manifest_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -296,6 +297,11 @@ class CanaryPanel:
         ):
             raise ValueError("canary panel epoch must be a nonnegative integer")
         _require_sha256(self.protocol_sha256, "statistical protocol digest")
+        if self.benchmark_family_manifest_sha256 is not None:
+            _require_sha256(
+                self.benchmark_family_manifest_sha256,
+                "benchmark family manifest digest",
+            )
         if len(self.tasks) < MULTITASK_MIN_TASKS:
             raise ValueError(
                 f"canary panel requires at least {MULTITASK_MIN_TASKS} task records"
@@ -345,9 +351,12 @@ class CanaryPanel:
             raise ValueError("no task stratum may exceed half the family clusters")
         public_hashes: set[str] = set()
         full_hashes: set[str] = set()
+        sample_ids: set[str] = set()
         for task in self.tasks:
             task_public = set(task.public_input_sha256)
             task_full = set(task.sample_content_sha256)
+            if sample_ids.intersection(task.sample_ids):
+                raise ValueError("canary panel tasks reuse sample IDs")
             if public_hashes.intersection(task_public):
                 raise ValueError(
                     "canary panel tasks duplicate candidate-visible sample content"
@@ -356,12 +365,14 @@ class CanaryPanel:
                 raise ValueError("canary panel tasks duplicate full sample content")
             public_hashes.update(task_public)
             full_hashes.update(task_full)
+            sample_ids.update(task.sample_ids)
 
     def body(self) -> dict[str, Any]:
         return {
             "protocol_id": MULTITASK_PROTOCOL_ID,
             "protocol_version": MULTITASK_PROTOCOL_VERSION,
             "protocol_sha256": self.protocol_sha256,
+            "benchmark_family_manifest_sha256": self.benchmark_family_manifest_sha256,
             "epoch": self.epoch,
             "tasks": [
                 task.to_dict() for task in sorted(self.tasks, key=lambda t: t.task_id)
@@ -389,6 +400,7 @@ class CanaryPanel:
             "protocol_id",
             "protocol_version",
             "protocol_sha256",
+            "benchmark_family_manifest_sha256",
             "epoch",
             "tasks",
             "panel_sha256",
@@ -427,6 +439,7 @@ class CanaryPanel:
             epoch=value["epoch"],
             tasks=tuple(tasks),
             protocol_sha256=value["protocol_sha256"],
+            benchmark_family_manifest_sha256=value["benchmark_family_manifest_sha256"],
         )
         if value["panel_sha256"] != result.panel_sha256:
             raise ValueError("canary panel digest mismatch")

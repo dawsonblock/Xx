@@ -179,7 +179,9 @@ def _panel_family_effects_batch(
     if tasks < task_families or tasks % task_families:
         raise ValueError("tasks must divide evenly among task families")
     if runs_per_task != 4:
-        raise ValueError("protocol V5 requires exactly four paired runs per task")
+        raise ValueError(
+            f"{MULTITASK_PROTOCOL_ID} requires exactly four paired runs per task"
+        )
     if not 0 <= seed_correlation <= 1 or not 0 <= family_correlation <= 1:
         raise ValueError("correlations must be in [0, 1]")
     families = task_families

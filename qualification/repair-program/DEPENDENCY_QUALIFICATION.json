@@ -1,0 +1,299 @@
+{
+  "aggregate_tcb_sha256": "d32af005878c126598c9b92a20ee88aa4d37439427d97ae26664ee733c3cafc4",
+  "architecture": "x86_64",
+  "benchmark_family_manifest_sha256": null,
+  "dependency_lock_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+  "evaluator_sha256": "204edd4acc0260dadf8dd8290228ff1a4fa71d3bf78f152aaf732fe9bb79b3fe",
+  "exit_code": 0,
+  "install_command": "python -m pip install --require-hashes -r requirements-rsi-ci.lock",
+  "installed_distribution_count": 68,
+  "installed_distribution_inventory_sha256": "5f1220fd557e8177ee7aa6d9717dcf663a2316c3c26afb5cd21fe9f11e86afec",
+  "installed_distributions": [
+    {
+      "name": "annotated-types",
+      "version": "0.8.0"
+    },
+    {
+      "name": "anthropic",
+      "version": "0.20.0"
+    },
+    {
+      "name": "antlr4-python3-runtime",
+      "version": "4.9.3"
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1"
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0"
+    },
+    {
+      "name": "backoff",
+      "version": "2.2.1"
+    },
+    {
+      "name": "black",
+      "version": "26.3.1"
+    },
+    {
+      "name": "build",
+      "version": "1.2.2.post1"
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22"
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.5.2"
+    },
+    {
+      "name": "click",
+      "version": "8.5.0"
+    },
+    {
+      "name": "coolname",
+      "version": "2.2.0"
+    },
+    {
+      "name": "dataclasses-json",
+      "version": "0.6.7"
+    },
+    {
+      "name": "distro",
+      "version": "1.9.0"
+    },
+    {
+      "name": "filelock",
+      "version": "4.0.9"
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.9.0"
+    },
+    {
+      "name": "funcy",
+      "version": "2.0"
+    },
+    {
+      "name": "genson",
+      "version": "1.2.2"
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0"
+    },
+    {
+      "name": "hf-xet",
+      "version": "1.6.0"
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9"
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1"
+    },
+    {
+      "name": "huggingface_hub",
+      "version": "1.33.0"
+    },
+    {
+      "name": "humanize",
+      "version": "4.8.0"
+    },
+    {
+      "name": "idna",
+      "version": "3.20"
+    },
+    {
+      "name": "igraph",
+      "version": "0.11.8"
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.0"
+    },
+    {
+      "name": "jiter",
+      "version": "0.17.0"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.19.2"
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1"
+    },
+    {
+      "name": "markdown-it-py",
+      "version": "4.2.0"
+    },
+    {
+      "name": "marshmallow",
+      "version": "3.26.2"
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2"
+    },
+    {
+      "name": "mypy_extensions",
+      "version": "1.1.0"
+    },
+    {
+      "name": "numpy",
+      "version": "1.26.2"
+    },
+    {
+      "name": "omegaconf",
+      "version": "2.3.0"
+    },
+    {
+      "name": "openai",
+      "version": "1.69.0"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3"
+    },
+    {
+      "name": "pandas",
+      "version": "2.1.4"
+    },
+    {
+      "name": "pathspec",
+      "version": "1.1.1"
+    },
+    {
+      "name": "pip",
+      "version": "25.0.1"
+    },
+    {
+      "name": "platformdirs",
+      "version": "4.12.2"
+    },
+    {
+      "name": "pluggy",
+      "version": "1.6.0"
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.5"
+    },
+    {
+      "name": "pydantic_core",
+      "version": "2.46.5"
+    },
+    {
+      "name": "Pygments",
+      "version": "2.21.0"
+    },
+    {
+      "name": "pyproject_hooks",
+      "version": "1.3.3"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3"
+    },
+    {
+      "name": "python-dateutil",
+      "version": "2.9.0.post0"
+    },
+    {
+      "name": "pytokens",
+      "version": "0.4.1"
+    },
+    {
+      "name": "pytz",
+      "version": "2026.4"
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.3"
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0"
+    },
+    {
+      "name": "requests",
+      "version": "2.32.4"
+    },
+    {
+      "name": "rich",
+      "version": "13.7.0"
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3"
+    },
+    {
+      "name": "ruff",
+      "version": "0.7.1"
+    },
+    {
+      "name": "shutup",
+      "version": "0.2.0"
+    },
+    {
+      "name": "six",
+      "version": "1.17.0"
+    },
+    {
+      "name": "sniffio",
+      "version": "1.3.1"
+    },
+    {
+      "name": "texttable",
+      "version": "1.7.0"
+    },
+    {
+      "name": "tokenizers",
+      "version": "0.23.2"
+    },
+    {
+      "name": "tqdm",
+      "version": "4.70.1"
+    },
+    {
+      "name": "typing-inspect",
+      "version": "0.9.0"
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.4"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0"
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.4"
+    },
+    {
+      "name": "urllib3",
+      "version": "2.8.0"
+    }
+  ],
+  "lock_generation_command": "uv pip compile requirements-rsi-ci.in --universal --python-version 3.12 --generate-hashes --output-file requirements-rsi-ci.lock",
+  "pip_check_exit_code": 0,
+  "pip_version": "pip 25.0.1 from /tmp/aide-rsi-qualification-py312/lib/python3.12/site-packages/pip (python 3.12)",
+  "platform": "macOS-26.2-x86_64-i386-64bit",
+  "python_version": "3.12.13",
+  "release_tcb_sha256": "73a4586201172285951d78c71bb2429f707a4d2a1331e3d21992191474c7fe55",
+  "runtime_tcb_sha256": "0d4ac5d08ae7e0042213a630662726b05ef2ee65d783b60804af93f2f056407d",
+  "sandbox_tcb_sha256": "570e67f7b78181cfab86908284dfe19e041dde5e6c3537e49fa11c8cf2be41c1",
+  "schema_version": 1,
+  "scope": "fresh Python 3.12 x86_64 macOS security/statistical CI lock installation; one local platform only",
+  "source_snapshot_sha256": "42c0718fa2d33dc64264799d11618449ab43167728549c47a7f8cce7abaf8ba9",
+  "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861",
+  "statistical_tcb_sha256": "34c2c2a90ae494d7aff973b5a1079799f82cfe1b8a28d177d8303be7c412caf0",
+  "status": "PASS_LOCAL"
+}

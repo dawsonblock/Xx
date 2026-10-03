@@ -562,12 +562,43 @@ def test_canary_panel_builder_preserves_reference_sample_identity_rows(
     evaluator_config.metric_maximize = True
 
     class CapturedPanel:
-        def __init__(self, *, epoch, tasks, protocol_sha256):
+        def __init__(
+            self, *, epoch, tasks, protocol_sha256, benchmark_family_manifest_sha256
+        ):
             self.epoch = epoch
             self.tasks = tuple(tasks)
             self.protocol_sha256 = protocol_sha256
+            self.benchmark_family_manifest_sha256 = benchmark_family_manifest_sha256
 
     monkeypatch.setattr("aide.rsi.runner.CanaryPanel", CapturedPanel)
+    monkeypatch.setattr(
+        "aide.rsi.benchmark.validate_panel_assignments", lambda manifest, panel: None
+    )
+    benchmark_path = tmp_path / "benchmark.json"
+    benchmark_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "manifest_type": "benchmark_families",
+                "review_status": "UNREVIEWED",
+                "families": [
+                    {
+                        "family_id": "family-01",
+                        "task_ids": ["task-01"],
+                        "domain": "test fixture",
+                        "dataset_provenance": "fixture-data",
+                        "generator_provenance": "fixture-generator",
+                        "shared_data": [],
+                        "shared_evaluator_components": [],
+                        "known_correlations": [],
+                        "independence_group_id": "group-01",
+                        "independence_rationale": "test fixture only",
+                        "review_status": "UNREVIEWED",
+                    }
+                ],
+            }
+        )
+    )
     description = tmp_path / "task.txt"
     description.write_text("Predict the hidden binary label from x.\n")
     panel_task_config = SimpleNamespace(
@@ -595,6 +626,7 @@ def test_canary_panel_builder_preserves_reference_sample_identity_rows(
             rsi=SimpleNamespace(
                 canary_panel=[panel_task_config],
                 canary_panel_epoch=0,
+                benchmark_family_manifest_path=str(benchmark_path),
                 canary=canary_config,
             )
         ),
