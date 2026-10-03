@@ -4,10 +4,10 @@ The generated `TCB_MANIFEST.json` now records four overlapping groups and an agg
 
 | Authority flow | Trusted inputs |
 | --- | --- |
-| Candidate execution, JEV advice, evaluator routing, state, signing, recovery, incumbent replacement | All `aide/**/*.py`, `aide/utils/config.yaml`, `rsi_anchor_service.py`, bundled `vendor/**` |
+| Candidate execution, JEV advice, evaluator routing, state, signing, recovery, incumbent replacement | All `aide/**/*.py`, `aide/utils/config.yaml`, `rsi_anchor_service.py`, `requirements.txt`, `requirements-runtime.lock`, bundled `vendor/**` |
 | Task/family selection, alpha, retirement, decision | Statistical modules, runner, config, anchor service, statistical qualification tool |
 | Bubblewrap, evaluator confinement, container construction | Sandbox and evaluator modules, config, Linux workflow, Dockerfile, `.dockerignore` |
-| Dependency installation, build, package contents, release publication | All workflows, all `tools/*.py`, all `tests/*.py`, requirements and lock, `setup.py`, `MANIFEST.in`, `Makefile`, `Dockerfile`, `.dockerignore`, `VERSION` |
+| Dependency installation, build, package contents, release publication | All workflows, all `tools/*.py`, all `tests/*.py`, requirements and lock, `setup.py`, `MANIFEST.in`, `Makefile`, `Dockerfile`, `.dockerignore`, `VERSION`, `release/qualification-ledger-public.pem` |
 
 Release and sandbox workflows are explicitly covered. Changing either workflow changes the respective group digest and the aggregate TCB digest. The broader inclusion of tests is deliberate: modifying a test can alter a qualification decision even when runtime code is unchanged.
 

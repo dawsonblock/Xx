@@ -30,6 +30,9 @@ class CheckedSdist(sdist):
             "SOURCE_TREE_MANIFEST.json",
             "TCB_MANIFEST.json",
             "BENCHMARK_FAMILY_MANIFEST.json",
+            "RELEASE_QUALIFICATION_LEDGER.json",
+            "RELEASE_QUALIFICATION_LEDGER.sig",
+            "BUILD_PROVENANCE.json",
         }
         metadata = {
             "PKG-INFO",
@@ -44,12 +47,14 @@ class CheckedSdist(sdist):
             for name in self.filelist.files
             if name in source["files"]
             or name in generated
+            or name in release_evidence_files()
             or (
                 name.startswith("aideml_rsi.egg-info/")
                 and name.rsplit("/", 1)[-1] in metadata
             )
         ]
         self.filelist.extend(sorted(source["files"]))
+        self.filelist.extend(sorted(release_evidence_files()))
         self.filelist.sort()
         self.filelist.remove_duplicates()
         super().make_distribution()
@@ -103,10 +108,48 @@ def qualification_data_files():
             Path("requirements-rsi-ci.in"),
             Path("requirements-rsi-ci.lock"),
             Path("requirements-runtime.lock"),
+            Path("requirements.txt"),
+            Path("requirements-replay.txt"),
+            Path("RELEASE_QUALIFICATION_LEDGER.json"),
+            Path("RELEASE_QUALIFICATION_LEDGER.sig"),
+            Path("BUILD_PROVENANCE.json"),
         )
         if path.is_file()
     ]
-    return [("share/aideml-rsi", files)] if files else []
+    grouped = [("share/aideml-rsi", files)] if files else []
+    for name in release_evidence_files():
+        path = Path(name)
+        grouped.append((str(Path("share/aideml-rsi") / path.parent), [name]))
+    public_key = Path("release/qualification-ledger-public.pem")
+    if public_key.is_file():
+        grouped.append(("share/aideml-rsi/release", [str(public_key)]))
+    return grouped
+
+
+def release_evidence_files():
+    ledger = Path("RELEASE_QUALIFICATION_LEDGER.json")
+    if not ledger.is_file():
+        return []
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("gates"), list):
+        raise TypeError("release qualification ledger is invalid")
+    paths = set()
+    for gate in data["gates"]:
+        if not isinstance(gate, dict):
+            raise TypeError("release qualification gate is invalid")
+        for field in ("evidence_path", "envelope_path"):
+            name = gate.get(field)
+            if (
+                not isinstance(name, str)
+                or not name.startswith("qualification/")
+                or "\\" in name
+                or any(part in {"", ".", ".."} for part in name.split("/"))
+            ):
+                raise ValueError("unsafe release evidence path")
+            if not Path(name).is_file():
+                raise ValueError(f"missing release evidence: {name}")
+            paths.add(name)
+    return sorted(paths)
 
 
 setup(
@@ -127,6 +170,7 @@ setup(
             "../requirements.txt",
             "utils/config.yaml",
             "utils/viz_templates/*",
+            "webui/style.css",
             "example_tasks/bitcoin_price/*",
             "example_tasks/house_prices/*",
             "example_tasks/*",

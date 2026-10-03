@@ -42,15 +42,31 @@ def _wheel_bytes(files):
 def package_fixture(tmp_path):
     root = tmp_path / "checkout"
     root.mkdir()
-    source_files = {
-        path: (f"authentic {path}\n").encode()
-        for path in verify_package.RUNTIME_REQUIRED
+    source_paths = {
+        "aide/rsi/benchmark.py",
+        "aide/rsi/statistics.py",
+        "aide/rsi/canary.py",
+        "aide/rsi/runner.py",
+        "aide/rsi/sandbox.py",
+        "aide/rsi/reference_evaluator.py",
+        "aide/rsi/trusted_evaluator.py",
+        "aide/utils/config.yaml",
+        "aide/webui/style.css",
+        "aide/extra.py",
+        "tools/generate_release_manifests.py",
+        "tools/verify_package.py",
+        "tools/qualification_evidence.py",
+        "vendor/runtime.py",
+        "rsi_anchor_service.py",
     }
+    source_files = {path: (f"authentic {path}\n").encode() for path in source_paths}
     source_files.update(
         {
             "requirements-rsi-ci.in": b"locked input\n",
             "requirements-rsi-ci.lock": b"locked artifact\n",
             "requirements-runtime.lock": b"locked runtime\n",
+            "requirements.txt": b"runtime source requirements\n",
+            "requirements-replay.txt": b"replay source requirements\n",
             "VERSION": b"1.3.5\n",
         }
     )
@@ -126,6 +142,8 @@ def package_fixture(tmp_path):
         "requirements-rsi-ci.in",
         "requirements-rsi-ci.lock",
         "requirements-runtime.lock",
+        "requirements.txt",
+        "requirements-replay.txt",
     ):
         wheel_files[f"aideml_rsi-1.3.5.data/data/share/aideml-rsi/{name}"] = (
             wheel_files.pop(name)
@@ -167,7 +185,20 @@ def test_valid_synthetic_wheel_and_sdist_pass_integrity_only(package_fixture, tm
 
 
 @pytest.mark.parametrize(
-    "attack", ["fake", "source", "tcb", "lock", "extra", "missing", "version"]
+    "attack",
+    [
+        "fake",
+        "source",
+        "tcb",
+        "lock",
+        "runtime_lock",
+        "extra",
+        "missing",
+        "missing_other",
+        "missing_canary",
+        "version",
+        "source_digest",
+    ],
 )
 def test_tampered_wheel_fails_even_with_recomputed_record(
     package_fixture, tmp_path, attack
@@ -185,12 +216,26 @@ def test_tampered_wheel_fails_even_with_recomputed_record(
         files[
             "aideml_rsi-1.3.5.data/data/share/aideml-rsi/requirements-rsi-ci.lock"
         ] = b"modified lock"
+    elif attack == "runtime_lock":
+        files[
+            "aideml_rsi-1.3.5.data/data/share/aideml-rsi/requirements-runtime.lock"
+        ] = b"modified runtime lock"
     elif attack == "extra":
         files["sitecustomize.py"] = b"print('executed')\n"
     elif attack == "missing":
         files.pop(target)
+    elif attack == "missing_other":
+        files.pop("aide/extra.py")
+    elif attack == "missing_canary":
+        files.pop("aide/rsi/canary.py")
     elif attack == "version":
         files["aideml_rsi-1.3.5.data/data/share/aideml-rsi/VERSION"] = b"9.9.9\n"
+    elif attack == "source_digest":
+        prefix = "aideml_rsi-1.3.5.data/data/share/aideml-rsi/"
+        source = json.loads(files[prefix + "SOURCE_TREE_MANIFEST.json"])
+        source["source_snapshot_sha256"] = "0" * 64
+        files[prefix + "SOURCE_TREE_MANIFEST.json"] = _json(source)
+        (root / "SOURCE_TREE_MANIFEST.json").write_bytes(_json(source))
     path = tmp_path / "attack.whl"
     _write_wheel(path, files)
     with pytest.raises(ValueError):
@@ -205,7 +250,7 @@ def test_stale_qualification_cannot_be_accepted(package_fixture, tmp_path):
         verify_package.verify_archive(path, "wheel", root=root)
 
 
-def test_wrong_commit_and_stale_ledger_fail(package_fixture, tmp_path):
+def test_unsigned_pass_ledger_cannot_authorize_a_package(package_fixture, tmp_path):
     root, files = package_fixture
     files = dict(files)
     freeze_path = root / "RELEASE_FREEZE_MANIFEST.json"
@@ -215,9 +260,21 @@ def test_wrong_commit_and_stale_ledger_fail(package_fixture, tmp_path):
     embedded_prefix = "aideml_rsi-1.3.5.data/data/share/aideml-rsi/"
     files[embedded_prefix + "RELEASE_FREEZE_MANIFEST.json"] = freeze_path.read_bytes()
     identity = json.loads((root / "IDENTITY_MANIFEST.json").read_text())
-    gate = {key: value for key, value in identity.items() if key.endswith("_sha256")}
-    gate.update({"gate_id": "test", "mandatory": True, "status": "PASS"})
-    ledger = _json({"gates": [gate]})
+    gate = {
+        "gate_id": "test",
+        "mandatory": True,
+        "status": "PASS",
+        "evidence_path": "qualification/test/evidence.json",
+        "envelope_path": "qualification/test/envelope.json",
+    }
+    ledger = _json(
+        {
+            "schema_version": 1,
+            "source_commit": "a" * 40,
+            "identity": identity,
+            "gates": [gate],
+        }
+    )
     provenance = _json(
         {
             "source_snapshot_sha256": identity["source_snapshot_sha256"],
@@ -229,22 +286,15 @@ def test_wrong_commit_and_stale_ledger_fail(package_fixture, tmp_path):
     for name, data in {
         "RELEASE_QUALIFICATION_LEDGER.json": ledger,
         "BUILD_PROVENANCE.json": provenance,
+        "qualification/test/evidence.json": _json({"success": True}),
+        "qualification/test/envelope.json": _json({"status": "PASS"}),
     }.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_bytes(data)
         files[embedded_prefix + name] = data
     path = tmp_path / "qualified.whl"
     _write_wheel(path, files)
-    verify_package.verify_archive(path, "wheel", root=root, expected_commit="d" * 40)
-    with pytest.raises(ValueError, match="different source commit"):
-        verify_package.verify_archive(
-            path, "wheel", root=root, expected_commit="e" * 40
-        )
-    gate["source_snapshot_sha256"] = "f" * 64
-    stale = _json({"gates": [gate]})
-    (root / "RELEASE_QUALIFICATION_LEDGER.json").write_bytes(stale)
-    files[embedded_prefix + "RELEASE_QUALIFICATION_LEDGER.json"] = stale
-    _write_wheel(path, files)
-    with pytest.raises(ValueError, match="stale gate identity"):
+    with pytest.raises(ValueError):
         verify_package.verify_archive(
             path, "wheel", root=root, expected_commit="d" * 40
         )

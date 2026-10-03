@@ -22,11 +22,18 @@ def bound_evidence(tmp_path, monkeypatch):
     junit.write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"/>')
     identity = {
         "source_snapshot_sha256": "a" * 64,
+        "runtime_tcb_sha256": "1" * 64,
+        "release_tcb_sha256": "2" * 64,
+        "statistical_tcb_sha256": "3" * 64,
+        "sandbox_tcb_sha256": "4" * 64,
         "aggregate_tcb_sha256": "b" * 64,
         "dependency_lock_sha256": "c" * 64,
+        "runtime_dependency_lock_sha256": "5" * 64,
         "statistical_protocol_sha256": "d" * 64,
         "evaluator_sha256": "e" * 64,
         "benchmark_family_manifest_sha256": "f" * 64,
+        "docker_base_image_digest": "6" * 64,
+        "docker_build_context_sha256": "7" * 64,
     }
     envelope = {
         "schema_version": 1,
@@ -57,11 +64,18 @@ def test_unchanged_identity_and_evidence_pass(bound_evidence):
     "field",
     [
         "source_snapshot_sha256",
+        "runtime_tcb_sha256",
+        "release_tcb_sha256",
+        "statistical_tcb_sha256",
+        "sandbox_tcb_sha256",
         "aggregate_tcb_sha256",
         "dependency_lock_sha256",
+        "runtime_dependency_lock_sha256",
         "statistical_protocol_sha256",
         "evaluator_sha256",
         "benchmark_family_manifest_sha256",
+        "docker_base_image_digest",
+        "docker_build_context_sha256",
     ],
 )
 def test_authority_change_makes_test_evidence_stale(bound_evidence, field):

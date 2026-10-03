@@ -8,6 +8,12 @@ include BENCHMARK_FAMILY_MANIFEST.json
 include requirements-rsi-ci.in
 include requirements-rsi-ci.lock
 include requirements-runtime.lock
+include requirements.txt
+include requirements-replay.txt
+include RELEASE_QUALIFICATION_LEDGER.json
+include RELEASE_QUALIFICATION_LEDGER.sig
+include BUILD_PROVENANCE.json
+recursive-include release *.pem
 include rsi_anchor_service.py
 include tools/qualify_canary_statistics.py
 recursive-include tools *.py

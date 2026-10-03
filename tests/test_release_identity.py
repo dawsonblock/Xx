@@ -10,6 +10,7 @@ from tools import generate_release_manifests as manifests
 def test_release_authority_files_are_covered():
     groups = manifests._tcb_groups(manifests._source_paths())
     release = set(groups["release_tcb"])
+    runtime = set(groups["runtime_tcb"])
     sandbox = set(groups["sandbox_tcb"])
     assert {
         ".github/workflows/python-publish.yml",
@@ -23,8 +24,10 @@ def test_release_authority_files_are_covered():
         "tools/generate_release_manifests.py",
         "requirements-rsi-ci.in",
         "requirements-rsi-ci.lock",
+        "requirements-runtime.lock",
         "VERSION",
     } <= release
+    assert {"requirements-runtime.lock", "requirements.txt"} <= runtime
     assert {"Dockerfile", ".github/workflows/linux-bubblewrap.yml"} <= sandbox
 
 

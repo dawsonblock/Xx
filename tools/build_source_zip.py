@@ -16,6 +16,9 @@ GENERATED = (
     "RELEASE_FREEZE_MANIFEST.json",
     "SOURCE_TREE_MANIFEST.json",
     "TCB_MANIFEST.json",
+    "RELEASE_QUALIFICATION_LEDGER.json",
+    "RELEASE_QUALIFICATION_LEDGER.sig",
+    "BUILD_PROVENANCE.json",
 )
 
 
@@ -26,7 +29,29 @@ def build(output: Path) -> None:
         check=True,
     )
     source = json.loads((ROOT / "SOURCE_TREE_MANIFEST.json").read_text())
-    paths = sorted(set(source["files"]) | set(GENERATED))
+    paths = set(source["files"]) | {
+        name for name in GENERATED if (ROOT / name).is_file()
+    }
+    ledger_path = ROOT / "RELEASE_QUALIFICATION_LEDGER.json"
+    if ledger_path.is_file():
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        if not isinstance(ledger, dict) or not isinstance(ledger.get("gates"), list):
+            raise ValueError("invalid qualification ledger")
+        for gate in ledger["gates"]:
+            if not isinstance(gate, dict):
+                raise TypeError("invalid qualification gate")
+            for field in ("evidence_path", "envelope_path"):
+                name = gate.get(field)
+                if (
+                    not isinstance(name, str)
+                    or not name.startswith("qualification/")
+                    or "\\" in name
+                    or any(part in {"", ".", ".."} for part in name.split("/"))
+                    or not (ROOT / name).is_file()
+                ):
+                    raise ValueError("unsafe or missing qualification evidence")
+                paths.add(name)
+    paths = sorted(paths)
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for relative in paths:

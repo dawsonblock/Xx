@@ -59,7 +59,11 @@ def main() -> int:
             counts[name] = sum(int(suite.attrib.get(name, "0")) for suite in suites)
     evidence = {
         "schema_version": 1,
-        **{key: value for key, value in identity.items() if key.endswith("_sha256")},
+        **{
+            key: value
+            for key, value in identity.items()
+            if key.endswith("_sha256") or key == "docker_base_image_digest"
+        },
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "test_command": manifests.TEST_QUALIFICATION_COMMAND,

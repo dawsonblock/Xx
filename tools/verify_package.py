@@ -28,18 +28,18 @@ EMBEDDED = {
     "VERSION",
     "requirements-rsi-ci.in",
     "requirements-rsi-ci.lock",
+    "requirements-runtime.lock",
+    "requirements.txt",
+    "requirements-replay.txt",
 }
-RUNTIME_REQUIRED = {
-    "aide/rsi/benchmark.py",
-    "aide/rsi/statistics.py",
-    "aide/rsi/runner.py",
-    "aide/rsi/sandbox.py",
-    "aide/rsi/reference_evaluator.py",
-    "aide/rsi/trusted_evaluator.py",
-    "aide/utils/config.yaml",
-    "tools/generate_release_manifests.py",
-    "tools/verify_package.py",
+PACKAGE_ROOT_FILES = {
     "rsi_anchor_service.py",
+    "VERSION",
+    "requirements-rsi-ci.in",
+    "requirements-rsi-ci.lock",
+    "requirements-runtime.lock",
+    "requirements.txt",
+    "requirements-replay.txt",
 }
 EXECUTABLE_SUFFIXES = {".py", ".pyc", ".pth", ".sh", ".so", ".pyd", ".dll", ".exe"}
 GENERATED_METADATA = {
@@ -189,6 +189,12 @@ def _check_qualification(
     expected_commit: str | None,
 ) -> None:
     from aide.rsi.benchmark import validate_manifest
+    from tools.verify_release import (
+        LEDGER,
+        LEDGER_PUBLIC_KEY,
+        LEDGER_SIGNATURE,
+        verify_signed_ledger,
+    )
 
     validate_manifest(
         json.loads(_embedded_bytes(members, "BENCHMARK_FAMILY_MANIFEST.json", kind)),
@@ -208,28 +214,43 @@ def _check_qualification(
         "qualified_code_commit"
     ) != freeze.get("qualified_code_commit"):
         raise ValueError("source and release commit metadata disagree")
-    for name in ("RELEASE_QUALIFICATION_LEDGER.json", "BUILD_PROVENANCE.json"):
+    ledger_bytes = _embedded_bytes(members, LEDGER, kind)
+    ledger = json.loads(ledger_bytes)
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("gates"), list):
+        raise TypeError("qualification ledger is invalid")
+    evidence_paths = {
+        path
+        for gate in ledger["gates"]
+        if isinstance(gate, dict)
+        for path in (gate.get("evidence_path"), gate.get("envelope_path"))
+        if isinstance(path, str)
+    }
+    for name in {
+        LEDGER,
+        LEDGER_SIGNATURE,
+        LEDGER_PUBLIC_KEY,
+        "BUILD_PROVENANCE.json",
+    } | evidence_paths:
         data = _embedded_bytes(members, name, kind)
         if not (root / name).is_file() or data != (root / name).read_bytes():
             raise ValueError(f"missing or mismatched {name}")
-    ledger = json.loads(
-        _embedded_bytes(members, "RELEASE_QUALIFICATION_LEDGER.json", kind)
+    if LEDGER_PUBLIC_KEY not in source["files"]:
+        raise ValueError("qualification public key is not source-bound")
+    verify_signed_ledger(
+        root=root,
+        identity=identity,
+        source_commit=source["qualified_code_commit"],
+        read_bytes=lambda name: _embedded_bytes(members, name, kind),
     )
-    if not isinstance(ledger.get("gates"), list) or not ledger["gates"]:
-        raise ValueError("qualification ledger is empty")
-    for gate in ledger["gates"]:
-        if gate.get("mandatory") and gate.get("status") != "PASS":
-            raise ValueError(f"mandatory gate is not PASS: {gate.get('gate_id')}")
-        for field, value in identity.items():
-            if field.endswith("_sha256") and gate.get(field) != value:
-                raise ValueError(f"stale gate identity: {gate.get('gate_id')} {field}")
     provenance = json.loads(_embedded_bytes(members, "BUILD_PROVENANCE.json", kind))
-    for field in (
-        "source_snapshot_sha256",
-        "aggregate_tcb_sha256",
-        "dependency_lock_sha256",
-    ):
-        if provenance.get(field) != identity.get(field):
+    if provenance.get("schema_version") != 1 or not str(
+        provenance.get("python_version", "")
+    ).startswith("3.12."):
+        raise ValueError("build provenance is invalid")
+    for field, value in identity.items():
+        if (
+            field.endswith("_sha256") or field == "docker_base_image_digest"
+        ) and provenance.get(field) != value:
             raise ValueError(f"stale build provenance: {field}")
     if expected_commit and provenance.get("source_commit") != expected_commit:
         raise ValueError("build provenance has a different source commit")
@@ -252,6 +273,34 @@ def verify_archive(
             _embedded_bytes(members, "RELEASE_FREEZE_MANIFEST.json", kind)
         )
         build = json.loads(_embedded_bytes(members, "BUILD_MANIFEST.json", kind))
+        release_evidence_paths: set[str] = set()
+        ledger_matches = [
+            data
+            for name, data in members.items()
+            if (name if kind == "sdist" else _wheel_source_path(name))
+            == "RELEASE_QUALIFICATION_LEDGER.json"
+        ]
+        if ledger_matches:
+            if len(ledger_matches) != 1:
+                raise ValueError("duplicate qualification ledger")
+            ledger_candidate = json.loads(ledger_matches[0])
+            if not isinstance(ledger_candidate, dict) or not isinstance(
+                ledger_candidate.get("gates"), list
+            ):
+                raise ValueError("invalid qualification ledger")
+            for gate in ledger_candidate["gates"]:
+                if not isinstance(gate, dict):
+                    raise TypeError("invalid qualification gate")
+                for field in ("evidence_path", "envelope_path"):
+                    path = gate.get(field)
+                    if (
+                        not isinstance(path, str)
+                        or not path.startswith("qualification/")
+                        or PurePosixPath(path).suffix not in {".json", ".xml", ".txt"}
+                        or any(part in {"", ".", ".."} for part in path.split("/"))
+                    ):
+                        raise ValueError("invalid qualification evidence path")
+                    release_evidence_paths.add(path)
         for name in EMBEDDED:
             if (
                 not (root / name).is_file()
@@ -280,6 +329,10 @@ def verify_archive(
             _embedded_bytes(members, "requirements-rsi-ci.lock", kind)
         ):
             raise ValueError("dependency lock digest mismatch")
+        if identity.get("runtime_dependency_lock_sha256") != _sha(
+            _embedded_bytes(members, "requirements-runtime.lock", kind)
+        ):
+            raise ValueError("runtime dependency lock digest mismatch")
         from aide.rsi.benchmark import manifest_sha256
 
         benchmark = json.loads(
@@ -310,10 +363,16 @@ def verify_archive(
                 if _sha(data) != source_hashes[relative]:
                     raise ValueError(f"source content mismatch: {relative}")
                 observed.add(relative)
-            elif relative in EMBEDDED or relative in {
-                "RELEASE_QUALIFICATION_LEDGER.json",
-                "BUILD_PROVENANCE.json",
-            }:
+            elif (
+                relative in EMBEDDED
+                or relative
+                in {
+                    "RELEASE_QUALIFICATION_LEDGER.json",
+                    "RELEASE_QUALIFICATION_LEDGER.sig",
+                    "BUILD_PROVENANCE.json",
+                }
+                | release_evidence_paths
+            ):
                 continue
             elif kind == "wheel" and ".dist-info/" in name:
                 tail = name.split(".dist-info/", 1)[1]
@@ -335,7 +394,15 @@ def verify_archive(
                 raise ValueError(f"unexpected executable file: {name}")
             else:
                 raise ValueError(f"unexpected archive member: {name}")
-        required = RUNTIME_REQUIRED | {"requirements-rsi-ci.lock", "VERSION"}
+        required = (
+            PACKAGE_ROOT_FILES
+            | {path for path in source_hashes if path.startswith(("aide/", "vendor/"))}
+            | {
+                path
+                for path in source_hashes
+                if path.startswith("tools/") and path.endswith(".py")
+            }
+        )
         if kind == "sdist":
             required |= set(source_hashes)
         if not required <= observed | EMBEDDED:

@@ -44,32 +44,6 @@ GENERATED_OR_VOLATILE = {
     "VALIDATION_REPORT.md",
     "SECURITY_HARDENING_REPORT.md",
 }
-TCB_FIXED_PATHS = {
-    ".github/workflows/linter.yml",
-    ".github/workflows/linux-bubblewrap.yml",
-    ".github/workflows/macos-nested-timeout.yml",
-    ".github/workflows/macos-seatbelt.yml",
-    ".github/workflows/package-smoke.yml",
-    ".github/workflows/windows-rsi-state-lock.yml",
-    "aide/utils/config.py",
-    "aide/utils/config.yaml",
-    "tests/test_rsi_multitask_canary.py",
-    "tests/test_rsi_reference_evaluator.py",
-    "tests/test_rsi_statistics_qualification_tool.py",
-    "tests/test_rsi_trusted_evaluator.py",
-    "tests/test_rsi_recovery_hardening.py",
-    "requirements-rsi-ci.in",
-    "requirements-rsi-ci.lock",
-    "rsi_anchor_service.py",
-    "requirements.txt",
-    "requirements-replay.txt",
-    "requirements-runtime.lock",
-    "setup.py",
-    "MANIFEST.in",
-    "tools/qualify_canary_statistics.py",
-    "tools/generate_release_manifests.py",
-    "tools/verify_package.py",
-}
 RELEASE_AUTHORITY_PATHS = {
     ".dockerignore",
     "Dockerfile",
@@ -81,6 +55,7 @@ RELEASE_AUTHORITY_PATHS = {
     "requirements-replay.txt",
     "requirements-rsi-ci.in",
     "requirements-rsi-ci.lock",
+    "release/qualification-ledger-public.pem",
 }
 SANDBOX_AUTHORITY_PATHS = {
     "Dockerfile",
@@ -200,8 +175,18 @@ def _tcb_groups(source_paths: list[str]) -> dict[str, list[str]]:
     } | {"aide/utils/config.yaml", "rsi_anchor_service.py"}
     # A bundled executable component may influence JEV advice or runtime behavior.
     runtime.update(path for path in source if path.startswith("vendor/"))
+    runtime.update(
+        path
+        for path in source
+        if path in {"requirements.txt", "requirements-runtime.lock"}
+    )
     release = (
         RELEASE_AUTHORITY_PATHS
+        | {
+            path
+            for path in source
+            if path.startswith("requirements-") and path.endswith(".lock")
+        }
         | {path for path in source if path.startswith(".github/workflows/")}
         | {
             path
@@ -240,7 +225,7 @@ def _evidence_matches_identity(evidence: Any, identity: dict[str, Any]) -> bool:
     return isinstance(evidence, dict) and all(
         evidence.get(key) == value
         for key, value in identity.items()
-        if key.endswith("_sha256")
+        if key.endswith("_sha256") or key == "docker_base_image_digest"
     )
 
 
@@ -448,6 +433,10 @@ def build_manifests(
     )
     evidence_identity = {
         "source_snapshot_sha256": source_snapshot_sha256,
+        "runtime_tcb_sha256": tcb_group_digests["runtime_tcb"],
+        "release_tcb_sha256": tcb_group_digests["release_tcb"],
+        "statistical_tcb_sha256": tcb_group_digests["statistical_tcb"],
+        "sandbox_tcb_sha256": tcb_group_digests["sandbox_tcb"],
         "aggregate_tcb_sha256": tcb["aggregate_tcb_sha256"],
         "dependency_lock_sha256": dependency_lock_sha256,
         "runtime_dependency_lock_sha256": runtime_dependency_lock_sha256,
@@ -457,6 +446,39 @@ def build_manifests(
         "docker_base_image_digest": docker_base_image_digest,
         "docker_build_context_sha256": source_snapshot_sha256,
     }
+    evidence_spec = importlib.util.spec_from_file_location(
+        "_aide_rsi_qualification_evidence",
+        Path(__file__).resolve().with_name("qualification_evidence.py"),
+    )
+    if evidence_spec is None or evidence_spec.loader is None:
+        raise RuntimeError("cannot load qualification evidence policy")
+    evidence_module = importlib.util.module_from_spec(evidence_spec)
+    evidence_spec.loader.exec_module(evidence_module)
+    qualification_artifact_envelopes = evidence_module.validation_matrix(
+        ROOT, evidence_identity
+    )
+    signed_release_qualification = False
+    if source_status == "COMMITTED_SOURCE_SNAPSHOT":
+        try:
+            benchmark_module.validate_manifest(
+                benchmark_module.load_manifest(benchmark_manifest_path),
+                require_approved=True,
+            )
+            release_spec = importlib.util.spec_from_file_location(
+                "_aide_rsi_release_verifier", ROOT / "tools/verify_release.py"
+            )
+            if release_spec is None or release_spec.loader is None:
+                raise RuntimeError("cannot load release verifier")
+            release_module = importlib.util.module_from_spec(release_spec)
+            release_spec.loader.exec_module(release_module)
+            release_module.verify_signed_ledger(
+                root=ROOT,
+                identity=evidence_identity,
+                source_commit=code_commit,
+            )
+            signed_release_qualification = True
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            signed_release_qualification = False
     dependency_install_path = (
         ROOT / "qualification/repair-1.3.6/dependency-lock-install.json"
     )
@@ -710,7 +732,11 @@ def build_manifests(
             }
     freeze = {
         "schema_version": 1,
-        "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
+        "release_status": (
+            "RELEASE_QUALIFIED"
+            if signed_release_qualification
+            else "UNRELEASED_QUALIFICATION_INCOMPLETE"
+        ),
         "package_version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
         "qualified_code_commit": code_commit,
         "qualified_code_git_tree": code_tree,
@@ -751,6 +777,7 @@ def build_manifests(
         "statistical_qualification": statistical_qualification,
         "hosted_workflow_runs": hosted_workflow_evidence,
         "validation": {
+            "qualification_artifact_envelopes": qualification_artifact_envelopes,
             "local_statistical_calibration": statistical_qualification["status"],
             "local_full_pytest": _pytest_validation(evidence_identity),
             "hosted_platform_qualification": hosted_platform_status,
