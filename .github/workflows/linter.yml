@@ -1,0 +1,44 @@
+name: Linter
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  lint-python:
+    name: Python Linting
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Release-manifest verification compares the checked-out source with
+          # the previously qualified code commit, which may not be the branch
+          # head after qualification-only metadata commits.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Dependencies
+        run: python -m pip install --require-hashes -r requirements-rsi-ci.lock
+      - name: Run Ruff
+        run: >-
+          ruff check --output-format=github aide/
+          rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tools/generate_release_manifests.py tools/verify_package.py
+          tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
+          tests/test_rsi_trusted_evaluator.py tests/test_rsi_reference_evaluator.py
+          tests/test_rsi_multitask_canary.py
+          tests/test_rsi_statistics_qualification_tool.py
+      - name: Run Black
+        run: >-
+          black --check --diff aide/
+          rsi_anchor_service.py tools/qualify_canary_statistics.py
+          tools/generate_release_manifests.py tools/verify_package.py
+          tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
+          tests/test_rsi_trusted_evaluator.py tests/test_rsi_reference_evaluator.py
+          tests/test_rsi_multitask_canary.py
+          tests/test_rsi_statistics_qualification_tool.py
+      - name: Check generated release manifests
+        run: python tools/generate_release_manifests.py --check

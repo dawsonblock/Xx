@@ -1,0 +1,66 @@
+{
+  "authority_controls": [
+    "exact task signatures",
+    "HMAC-authenticated registry and primary qualification evidence",
+    "independent Ed25519 evaluator qualification required for direct authority",
+    "Ed25519 artifact-bundle attestation required for direct authority",
+    "live AnyJev artifact/backend/calibration attestation",
+    "stable rollout and normal drift required before direct authority",
+    "authority envelope v4 validated by jev-gateway",
+    "gateway R0/R1/R2/R3 policy remains independent of model confidence"
+  ],
+  "components": {
+    "AnyJev": {
+      "integration_version": "0.4.0-hardened",
+      "validation": "93 passed, 7 skipped"
+    },
+    "LLM2Jev": {
+      "full_pytest": "not run: declared OpenAI SDK dependency unavailable in offline environment",
+      "validation": "compileall passed"
+    },
+    "LocalJevFabric": {
+      "validation": "57 passed",
+      "version": "1.5.0"
+    },
+    "jev-gateway": {
+      "full_vitest": "not run: pnpm dependencies unavailable in offline environment",
+      "validation": "41 TypeScript source/test files transpile-parsed, 0 syntax diagnostics"
+    }
+  },
+  "evidence_controls": [
+    "sanitized replay store hashes request state instead of storing it",
+    "incident ZIP bundles contain replay/verification plus optional registry and manifest evidence",
+    "OTel-style JSONL spans exclude prompt/state content",
+    "existing audit chain, anti-rollback checkpoint, drift, shadow/canary and dataset controls retained"
+  ],
+  "integrity": {
+    "algorithm": "sha256",
+    "coverage": "all regular files except SHA256SUMS itself",
+    "per_file_manifest": "SHA256SUMS"
+  },
+  "name": "LocalJevFabric",
+  "payload_before_sha_manifest": {
+    "bytes": 45603319,
+    "file_count": 707
+  },
+  "release_date": "2026-09-29",
+  "release_focus": [
+    "capability-aware generalist routing",
+    "cost-aware escalation with calibrated-vs-concentration semantics",
+    "independent Ed25519 held-out qualification",
+    "Ed25519 artifact supply-chain attestations",
+    "sanitized deterministic replay and incident bundles",
+    "privacy-minimized OpenTelemetry-style JSONL spans"
+  ],
+  "release_type": "full_upgraded_source",
+  "routing_controls": [
+    "non-authoritative backend capability manifest",
+    "question-type support filtering",
+    "benchmarked expected-accuracy/cost/latency ordering",
+    "cost-aware escalation using calibrated uncertainty when available",
+    "uncalibrated backends use benchmark priors rather than concentration-as-correctness",
+    "provisional lower-tier answer retained if stronger escalation fails"
+  ],
+  "schema_version": 1,
+  "version": "1.5.0"
+}

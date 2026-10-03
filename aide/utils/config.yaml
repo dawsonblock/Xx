@@ -1,0 +1,229 @@
+# path to the task data directory
+data_dir: null
+
+# either provide a path to a plaintext file describing the task
+desc_file: null
+# or provide the task goal (and optionally evaluation information) as arguments
+goal: null
+eval: null
+
+log_dir: logs
+workspace_dir: workspaces
+
+# whether to unzip any archives in the data directory
+preprocess_data: True
+# whether to copy the data to the workspace directory (otherwise it will be symlinked)
+# copying is recommended to prevent the agent from accidentally modifying the original data
+copy_data: True
+
+exp_name: null # a random experiment name will be generated if not provided
+
+# settings for code execution
+exec:
+  timeout: 3600
+  agent_file_name: runfile.py
+  format_tb_ipython: False
+
+generate_report: True
+# LLM settings for final report from journal
+report:
+  model: gpt-4.1
+  temp: 1.0
+
+# agent hyperparams
+agent:
+  # how many improvement iterations to run
+  steps: 20
+  # whether to instruct the agent to use CV (set to 1 to disable)
+  k_fold_validation: 5
+  # whether to instruct the agent to generate a prediction function
+  expose_prediction: False
+  # whether to provide the agent with a preview of the data
+  data_preview: True
+  # optimization direction of the validation metric: true if higher is better,
+  # false if lower is better; leave null to infer it from the task description
+  # with a single LLM call at the start of the run
+  metric_maximize: null
+
+  # LLM settings for coding
+  code:
+    model: o4-mini
+    temp: 0.5
+
+  # LLM settings for evaluating program output / tracebacks
+  feedback:
+    model: gpt-4.1-mini
+    temp: 0.5
+
+  # hyperparameters for the tree search
+  search:
+    max_debug_depth: 3
+    debug_prob: 0.5
+    num_drafts: 5
+
+# Replay-based recursive self-improvement (DREAM-RSI style).
+# Used by the `aide-rsi` entry point. Standard `aide` ignores these fields.
+rsi:
+  enabled: true
+  outer_rounds: 7
+  steps_per_round: 24
+  # The reference runner is truthful about execution: until a real concurrent
+  # worker pool is enabled, one live candidate is executed at a time and replay
+  # receives no parallelism bonus.
+  max_parallelism: 1
+  fallback_width: 6
+  fallback_depth: 8
+  hard_max_width: 24
+  hard_max_depth: 32
+  # Split assignments are immutable inside an epoch. Start a new epoch only when
+  # you deliberately provision a fresh qualification set.
+  split_epoch: "0001"
+  # none | failures | top. `none` avoids prompt-level semantic over-constraint.
+  memory_mode: none
+  # To resume an interrupted run, pass rsi.resume_log_dir=/absolute/path/to/log.
+  resume_log_dir: null
+  sandbox:
+    # strict fails closed. `auto` prefers Linux bubblewrap and otherwise uses an
+    # explicitly configured Docker/Podman image. On macOS, auto falls back to
+    # native Seatbelt after its live confinement check.
+    mode: strict
+    backend: auto            # auto | bubblewrap | container | seatbelt (macOS)
+    container_runtime: auto  # auto | docker | podman
+    # Build with `make sandbox-image`, then set this to aideml-rsi-sandbox:1.3.5
+    # when bubblewrap is unavailable. Null means container fallback is disabled.
+    container_image: null
+    allow_insecure_process: false
+    # POSIX resource envelope for strict candidate execution. Set an individual
+    # value <= 0 to disable that rlimit; wall-clock timeout remains enforced.
+    memory_mb: 32768
+    seatbelt_memory_mb: 1024 # local Seatbelt RSS monitor ceiling
+    cpu_seconds: 0
+    file_size_mb: 2048
+    workspace_mb: 2048      # Seatbelt disk-image capacity; hard workspace bound
+    max_output_mb: 16
+    nproc: 128
+    nofile: 256
+  # Optional task-owned evaluator. It runs outside the candidate sandbox, owns
+  # the pinned hidden dataset/split, and returns predictions plus a fixed metric.
+  # Set every digest from the operator-reviewed evaluator/data bundle before
+  # enabling. The evaluator receives no AIDE attestation key.
+  trusted_evaluator:
+    enabled: false
+    bundle_dir: null
+    bundle_sha256: null
+    entrypoint: evaluate.py
+    config_path: null
+    config_sha256: null
+    dataset_dir: null
+    dataset_sha256: null
+    split_manifest: null
+    split_sha256: null
+    environment_manifest: null
+    environment_manifest_sha256: null
+    metric_id: null
+    metric_maximize: null
+    # Evaluator confinement: auto selects macOS Seatbelt or Linux Bubblewrap.
+    sandbox_backend: auto
+    timeout_s: 600
+    # Aggregate evaluator scratch data, including predictions and response.
+    max_output_mb: 64
+    max_memory_mb: 4096
+    max_processes: 2048
+    max_open_files: 256
+  # Optional independent evaluator for live incumbent/challenger canaries.
+  # A trusted search evaluator alone cannot authorize promotion: canary scores
+  # must come from a different pinned split or dataset.
+  canary_evaluator:
+    enabled: false
+    bundle_dir: null
+    bundle_sha256: null
+    entrypoint: evaluate.py
+    config_path: null
+    config_sha256: null
+    dataset_dir: null
+    dataset_sha256: null
+    split_manifest: null
+    split_sha256: null
+    environment_manifest: null
+    environment_manifest_sha256: null
+    metric_id: null
+    metric_maximize: null
+    sandbox_backend: auto
+    timeout_s: 600
+    max_output_mb: 64
+    max_memory_mb: 4096
+    max_processes: 2048
+    max_open_files: 256
+    # Increment exactly once for each fresh canary data/split shard.
+    shard_epoch: 0
+  # A single task is no longer sufficient evidence for general policy promotion.
+  # Configure at least 40 distinct tasks and 40 independent task-family clusters,
+  # balanced across at least 3 broad task strata.
+  # Each item binds its task prompt, public training data, pinned evaluator, and
+  # exactly four paired runs and seed values before any canary result is observed.
+  # replicate_ids and replicate_seeds must be sorted/aligned. Replicate IDs do
+  # not choose execution order; each task uses a signed ABBA or BAAB schedule.
+  # Seeds initialize local Python/NumPy RNGs; provider RNG may be uncontrolled.
+  canary_panel_epoch: 0
+  canary_panel: []
+  canary:
+    # Deprecated/unused by the RSI runner; retained for existing configs.
+    attempts: 4
+    repeats: 5
+
+    # Legacy V1 direct RealCanaryGate.evaluate_series() controls. They do not
+    # affect V6 multi-task panel or promotion authority.
+    min_pass_fraction: 0.66
+    min_pairs: 5
+    confidence_level: 0.95
+    bootstrap_samples: 10000
+    max_single_pair_regression: 0.25
+
+    # V6 trusted task-pair extraction and normalization. The pair-level
+    # regression flag is serialized for audit but is not a promotion veto.
+    max_normalized_regression: 0.05
+    min_valid: 1
+    score_scale_floor: 1.0
+
+    # V6 task-family inference and localized regression protection.
+    min_effect_size: 0.0
+    max_single_task_regression: 0.25
+    # Total one-sided sign-test error budget across sequential promotions.
+    experiment_alpha: 0.05
+  # Optional LocalJevFabric/SystemOne advisory layer.  JEV never receives
+  # promotion authority, cannot add legal actions, and cannot bypass the sandbox.
+  # High-confidence failure repairability may influence recovery classification;
+  # branch/model/verification recommendations are shadow-only in v1.3.
+  jev:
+    enabled: false
+    endpoint: http://127.0.0.1:8090/v1/systemone
+    model: local-jev-fabric
+    api_key_env: FABRIC_API_KEY
+    timeout_s: 1.5
+    confidence_threshold: 0.72
+    fail_open: true
+    max_state_chars: 12000
+    failure_classification: true
+    failure_influence: false
+    shadow_action_ranking: true
+    shadow_model_routing: false
+    shadow_verification_depth: false
+  evolution:
+    population: 48
+    generations: 5
+    elite_count: 8
+    seed: 0
+    work_penalty: 0.10
+    # Kept for compatibility; the reference runner forces this to 0 until live
+    # execution has genuine concurrency.
+    parallel_bonus: 0.0
+    beta_grid: [0.2, 0.4, 0.6, 0.8, 1.0]
+    min_validation_margin: 0.0
+    max_qualification_regression: 0.01
+    # Aggregate qualification can hide a catastrophic regression on one world.
+    max_single_world_regression: 0.05
+    min_qualification_worlds: 3
+    use_llm_developer: false
+    llm_candidates: 4
+    llm_model: null
+    llm_temp: 0.4

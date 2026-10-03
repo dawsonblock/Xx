@@ -1,0 +1,27 @@
+{
+  "baseline_name": "AIDE-DREAM-RSI 1.3.5 unreleased statistical-closure snapshot",
+  "branch_at_freeze": "fix/aide-rsi-authority-closure",
+  "commit": "5665eee7957e32865b390c1c001616848d711446",
+  "git_tree": "1843f1e5946af1b12b0e2b20eae36032e8f84518",
+  "note": "The annotated tag preserves the committed source and evidence snapshot. Working-tree-only edits are outside this frozen tag.",
+  "qualification_artifact_hashes": {
+    "BUILD_MANIFEST.json": "65b26b6ab07125265007e529a6330441cd62ccc367877552b6a9ebe4c23d5c0c",
+    "RELEASE_FREEZE_MANIFEST.json": "ec4d97f5c40313ea8a960fd670a72f7fba41448bcebf993863d3871cedc61a47",
+    "RELEASE_QUALIFICATION_MANIFEST.md": "0943d9a728e870964b83844fb9000a252e4e68cba98371f578fbcd3f1b0cc3a5",
+    "RELEASE_SOURCE_SHA256SUMS": "5ceacd0211c2e06a70befe8d4a540132da422da6824feb493dc8295623483cab",
+    "SECURITY_HARDENING_REPORT.md": "89cdd506d30ee41e0b59f2908463c8763687035531e5fd07dd955174be2e0f20",
+    "SOURCE_TREE_MANIFEST.json": "f30c436ae3efd4129f37ae7d20f28b6879c086a2e551019f06b78ca2661fdf06",
+    "TCB_MANIFEST.json": "c30d1157a7c4f60235a0509be640935d2b349f1ddca21ad310425d3a6f8cd91e",
+    "VALIDATION_REPORT.md": "6b63cc86e9a82ac004c83de3145ff444dc948b07de50c87764f5cf393e78d5ad",
+    "VERSION": "fc253dae4f432925780b608f87298fbbd2f948cd811d2e894cdcbb98ec855d2e",
+    "qualification/canary-statistics-synthetic.json": "bb14864197475ec655ff50bb344a425266537454be531578e2e132591996a69d",
+    "qualification/hosted-workflow-runs.json": "40a0b479c9a4b483974038600addc7448f661c66bdf6f84832c076918bfcb6ae",
+    "qualification/multitask-statistical-qualification.json": "b98edf0eab2ff88184419abebfef1a1834e6eb90a3c8c72472a54bae34766b4c",
+    "qualification/pytest-junit.xml": "3f4659497e8c93193fdffbe5c2f622638a18e0fdf34b202229317b7b047f52f5",
+    "requirements-replay.txt": "721ab338e3934b7667fcfe8c33c520bfbb01616051ff30db6a2715a0bf771734",
+    "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426"
+  },
+  "qualified_code_commit_claim_in_release_freeze": "a2bdaedd0492b98e9ab0ee1726b14008766fc512",
+  "record_type": "pre_repair_baseline",
+  "tag": "pre-repair-1.3.5-5665eee"
+}

@@ -1,0 +1,113 @@
+name: Package completeness
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements-rsi-ci.lock
+          python -m build --sdist --wheel
+          wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          sdist=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
+          python tools/verify_package.py --wheel "$wheel" --sdist "$sdist"
+      - name: Install wheel in a clean environment and exercise entry points
+        run: |
+          python -m venv /tmp/aideml-rsi-wheel
+          wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          /tmp/aideml-rsi-wheel/bin/python -m pip install --no-deps "$wheel"
+          /tmp/aideml-rsi-wheel/bin/python -m pip install --require-hashes -r requirements-rsi-ci.lock
+          /tmp/aideml-rsi-wheel/bin/aide-rsi-statistics --help
+          /tmp/aideml-rsi-wheel/bin/aide-rsi-anchor --help
+          vendor_path=$(/tmp/aideml-rsi-wheel/bin/aide-rsi-jev vendor-path)
+          test -f "$vendor_path/BUILD_MANIFEST.json"
+          /tmp/aideml-rsi-wheel/bin/python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import socket
+          import subprocess
+          import tempfile
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          from rsi_anchor_service import new_bearer_credential
+
+          with tempfile.TemporaryDirectory() as temporary:
+              root = Path(temporary)
+              os.chmod(root, 0o700)
+              anchor_id = "wheel-smoke"
+              token, token_digest = new_bearer_credential(anchor_id)
+              auth = root / "auth.json"
+              auth.write_text(json.dumps({anchor_id: token_digest}))
+              os.chmod(auth, 0o600)
+              with socket.socket() as sock:
+                  sock.bind(("127.0.0.1", 0))
+                  port = sock.getsockname()[1]
+              command = [
+                  str(Path(os.sys.executable).parent / "aide-rsi-anchor"),
+                  "serve",
+                  "--database",
+                  str(root / "anchor.sqlite3"),
+                  "--auth-file",
+                  str(auth),
+                  "--host",
+                  "127.0.0.1",
+                  "--port",
+                  str(port),
+              ]
+              server = subprocess.Popen(
+                  command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+              )
+              try:
+                  startup = server.stdout.readline()
+                  if "listening on 127.0.0.1" not in startup:
+                      raise RuntimeError(f"anchor service did not start: {startup}")
+                  url = f"http://127.0.0.1:{port}/v1/checkpoints/{anchor_id}"
+                  headers = {"Authorization": f"Bearer {token}"}
+                  digest = hashlib.sha256(b"wheel smoke checkpoint").hexdigest()
+                  body = json.dumps(
+                      {
+                          "previous_revision": 0,
+                          "previous_sha256": None,
+                          "revision": 1,
+                          "sha256": digest,
+                      }
+                  ).encode()
+                  request = urllib.request.Request(
+                      url,
+                      data=body,
+                      headers={**headers, "Content-Type": "application/json"},
+                      method="PUT",
+                  )
+                  deadline = time.monotonic() + 10
+                  while True:
+                      try:
+                          with urllib.request.urlopen(request, timeout=1) as response:
+                              if response.status not in (201, 204):
+                                  raise RuntimeError("anchor compare-and-swap failed")
+                          break
+                      except (OSError, urllib.error.URLError):
+                          if time.monotonic() >= deadline:
+                              raise
+                          time.sleep(0.1)
+                  with urllib.request.urlopen(
+                      urllib.request.Request(url, headers=headers), timeout=2
+                  ) as response:
+                      checkpoint = json.load(response)
+                  if checkpoint.get("revision") != 1 or checkpoint.get("sha256") != digest:
+                      raise RuntimeError("anchor checkpoint did not persist")
+              finally:
+                  server.terminate()
+                  server.communicate(timeout=10)
+          PY

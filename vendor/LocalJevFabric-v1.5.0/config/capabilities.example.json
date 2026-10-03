@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "backends": {
+    "laya": {
+      "question_types": [
+        "noul",
+        "choice"
+      ],
+      "expected_accuracy": {
+        "noul": 0.88,
+        "choice": 0.84
+      },
+      "p95_ms": 45,
+      "cost_units": 0.2,
+      "max_state_chars": 60000
+    },
+    "llm2jev": {
+      "question_types": [
+        "noul",
+        "choice",
+        "score"
+      ],
+      "expected_accuracy": {
+        "noul": 0.9,
+        "choice": 0.86,
+        "score": 0.78
+      },
+      "p95_ms": 160,
+      "cost_units": 0.6,
+      "max_state_chars": 120000
+    }
+  }
+}

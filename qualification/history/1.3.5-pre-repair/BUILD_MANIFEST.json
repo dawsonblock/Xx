@@ -1,0 +1,197 @@
+{
+  "build": "AIDE-DREAM-RSI-v1.3.5",
+  "distribution_name": "aideml-rsi",
+  "distribution_version": "1.3.5",
+  "current_qualification_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
+  "current_qualification_manifest": "RELEASE_FREEZE_MANIFEST.json",
+  "qualification_note": "Validation blocks below are historical for earlier commits; consult RELEASE_FREEZE_MANIFEST.json for the current qualified source and result identities.",
+  "base_artifact": {
+    "name": "AIDE-DREAM-RSI-v1.2.0.zip",
+    "sha256": "88a9fc88a3253b24e31cc4b64b4bd3ffffd8ef7bacd7ddb9b24ac326a683ee31"
+  },
+  "jev_integration_source": {
+    "name": "LocalJevFabric_v1.5.0_Full_Upgraded_Source.zip",
+    "sha256": "cdc6fec5b5ab4b28ac07d25ff48d233eab4430bbfde76502fe082b6b0fc85474",
+    "bundled_path": "vendor/LocalJevFabric-v1.5.0"
+  },
+  "decision_schema_reference": {
+    "name": "Jev-1.2.0-Corrected.zip",
+    "sha256": "54f484e42921c154593a75bfc2e59cc7de730c1b0f65f178deec9b51af373fe6"
+  },
+  "architecture": {
+    "world_model": "grounded historical replay only; no learned latent dynamics",
+    "recursive_boundary": "typed bounded exploration policy DSL",
+    "jev_role": "optional bounded SystemOne advisory layer; shadow-first; no promotion or execution authority",
+    "jev_default_influence": "none; failure_influence=false by default",
+    "policy_interface": "one AdaptiveReplayPolicy shared by replay and live adapters",
+    "qualification": "persistent development/validation/qualification world assignments; HMAC-attested results and an independent-data live canary gate promotion",
+    "trusted_evaluation": "host invokes content-pinned search and optional independent canary evaluator subprocesses in fail-closed macOS Seatbelt or Linux Bubblewrap sandboxes, with bytecode disabled, read-only inputs, bounded resources, and content-addressed evidence; disabled by default",
+    "execution": "strict fail-closed Bubblewrap or Docker/Podman OCI sandbox; insecure process mode only by explicit opt-in",
+    "integrity": "append-only SHA-256 content-addressed replay objects",
+    "parallelism": "effective live parallelism 1; replay parallel bonus 0"
+  },
+  "v1_3_upgrades": [
+    "bundled LocalJevFabric v1.5.0 source",
+    "typed SystemOne advisor",
+    "shadow legal-action ranking",
+    "shadow model-tier routing",
+    "shadow verification-depth recommendation",
+    "optional high-confidence failure repairability",
+    "serialized JEV node evidence and replay-world schema v3",
+    "privacy-minimized JEV advisory JSONL",
+    "JEV doctor/report/vendor-path CLI",
+    "fail-open deterministic fallback"
+  ],
+  "docs": [
+    "docs/ARCHITECTURE.md",
+    "docs/JEV_INTEGRATION.md",
+    "docs/PAPER_MAPPING.md",
+    "docs/REPLAY_SEMANTICS.md",
+    "docs/THREAT_MODEL.md",
+    "docs/TRUSTED_EVALUATOR.md",
+    "docs/MIGRATION_v1.3.1_to_v1.3.2.md",
+    "docs/MIGRATION_v1.3.2_to_v1.3.3.md",
+    "docs/MIGRATION_v1.3.3_to_v1.3.4.md",
+    "docs/MIGRATION_v1.3.4_to_v1.3.5.md",
+    "docs/MIGRATION_v1.3.5_hardening-closure.md",
+    "docs/MIGRATION_v1.3.0_to_v1.3.1.md",
+    "docs/MIGRATION_v1.1_to_v1.2.md",
+    "docs/MIGRATION_v1.2_to_v1.3.md",
+    "VALIDATION_REPORT.md",
+    "SECURITY_HARDENING_REPORT.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.0.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.1.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.2.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.3.md",
+    "docs/archive/VALIDATION_REPORT_v1.3.4.md"
+  ],
+  "unreleased_hardening": {
+    "branch": "fix/aide-rsi-authority-closure",
+    "base": "v1.3.5",
+    "package_version": "1.3.5 (unchanged; this is not a release build)",
+    "changes": [
+      "full SHA-256 policy identities",
+      "canary recovery bound to durable pending state, signed transaction and decision, journal digests, gate configuration, and gate recomputation",
+      "durable RSI state HMAC-authenticated whenever a trusted evaluator role is enabled",
+      "trusted evidence requires existing and digest-valid candidate, prediction, and evaluation artifacts",
+      "canonical evaluation sample IDs and separate candidate-visible/full-record hashes with order-independent tabular identity",
+      "dataset content reverified before and after every authoritative evaluation",
+      "one-use signed canary reservations that burn interrupted shards and abandon incomplete challengers",
+      "stable canary evaluator authority with explicit monotonic shard epochs for repeated promotions",
+      "sticky external state-anchor URL authority pinned by authenticated durable state",
+      "cross-platform exclusive RSI writer lock using flock on POSIX and msvcrt on Windows",
+      "Windows CI smoke test for state import and exclusive writer lock",
+      "trusted evaluator RLIMIT_NPROC and RLIMIT_NOFILE ceilings",
+      "correct 128 MiB minimum memory validation",
+      "first-party tabular adapter that runs candidate code in a separate strict sandbox from labels",
+      "HTTPS state anchors require an out-of-band TLS leaf-certificate SHA-256 pin, verified before bearer credentials are sent",
+      "multi-task exact family-cluster sign test uses protocol V2 with a fixed 500-attempt Bonferroni alpha horizon",
+      "task replicates aggregate within task and family before promotion inference; seeds do not count as independent families",
+      "100-attempt interrupted-canary recovery test preserves retired sample identities after reservation deletion",
+      "the experiment alpha budget and static canary gate thresholds are immutable in HMAC-authenticated state",
+      "legacy nonzero attempt counters require a fresh statistical epoch and cannot be silently migrated",
+      "the configured experiment alpha and static canary gate policy digest are immutable in authenticated RSI state",
+      "Linux Bubblewrap and authority regression workflow is manually dispatchable after release manifests are frozen",
+      "Windows state-lock and authority regression workflow is manually dispatchable after release manifests are frozen"
+    ],
+    "validation": {
+      "full_project_pytest": "178 passed, 1 skipped (macOS local)",
+      "rsi_pytest": "127 passed, 1 skipped (macOS local)",
+      "focused_recovery_and_evaluator_pytest": "57 passed (macOS local)",
+      "source_distribution_build": "passed for current source; setup.py --version remains 1.3.5",
+      "ruff": "passed for modified RSI security source and tests; aide/utils/config.py checked with pre-existing local-version findings excluded",
+      "black": "passed for changed Python files",
+      "compileall": "passed for aide and tests",
+      "platform_scope": "current source checked locally and by hosted macOS, Linux, Windows, and linter workflows on cd94004",
+      "previous_commit_hosted_workflows": {
+        "macos_nested_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36841501712",
+        "linux_bubblewrap": "https://github.com/dawsonblock/Xx/actions/runs/36841501818",
+        "windows_state_lock": "https://github.com/dawsonblock/Xx/actions/runs/36841501831",
+        "linter": "https://github.com/dawsonblock/Xx/actions/runs/36841501730"
+      },
+      "hosted_workflows": {
+        "macos_nested_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36848550589",
+        "linux_bubblewrap_and_authority": "https://github.com/dawsonblock/Xx/actions/runs/36848550461",
+        "windows_state_and_authority": "https://github.com/dawsonblock/Xx/actions/runs/36848550549",
+        "linter": "https://github.com/dawsonblock/Xx/actions/runs/36848550714"
+      }
+    },
+    "migration": "Existing unsigned v1.3.5 canary transactions cannot be trusted for recovery; start with a fresh RSI log directory and a fresh canary split epoch. See docs/MIGRATION_v1.3.5_hardening-closure.md.",
+    "security_report": "SECURITY_HARDENING_REPORT.md",
+    "source_revision": "cd94004"
+  },
+  "validation": {
+    "full_project_pytest": "141 passed, 1 skipped",
+    "rsi_pytest": "90 passed, 1 skipped",
+    "ruff": "0.16.0 passed for aide/rsi/trusted_evaluator.py and tests/test_rsi_trusted_evaluator.py; whole-repository check reports 96 existing findings",
+    "black": "25.1.0 passed for modified Python files",
+    "compileall": "passed for aide and tests",
+    "package_version": "1.3.5",
+    "strict_backend_execution": "macOS Seatbelt exercised; Bubblewrap command construction covered by a focused test but Bubblewrap/OCI execution not run on macOS",
+    "macos_seatbelt": "local backend checks run on macOS; see validation report for scope",
+    "trusted_evaluator": "16 focused tests passed, including multi-file local imports, no bytecode mutation, read-only input checks, scratch output bounds, child cleanup, resource-identity binding, persisted prediction/evaluation artifacts, independent canary split enforcement, prior-state identity migration, candidate snapshot mutation rejection, host-file denial, loopback network denial, and Bubblewrap command construction; macOS Seatbelt exercised, Linux Bubblewrap and task-specific hidden-data bundle not exercised",
+    "live_jev_backend": "not executed; adapter validated against typed mocks in earlier v1.3.0 validation"
+  },
+  "known_limitations": [
+    "first-party tabular hidden-data adapter is included; other task formats remain disabled until an operator supplies and pins a reviewed bundle",
+    "HMAC evaluator attestation is symmetric and depends on protecting the shared key and validating evaluator/data identities before signing",
+    "signed RSI state detects edits but does not prevent rollback of a complete older signed state and evidence snapshot unless the sticky external monotonic anchor is configured",
+    "the HMAC signer is not a dedicated UID or signing service; host process compromise can expose the symmetric key",
+    "replay-world splitting is not a holdout-data boundary; validation and qualification reuse discovery scores and do not establish untouched generalization",
+    "the first-party candidate/label isolation adapter supports the documented tabular format; other task formats require a separately reviewed adapter",
+    "the first-party adapter process itself runs outside the outer OS sandbox to launch the nested candidate sandbox and remains trusted host code with filesystem and network access",
+    "the host trusts the task evaluator's metric implementation and does not independently recompute it from labels and predictions",
+    "environment identity records platform and restricted PATH values but does not bind a container image, system libraries, GPU driver, or the contents of every executable reachable through allowed runtime paths",
+    "reference live executor remains serial",
+    "replay cannot generate unseen branch outcomes",
+    "JEV is advisory/shadow by default",
+    "Linux Bubblewrap evaluator confinement and resource limits must be integration-tested on the deployment host",
+    "separate validation and one-shot qualification datasets are not implemented; replay qualification uses the same pinned search measurements",
+    "sequential alpha spending assumes valid per-attempt paired sign-test p-values; independence across rollout seeds and tasks has not been qualified",
+    "HTTPS anchor certificate renewal requires an explicit pin migration; the repository does not provide an anchor service",
+    "a whole-directory rollback without an external monotonic anchor can roll back both the promotion attempt index and its alpha budget"
+  ],
+  "manifest_status": "Historical v1.3.5 build manifest; all embedded validation counts and source claims describe earlier snapshots only.",
+  "current_authoritative_release_record": "RELEASE_FREEZE_MANIFEST.json",
+  "current_release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
+  "current_statistical_authority_validation": {
+    "qualified_code_commit": "a2bdaedd0492b98e9ab0ee1726b14008766fc512",
+    "qualified_code_git_tree": "1668745a7ee0455536e0c7eb056da3e20cffb178",
+    "metadata_head": "925f1bc6172b150f8c85c8821187d15916188ba1",
+    "source_snapshot_sha256": "1633a1b0f60d740c7e3d81678f47de95157c76c860e85a08326b9a076834580a",
+    "statistical_protocol": "MULTITASK_PROMOTION_PROTOCOL_V2",
+    "promotion_attempt_horizon": 500,
+    "alpha_allocation": "family_alpha / 500",
+    "local_pytest": "209 passed, 1 skipped",
+    "synthetic_null_calibration": {
+      "lineages": 20000,
+      "attempts_per_lineage": 500,
+      "false_promotions": 222,
+      "observed_familywise_rate": 0.0111,
+      "wilson_95": [
+        0.009738979516161561,
+        0.012648793339497541
+      ],
+      "configured_family_alpha": 0.05
+    },
+    "power_at_effect_0_02": {
+      "independent_families_20": 0.0436,
+      "independent_families_30": 0.1578,
+      "independent_families_40": 0.4338,
+      "qualification": "inadequate at current minimum; do not claim adequate power"
+    },
+    "hosted_workflows": {
+      "linux_bubblewrap": "https://github.com/dawsonblock/Xx/actions/runs/36962280344",
+      "macos_nested_candidate_timeout": "https://github.com/dawsonblock/Xx/actions/runs/36962279795",
+      "windows_rsi_state_lock": "https://github.com/dawsonblock/Xx/actions/runs/36962280860",
+      "linter": "https://github.com/dawsonblock/Xx/actions/runs/36962253573",
+      "package_completeness": "https://github.com/dawsonblock/Xx/actions/runs/36962253578"
+    },
+    "still_unqualified": [
+      "adequate power at the minimum panel size",
+      "independently deployed external anchor and full-directory rollback",
+      "real-task multi-task null, degraded, and stronger controls",
+      "real multi-generation AIDE-RSI improvement"
+    ]
+  }
+}

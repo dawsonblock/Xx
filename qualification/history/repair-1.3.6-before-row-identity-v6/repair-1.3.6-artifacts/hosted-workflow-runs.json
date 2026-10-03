@@ -1,0 +1,50 @@
+{
+  "qualified_code_commit": "ca80a2b13a052e67053d2aeed37ffccf02722545",
+  "qualified_source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+  "runs": {
+    "linter": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992602943,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992602943"
+    },
+    "linux_bubblewrap": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992613936,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613936"
+    },
+    "macos_nested_candidate_timeout": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992613511,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613511"
+    },
+    "macos_seatbelt": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992613548,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992613548"
+    },
+    "package_completeness": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992603013,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992603013"
+    },
+    "windows_rsi_state_lock": {
+      "conclusion": "success",
+      "head_sha": "2feae7327076c7a2705730dc14fba12135a91403",
+      "run_id": 36992614515,
+      "source_snapshot_sha256": "21916d5d99dd9716c7f1f094f13e8a84ecc71bccf2f64e7f90ffd4d61abc61f1",
+      "url": "https://github.com/dawsonblock/Xx/actions/runs/36992614515"
+    }
+  },
+  "schema_version": 1,
+  "workflow_head_sha": "2feae7327076c7a2705730dc14fba12135a91403"
+}

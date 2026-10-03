@@ -1,0 +1,2 @@
+{"state":"Representative held-out state A","question":{"type":"noul","instructions":"Does this action require targeted verification?"},"expected_key":"yes"}
+{"state":"Representative held-out state B","question":{"type":"noul","instructions":"Does this action require targeted verification?"},"expected_key":"no"}

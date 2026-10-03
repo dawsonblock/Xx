@@ -1,0 +1,12 @@
+{
+  "install_command": "python -m pip install --require-hashes -r requirements-rsi-ci.lock",
+  "installed_distribution_count": 67,
+  "installed_distribution_inventory_sha256": "2e6f710b3770cf546d9abc73d40016a0fc4f7fcb1e1a639761e15b5f91bd7221",
+  "installer": "pip 23.2.1",
+  "lock_sha256": "f8ed88219bbf3f5e801bf8cdabe4c732008213150c5197abcccd7b0caa37f1be",
+  "platform": "macOS-26.2-arm64-arm-64bit",
+  "python_version": "3.12.0",
+  "schema_version": 1,
+  "scope": "fresh native arm64 macOS Python 3.12 virtual environment; CI/security/statistical/packaging dependencies only",
+  "status": "PASS_LOCAL"
+}

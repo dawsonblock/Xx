@@ -1,0 +1,2 @@
+# Replay-only tooling (`python -m aide.rsi.cli`) uses the Python standard library.
+# Install the full requirements.txt to run live AIDE / aide-rsi discovery.

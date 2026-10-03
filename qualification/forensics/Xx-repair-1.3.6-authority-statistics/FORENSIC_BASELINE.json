@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-03T01:18:22Z",
+  "phase": "phase_0_forensic_baseline",
+  "status": "SEVEN_DISCREPANCIES_ACCOUNTED_FOR_MANIFESTS_STALE",
+  "scope": {
+    "requested_artifact": "Xx-repair-1.3.6-authority-statistics.zip",
+    "requested_artifact_available": false,
+    "inspected_checkout": "/Users/dawsonblock/Downloads/AIDE-DREAM-RSI-v1.3.0/repair-worktree",
+    "scope_basis": "The remote branch advanced by two commits containing exactly the seven reported archive differences. This report validates that committed source state while retaining the limitation that the named ZIP bytes were not independently available."
+  },
+  "repository": {
+    "version": "1.3.5",
+    "branch": "repair/1.3.6-authority-statistics",
+    "head_commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+    "head_git_tree": "a15836a8fe5a16d9c90f2fe4e3d116a266915bf7",
+    "frozen_qualified_code_commit": "f4fe8b4a543fdf60a0b8f008e1ba6a3f5e5f3c60",
+    "frozen_qualified_code_git_tree": "4b3382db21c06f546db38b68c18306325b8afa7c",
+    "post_qualification_commits": [
+      {
+        "commit": "f35f761b43cbf5d964ff051ccc9c9402879a71ff",
+        "subject": "Address Copilot review feedback"
+      },
+      {
+        "commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+        "subject": "Upgrade Black to patched release"
+      }
+    ],
+    "tracked_source_dirty": false,
+    "untracked_paths": [
+      "qualification/forensics/Xx-repair-1.3.6-authority-statistics/FORENSIC_BASELINE.json",
+      "qualification/forensics/Xx-repair-1.3.6-authority-statistics/FORENSIC_BASELINE.md"
+    ]
+  },
+  "environment": {
+    "python": "3.12.0",
+    "platform": "Darwin 25.2.0 arm64"
+  },
+  "frozen_identities": {
+    "source_snapshot_sha256": "e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4",
+    "source_file_count": 917,
+    "tcb_canonical_files_sha256": "8902b3ec896bb6fb917a695585c42b18cde70d67e9e4b8d441fee43ee4ce5f19",
+    "tcb_file_count": 50,
+    "tcb_manifest_object_sha256": "160ff4583eff605414bad1f88ba3ed815695c499e59d61a3ea6f8129945b1984",
+    "dependency_lock_sha256": "f8ed88219bbf3f5e801bf8cdabe4c732008213150c5197abcccd7b0caa37f1be",
+    "statistical_protocol_id": "MULTITASK_PROMOTION_PROTOCOL_V6",
+    "statistical_protocol_version": 6,
+    "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861"
+  },
+  "computed_candidate_identities_without_regeneration": {
+    "source_snapshot_sha256": "70b9ae27be030c78c23897ca9f1587da43c78ffc891fde4d72bf1e4b9e94979a",
+    "tcb_canonical_files_sha256": "b9ad7947ee3863f42dd7a0049df98fe2234fef14afc2484e950ee832a50ca165",
+    "tcb_manifest_object_sha256": "945ce6df49a198be7384b76b51c619dc4fb541a73d8c03f5b0a786925a2da06d",
+    "dependency_lock_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+    "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861",
+    "note": "Computed in memory using the manifest generator's canonical functions. No release manifest was rewritten in Phase 0."
+  },
+  "requirements": {
+    "requirements.txt": "042079db82203d4d3ce00609a1a7d88356b0a08fcaa6db6c685b3fa785ebe426",
+    "requirements-replay.txt": "721ab338e3934b7667fcfe8c33c520bfbb01616051ff30db6a2715a0bf771734",
+    "requirements-rsi-ci.in": "03a471ed3eafc7da9702c58fde60ec58a330661c90772fa912296bcd675732c1",
+    "requirements-rsi-ci.lock": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d"
+  },
+  "evaluator_identifiers": {
+    "reference_evaluator_entrypoint": "__aide_reference__",
+    "frozen_reference_evaluator_source_file_sha256": "1011bce2826b907facca72cacb04517a745b022b79d9ae4179fdbcdf6372e615",
+    "configured_default_custom_evaluator_entrypoint": "evaluate.py",
+    "runtime_evaluator_sha256": null,
+    "note": "Runtime evaluator identity is configuration-specific and was not synthesized during the read-only phase."
+  },
+  "manifest_validation": {
+    "generate_release_manifests_check": {
+      "command": "python tools/generate_release_manifests.py --check",
+      "exit_code": 1,
+      "result": "FAIL",
+      "stale_outputs": [
+        "BUILD_MANIFEST.json",
+        "TCB_MANIFEST.json",
+        "RELEASE_FREEZE_MANIFEST.json",
+        "SOURCE_TREE_MANIFEST.json"
+      ]
+    },
+    "source_tree_manifest": {
+      "checked_files": 917,
+      "missing_files": 0,
+      "hash_mismatches": 7,
+      "recorded_canonical_digest_matches_current_tree": false
+    },
+    "tcb_manifest": {
+      "checked_files": 50,
+      "missing_files": 0,
+      "hash_mismatches": 5,
+      "recorded_canonical_digest_matches_current_tcb": false
+    },
+    "build_manifest_matches_current_source_identity": false,
+    "release_freeze_matches_current_source_identity": false,
+    "existing_qualification_evidence_applies_to_current_source": false,
+    "existing_qualification_evidence_scope": "Valid only for frozen source e89492654bc9c9ebe04b2f221c0800d4feccffbc7bad78fb561e4842936f9bf4 unless independently invalidated for another reason."
+  },
+  "discrepancies": [
+    {
+      "path": ".github/workflows/linux-bubblewrap.yml",
+      "frozen_sha256": "f91aab0a67f08abece1a725d50ca224c14b2a2dc5bf0ae515fba12a3c521bb29",
+      "current_sha256": "7a58a4d093e435ebe6945daa9765d7c71faac31662538bd1c3cafda856cfb0f3",
+      "classification": "A_intentional_post_qualification_source_change",
+      "origin_commit": "f35f761b43cbf5d964ff051ccc9c9402879a71ff",
+      "tcb": true,
+      "qualification_invalidated": true,
+      "summary": "Adds aide/rsi/sandbox.py to push and pull-request path filters so sandbox changes trigger Linux qualification."
+    },
+    {
+      "path": "Dockerfile",
+      "frozen_sha256": "83d06ec526ff8a1c681e00a96df34738b6dcf391188fed7a1bd7f0a517429978",
+      "current_sha256": "d9b9f582ddcd025c2f6045c34653365c51cf8dfd00d361991c4437ca09ded5ef",
+      "classification": "C_packaging_mutation",
+      "origin_commit": "f35f761b43cbf5d964ff051ccc9c9402879a71ff",
+      "tcb": false,
+      "qualification_invalidated": true,
+      "summary": "Adds anchor service, tools, vendor tree, manifests, and RSI lock inputs to the container build context."
+    },
+    {
+      "path": "aide/journal2report.py",
+      "frozen_sha256": "e3d70cb2424edc306c71219bed39821daf1b0c9070a05421a6c41e9cce84a52d",
+      "current_sha256": "c29d708c22fb8dddd86b9e8b1cd3edf0f36f699399b413a82ed56f8005b08a64",
+      "classification": "A_intentional_post_qualification_source_change",
+      "origin_commit": "f35f761b43cbf5d964ff051ccc9c9402879a71ff",
+      "tcb": false,
+      "qualification_invalidated": true,
+      "summary": "Corrects malformed escaped closing tags to real XML-style closing tags in the report prompt."
+    },
+    {
+      "path": "aide/rsi/evolution.py",
+      "frozen_sha256": "33b00b1f22302f1f0325db0bfe2ab04f7c7696da98bd53384c4eddb2a63c08db",
+      "current_sha256": "5c21b8f4f8f66f2e48d736ac2331769673933ee3a1f7a35c3c07d99968a76d60",
+      "classification": "A_intentional_post_qualification_source_change",
+      "origin_commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+      "tcb": true,
+      "qualification_invalidated": true,
+      "summary": "Formatting-only removal of one blank line during the Black upgrade; no executable semantic delta observed."
+    },
+    {
+      "path": "aide/rsi/jev.py",
+      "frozen_sha256": "34bb48c08dc462166f3280078143a60cde9885b055220ddd7026ef977f57e9d8",
+      "current_sha256": "b725fe970f1c7e55e923abf47401768c951847bdf74c372fc4d53285cb1f3bf9",
+      "classification": "A_intentional_post_qualification_source_change",
+      "origin_commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+      "tcb": true,
+      "qualification_invalidated": true,
+      "summary": "Formatting-only removal of one blank line during the Black upgrade; no advisory/authority semantic delta observed."
+    },
+    {
+      "path": "requirements-rsi-ci.in",
+      "frozen_sha256": "15cfc1ec16e063c84b58e4a3588c797d0d2a9161ba7ffd7033d78c8489ec1ab6",
+      "current_sha256": "03a471ed3eafc7da9702c58fde60ec58a330661c90772fa912296bcd675732c1",
+      "classification": "D_dependency_lock_drift",
+      "origin_commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+      "tcb": true,
+      "qualification_invalidated": true,
+      "summary": "Raises Black from 24.3.0 to 26.3.1."
+    },
+    {
+      "path": "requirements-rsi-ci.lock",
+      "frozen_sha256": "f8ed88219bbf3f5e801bf8cdabe4c732008213150c5197abcccd7b0caa37f1be",
+      "current_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+      "classification": "D_dependency_lock_drift",
+      "origin_commit": "aeff6c26f0687b56b86a4c2e79fb70209c441fb0",
+      "tcb": true,
+      "qualification_invalidated": true,
+      "summary": "Regenerates the hash lock for Black 26.3.1 and adds its pytokens dependency and artifact hashes."
+    }
+  ],
+  "classification_legend": {
+    "A": "intentional post-qualification source change",
+    "B": "generated-file drift",
+    "C": "packaging mutation",
+    "D": "dependency-lock drift",
+    "E": "unexplained or corrupt",
+    "F": "false positive"
+  },
+  "acceptance": {
+    "every_current_discrepancy_has_before_and_current_sha256": true,
+    "every_current_discrepancy_has_classification": true,
+    "unexplained_discrepancy_count": 0,
+    "phase_0_acceptance_met_for_committed_branch_state": true,
+    "phase_1_allowed_for_committed_branch_state": true,
+    "archive_byte_identity_verified": false,
+    "release_or_qualification_claim_allowed": false
+  }
+}
