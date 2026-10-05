@@ -29,17 +29,23 @@ HOSTED_WORKFLOWS = {
     "linter",
     "package_completeness",
 }
-TEST_QUALIFICATION_COMMAND = (
-    "python -m pytest -q tests "
-    "--junitxml=qualification/repair-1.3.6/pytest-junit.xml"
-)
 GENERATED_OR_VOLATILE = {
     *OUTPUTS,
     "BUILD_MANIFEST.json",
     "RELEASE_QUALIFICATION_MANIFEST.md",
     "RELEASE_SOURCE_SHA256SUMS",
     "RELEASE_QUALIFICATION_LEDGER.json",
+    "RELEASE_QUALIFICATION_LEDGER.sig",
+    "SOURCE_QUALIFICATION_LEDGER.json",
+    "SOURCE_QUALIFICATION_LEDGER.sig",
     "BUILD_PROVENANCE.json",
+    "ARTIFACT_ATTESTATION.json",
+    "ARTIFACT_ATTESTATION.sig",
+    "PUBLICATION_RECEIPT.json",
+    "PACKAGE_HASHES.json",
+    "ARTIFACT_HASHES.json",
+    "PACKAGE_SHA256SUMS",
+    "SHA256SUMS",
     "SOURCE_TREE_MANIFEST.json",
     "VALIDATION_REPORT.md",
     "SECURITY_HARDENING_REPORT.md",
@@ -245,7 +251,10 @@ def _pytest_validation(
     expected_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     path = ROOT / "qualification/repair-1.3.6/pytest-junit.xml"
-    envelope_path = ROOT / "qualification/repair-1.3.6/pytest-evidence.json"
+    from tools.evidence_schema import parse_json, validate_evidence
+    from tools.gate_specs import gate_spec
+
+    envelope_path = ROOT / gate_spec("pytest").evidence_path
     if not path.is_file():
         return {
             "status": "NOT_RUN",
@@ -268,7 +277,7 @@ def _pytest_validation(
             name: sum(int(suite.attrib.get(name, "0")) for suite in suites)
             for name in ("tests", "failures", "errors", "skipped")
         }
-        envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+        envelope = parse_json(envelope_path.read_bytes())
     except (OSError, ET.ParseError, ValueError, json.JSONDecodeError):
         return {
             "status": "INVALID_REPORT",
@@ -282,23 +291,30 @@ def _pytest_validation(
             if path.startswith("tests/") and path.endswith(".py")
         ]
     )
-    valid = (
-        isinstance(envelope, dict)
-        and envelope.get("schema_version") == 1
-        and envelope.get("junit_sha256") == junit_sha256
-        and envelope.get("test_command") == TEST_QUALIFICATION_COMMAND
-        and envelope.get("test_inventory_sha256") == _canonical_sha256(test_hashes)
-        and isinstance(envelope.get("python_version"), str)
-        and envelope["python_version"].startswith("3.12.")
-        and isinstance(envelope.get("platform"), str)
-        and bool(envelope["platform"])
-        and envelope.get("exit_code") == 0
-        and envelope.get("passed")
-        == counts["tests"] - counts["failures"] - counts["errors"] - counts["skipped"]
-        and envelope.get("failed") == counts["failures"] + counts["errors"]
-        and envelope.get("skipped") == counts["skipped"]
-        and all(envelope.get(key) == value for key, value in expected_identity.items())
-    )
+    valid = False
+    try:
+        validate_evidence(
+            envelope,
+            spec=gate_spec("pytest"),
+            identity=expected_identity,
+            parameters={},
+        )
+        details = envelope["result"]["details"]
+        valid = (
+            envelope["artifacts"]
+            == [{"artifact_id": "junit", "sha256": junit_sha256}]
+            and details.get("test_inventory_sha256")
+            == _canonical_sha256(test_hashes)
+            and details.get("passed")
+            == counts["tests"]
+            - counts["failures"]
+            - counts["errors"]
+            - counts["skipped"]
+            and details.get("failed") == counts["failures"] + counts["errors"]
+            and details.get("skipped") == counts["skipped"]
+        )
+    except (KeyError, TypeError, ValueError):
+        valid = False
     return {
         "status": (
             "PASS"
@@ -457,7 +473,7 @@ def build_manifests(
     qualification_artifact_envelopes = evidence_module.validation_matrix(
         ROOT, evidence_identity
     )
-    signed_release_qualification = False
+    source_qualification_passed = False
     if source_status == "COMMITTED_SOURCE_SNAPSHOT":
         try:
             benchmark_module.validate_manifest(
@@ -476,9 +492,9 @@ def build_manifests(
                 identity=evidence_identity,
                 source_commit=code_commit,
             )
-            signed_release_qualification = True
+            source_qualification_passed = True
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-            signed_release_qualification = False
+            source_qualification_passed = False
     dependency_install_path = (
         ROOT / "qualification/repair-1.3.6/dependency-lock-install.json"
     )
@@ -732,11 +748,12 @@ def build_manifests(
             }
     freeze = {
         "schema_version": 1,
-        "release_status": (
-            "RELEASE_QUALIFIED"
-            if signed_release_qualification
-            else "UNRELEASED_QUALIFICATION_INCOMPLETE"
+        "source_qualification_status": (
+            "SOURCE_QUALIFIED"
+            if source_qualification_passed
+            else "SOURCE_QUALIFICATION_INCOMPLETE"
         ),
+        "release_status": "UNRELEASED_QUALIFICATION_INCOMPLETE",
         "package_version": (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
         "qualified_code_commit": code_commit,
         "qualified_code_git_tree": code_tree,

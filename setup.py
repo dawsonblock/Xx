@@ -30,8 +30,8 @@ class CheckedSdist(sdist):
             "SOURCE_TREE_MANIFEST.json",
             "TCB_MANIFEST.json",
             "BENCHMARK_FAMILY_MANIFEST.json",
-            "RELEASE_QUALIFICATION_LEDGER.json",
-            "RELEASE_QUALIFICATION_LEDGER.sig",
+            "SOURCE_QUALIFICATION_LEDGER.json",
+            "SOURCE_QUALIFICATION_LEDGER.sig",
             "BUILD_PROVENANCE.json",
         }
         metadata = {
@@ -110,8 +110,8 @@ def qualification_data_files():
             Path("requirements-runtime.lock"),
             Path("requirements.txt"),
             Path("requirements-replay.txt"),
-            Path("RELEASE_QUALIFICATION_LEDGER.json"),
-            Path("RELEASE_QUALIFICATION_LEDGER.sig"),
+            Path("SOURCE_QUALIFICATION_LEDGER.json"),
+            Path("SOURCE_QUALIFICATION_LEDGER.sig"),
             Path("BUILD_PROVENANCE.json"),
         )
         if path.is_file()
@@ -127,7 +127,7 @@ def qualification_data_files():
 
 
 def release_evidence_files():
-    ledger = Path("RELEASE_QUALIFICATION_LEDGER.json")
+    ledger = Path("SOURCE_QUALIFICATION_LEDGER.json")
     if not ledger.is_file():
         return []
     data = json.loads(ledger.read_text(encoding="utf-8"))
@@ -137,18 +137,17 @@ def release_evidence_files():
     for gate in data["gates"]:
         if not isinstance(gate, dict):
             raise TypeError("release qualification gate is invalid")
-        for field in ("evidence_path", "envelope_path"):
-            name = gate.get(field)
-            if (
-                not isinstance(name, str)
-                or not name.startswith("qualification/")
-                or "\\" in name
-                or any(part in {"", ".", ".."} for part in name.split("/"))
-            ):
-                raise ValueError("unsafe release evidence path")
-            if not Path(name).is_file():
-                raise ValueError(f"missing release evidence: {name}")
-            paths.add(name)
+        name = gate.get("evidence_path")
+        if (
+            not isinstance(name, str)
+            or not name.startswith("qualification/")
+            or "\\" in name
+            or any(part in {"", ".", ".."} for part in name.split("/"))
+        ):
+            raise ValueError("unsafe release evidence path")
+        if not Path(name).is_file():
+            raise ValueError(f"missing release evidence: {name}")
+        paths.add(name)
     return sorted(paths)
 
 

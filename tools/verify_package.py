@@ -200,8 +200,8 @@ def _check_qualification(
         json.loads(_embedded_bytes(members, "BENCHMARK_FAMILY_MANIFEST.json", kind)),
         require_approved=True,
     )
-    if freeze.get("release_status") != "RELEASE_QUALIFIED":
-        raise ValueError("release status is not RELEASE_QUALIFIED")
+    if freeze.get("source_qualification_status") != "SOURCE_QUALIFIED":
+        raise ValueError("source status is not SOURCE_QUALIFIED")
     runtime_lock_digest = identity.get("runtime_dependency_lock_sha256")
     if not isinstance(runtime_lock_digest, str) or len(runtime_lock_digest) != 64:
         raise ValueError("qualified release requires a hashed runtime dependency lock")
@@ -219,11 +219,9 @@ def _check_qualification(
     if not isinstance(ledger, dict) or not isinstance(ledger.get("gates"), list):
         raise TypeError("qualification ledger is invalid")
     evidence_paths = {
-        path
+        gate.get("evidence_path")
         for gate in ledger["gates"]
-        if isinstance(gate, dict)
-        for path in (gate.get("evidence_path"), gate.get("envelope_path"))
-        if isinstance(path, str)
+        if isinstance(gate, dict) and isinstance(gate.get("evidence_path"), str)
     }
     for name in {
         LEDGER,
@@ -247,6 +245,8 @@ def _check_qualification(
         provenance.get("python_version", "")
     ).startswith("3.12."):
         raise ValueError("build provenance is invalid")
+    if provenance.get("source_qualification_ledger_sha256") != _sha(ledger_bytes):
+        raise ValueError("build provenance does not bind source ledger")
     for field, value in identity.items():
         if (
             field.endswith("_sha256") or field == "docker_base_image_digest"
@@ -278,7 +278,7 @@ def verify_archive(
             data
             for name, data in members.items()
             if (name if kind == "sdist" else _wheel_source_path(name))
-            == "RELEASE_QUALIFICATION_LEDGER.json"
+            == "SOURCE_QUALIFICATION_LEDGER.json"
         ]
         if ledger_matches:
             if len(ledger_matches) != 1:
@@ -291,16 +291,15 @@ def verify_archive(
             for gate in ledger_candidate["gates"]:
                 if not isinstance(gate, dict):
                     raise TypeError("invalid qualification gate")
-                for field in ("evidence_path", "envelope_path"):
-                    path = gate.get(field)
-                    if (
-                        not isinstance(path, str)
-                        or not path.startswith("qualification/")
-                        or PurePosixPath(path).suffix not in {".json", ".xml", ".txt"}
-                        or any(part in {"", ".", ".."} for part in path.split("/"))
-                    ):
-                        raise ValueError("invalid qualification evidence path")
-                    release_evidence_paths.add(path)
+                path = gate.get("evidence_path")
+                if (
+                    not isinstance(path, str)
+                    or not path.startswith("qualification/")
+                    or PurePosixPath(path).suffix != ".json"
+                    or any(part in {"", ".", ".."} for part in path.split("/"))
+                ):
+                    raise ValueError("invalid qualification evidence path")
+                release_evidence_paths.add(path)
         for name in EMBEDDED:
             if (
                 not (root / name).is_file()
@@ -367,8 +366,8 @@ def verify_archive(
                 relative in EMBEDDED
                 or relative
                 in {
-                    "RELEASE_QUALIFICATION_LEDGER.json",
-                    "RELEASE_QUALIFICATION_LEDGER.sig",
+                    "SOURCE_QUALIFICATION_LEDGER.json",
+                    "SOURCE_QUALIFICATION_LEDGER.sig",
                     "BUILD_PROVENANCE.json",
                 }
                 | release_evidence_paths

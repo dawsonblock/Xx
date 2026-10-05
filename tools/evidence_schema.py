@@ -103,6 +103,8 @@ def validate_evidence(
         raise ValueError("qualification evidence parameters differ")
     if set(actual_parameters) - set(spec.parameter_schema):
         raise ValueError("qualification evidence has unknown parameters")
+    if spec.phase == "artifact" and set(actual_parameters) != set(spec.parameter_schema):
+        raise ValueError("artifact gate evidence is missing parameters")
     if any(
         not isinstance(value, spec.parameter_schema[name])
         for name, value in actual_parameters.items()
@@ -126,6 +128,17 @@ def validate_evidence(
         ):
             raise ValueError("qualification evidence artifact is invalid")
         artifact_ids.add(artifact["artifact_id"])
+    if spec.phase == "artifact":
+        expected_artifacts = {
+            (name.removesuffix("_sha256"), value)
+            for name, value in actual_parameters.items()
+        }
+        if "container_digest" in actual_parameters:
+            expected_artifacts.add(("container", actual_parameters["container_digest"]))
+        if {
+            (artifact["artifact_id"], artifact["sha256"]) for artifact in artifacts
+        } != expected_artifacts:
+            raise ValueError("artifact gate evidence hashes differ from parameters")
     result = evidence.get("result")
     if (
         not isinstance(result, dict)

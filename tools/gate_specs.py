@@ -24,12 +24,18 @@ class GateSpec:
 
 _SOURCE_IDENTITY = (
     "source_snapshot_sha256",
+    "runtime_tcb_sha256",
+    "release_tcb_sha256",
+    "statistical_tcb_sha256",
+    "sandbox_tcb_sha256",
     "aggregate_tcb_sha256",
     "dependency_lock_sha256",
     "runtime_dependency_lock_sha256",
     "statistical_protocol_sha256",
     "evaluator_sha256",
     "benchmark_family_manifest_sha256",
+    "docker_build_context_sha256",
+    "docker_base_image_digest",
 )
 
 _SOURCE_GATES = (
@@ -92,14 +98,20 @@ _DEPENDENCIES = {
     "clean_room_rebuild": ("wheel_integrity", "sdist_integrity", "source_zip_integrity"),
 }
 
-_ARTIFACT_PARAMETERS = MappingProxyType(
-    {
-        "wheel_integrity": str,
-        "sdist_integrity": str,
-        "source_zip_integrity": str,
-        "container_integrity": str,
-    }
-)
+_ARTIFACT_PARAMETERS = {
+    "wheel_integrity": MappingProxyType({"wheel_sha256": str}),
+    "sdist_integrity": MappingProxyType({"sdist_sha256": str}),
+    "source_zip_integrity": MappingProxyType({"source_zip_sha256": str}),
+    "container_integrity": MappingProxyType({"container_digest": str}),
+    "clean_room_rebuild": MappingProxyType(
+        {
+            "wheel_sha256": str,
+            "sdist_sha256": str,
+            "source_zip_sha256": str,
+            "container_digest": str,
+        }
+    ),
+}
 
 
 def _specs() -> dict[str, GateSpec]:
@@ -116,9 +128,7 @@ def _specs() -> dict[str, GateSpec]:
             evidence_kind=gate_id,
             artifact_policy="sha256-list" if artifact_gate else "none",
             parameter_schema=(
-                _ARTIFACT_PARAMETERS
-                if gate_id in _ARTIFACT_PARAMETERS
-                else MappingProxyType({})
+                _ARTIFACT_PARAMETERS.get(gate_id, MappingProxyType({}))
             ),
             dependencies=_DEPENDENCIES.get(gate_id, ()),
             evidence_path=f"qualification/evidence/{gate_id}.json",

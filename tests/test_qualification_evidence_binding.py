@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 
 import pytest
 
 from tools import generate_release_manifests as manifests
+from tools.evidence_schema import canonical_bytes
+from tools.gate_specs import gate_spec
 
 
 @pytest.fixture
@@ -35,23 +36,42 @@ def bound_evidence(tmp_path, monkeypatch):
         "docker_base_image_digest": "6" * 64,
         "docker_build_context_sha256": "7" * 64,
     }
+    spec = gate_spec("pytest")
     envelope = {
-        "schema_version": 1,
-        **identity,
-        "junit_sha256": hashlib.sha256(junit.read_bytes()).hexdigest(),
-        "test_command": manifests.TEST_QUALIFICATION_COMMAND,
-        "test_inventory_sha256": manifests._canonical_sha256(
-            manifests._file_hashes(["tests/test_example.py"])
-        ),
-        "python_version": "3.12.0",
-        "platform": "test-platform",
-        "exit_code": 0,
-        "passed": 1,
-        "failed": 0,
-        "skipped": 0,
+        "schema_version": 2,
+        "gate_id": spec.gate_id,
+        "runner_id": spec.runner_id,
+        "verifier_id": spec.verifier_id,
+        "phase": spec.phase,
+        "identity": identity,
+        "environment": {
+            "python": "3.12.0",
+            "platform": "test-platform",
+            "architecture": "x86_64",
+        },
+        "parameters": {},
+        "artifacts": [
+            {
+                "artifact_id": "junit",
+                "sha256": hashlib.sha256(junit.read_bytes()).hexdigest(),
+            }
+        ],
+        "result": {
+            "status": "PASS",
+            "exit_code": 0,
+            "details": {
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "test_inventory_sha256": manifests._canonical_sha256(
+                    manifests._file_hashes(["tests/test_example.py"])
+                ),
+            },
+        },
     }
-    evidence = qualification / "pytest-evidence.json"
-    evidence.write_text(json.dumps(envelope))
+    evidence = tmp_path / spec.evidence_path
+    evidence.parent.mkdir(parents=True)
+    evidence.write_bytes(canonical_bytes(envelope))
     return identity, envelope, evidence, junit, test_file
 
 
@@ -84,15 +104,15 @@ def test_authority_change_makes_test_evidence_stale(bound_evidence, field):
     assert manifests._pytest_validation(identity)["status"] == "STALE_OR_UNBOUND"
 
 
-def test_junit_command_and_test_inventory_changes_are_stale(bound_evidence):
+def test_junit_binding_and_test_inventory_changes_are_stale(bound_evidence):
     identity, envelope, evidence, junit, test_file = bound_evidence
     junit.write_text(junit.read_text() + " ")
     assert manifests._pytest_validation(identity)["status"] == "STALE_OR_UNBOUND"
     junit.write_text(junit.read_text().rstrip())
-    envelope["test_command"] = "python -m pytest tests/test_example.py"
-    evidence.write_text(json.dumps(envelope))
+    envelope["runner_id"] = "arbitrary-runner"
+    evidence.write_bytes(canonical_bytes(envelope))
     assert manifests._pytest_validation(identity)["status"] == "STALE_OR_UNBOUND"
-    envelope["test_command"] = manifests.TEST_QUALIFICATION_COMMAND
-    evidence.write_text(json.dumps(envelope))
+    envelope["runner_id"] = gate_spec("pytest").runner_id
+    evidence.write_bytes(canonical_bytes(envelope))
     test_file.write_text("def test_ok(): assert 1 == 1\n")
     assert manifests._pytest_validation(identity)["status"] == "STALE_OR_UNBOUND"

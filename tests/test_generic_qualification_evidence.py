@@ -1,50 +1,61 @@
-"""Every qualification artifact needs matching bytes, identity, and command."""
+"""Qualification evidence uses one identity-bound envelope for every gate."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
 
+from tools.evidence_schema import canonical_bytes
+from tools.gate_specs import GATE_SPECS
 from tools import qualification_evidence
 
 
 @pytest.fixture
-def bound_gate(tmp_path):
+def bound_evidence(tmp_path):
     gate_id = "dependency_install"
-    artifact_name = qualification_evidence.GATE_ARTIFACTS[gate_id]
-    artifact = tmp_path / artifact_name
-    artifact.parent.mkdir(parents=True)
-    artifact.write_text('{"installed": true}\n')
+    spec = GATE_SPECS[gate_id]
     identity = {
         "source_snapshot_sha256": "a" * 64,
+        "runtime_tcb_sha256": "2" * 64,
+        "release_tcb_sha256": "3" * 64,
+        "statistical_tcb_sha256": "4" * 64,
+        "sandbox_tcb_sha256": "5" * 64,
         "aggregate_tcb_sha256": "b" * 64,
         "dependency_lock_sha256": "c" * 64,
-        "statistical_protocol_sha256": "d" * 64,
-        "evaluator_sha256": "e" * 64,
-        "benchmark_family_manifest_sha256": "f" * 64,
-        "docker_base_image_digest": "1" * 64,
+        "runtime_dependency_lock_sha256": "d" * 64,
+        "statistical_protocol_sha256": "e" * 64,
+        "evaluator_sha256": "f" * 64,
+        "benchmark_family_manifest_sha256": "1" * 64,
+        "docker_build_context_sha256": "6" * 64,
+        "docker_base_image_digest": "7" * 64,
     }
-    envelope = {
-        "schema_version": 1,
+    evidence = {
+        "schema_version": 2,
         "gate_id": gate_id,
-        "artifact": artifact_name,
-        "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
-        "command": qualification_evidence.GATE_COMMANDS[gate_id],
-        "python_version": "3.12.12",
-        "platform": "test-linux",
-        "exit_code": 0,
-        "status": "PASS",
-        **identity,
+        "runner_id": spec.runner_id,
+        "verifier_id": spec.verifier_id,
+        "phase": "source",
+        "identity": {
+            key: identity[key] for key in spec.source_identity_requirements
+        },
+        "environment": {
+            "python": "3.12.1",
+            "platform": "test-linux",
+            "architecture": "x86_64",
+        },
+        "parameters": {},
+        "artifacts": [],
+        "result": {"status": "PASS", "exit_code": 0, "details": {"installed": True}},
     }
-    envelope_path = tmp_path / f"qualification/repair-1.3.6/evidence-{gate_id}.json"
-    envelope_path.write_text(json.dumps(envelope))
-    return tmp_path, identity, artifact, envelope_path, envelope
+    path = tmp_path / spec.evidence_path
+    path.parent.mkdir(parents=True)
+    path.write_bytes(canonical_bytes(evidence))
+    return tmp_path, identity, path, evidence
 
 
-def test_matching_artifact_and_identity_pass(bound_gate):
-    root, identity, *_ = bound_gate
+def test_matching_evidence_and_identity_pass(bound_evidence):
+    root, identity, *_ = bound_evidence
     assert (
         qualification_evidence.validation_status(root, "dependency_install", identity)[
             "status"
@@ -53,14 +64,14 @@ def test_matching_artifact_and_identity_pass(bound_gate):
     )
 
 
-def test_historical_artifact_without_envelope_is_stale(bound_gate):
-    root, identity, _, envelope_path, _ = bound_gate
-    envelope_path.unlink()
+def test_missing_evidence_is_not_run(bound_evidence):
+    root, identity, path, _ = bound_evidence
+    path.unlink()
     assert (
         qualification_evidence.validation_status(root, "dependency_install", identity)[
             "status"
         ]
-        == "STALE"
+        == "NOT_RUN"
     )
 
 
@@ -69,15 +80,21 @@ def test_historical_artifact_without_envelope_is_stale(bound_gate):
     [
         "source_snapshot_sha256",
         "aggregate_tcb_sha256",
+        "runtime_tcb_sha256",
+        "release_tcb_sha256",
+        "statistical_tcb_sha256",
+        "sandbox_tcb_sha256",
         "dependency_lock_sha256",
+        "runtime_dependency_lock_sha256",
         "statistical_protocol_sha256",
         "evaluator_sha256",
         "benchmark_family_manifest_sha256",
+        "docker_build_context_sha256",
         "docker_base_image_digest",
     ],
 )
-def test_authority_change_stales_other_qualification_artifacts(bound_gate, field):
-    root, identity, *_ = bound_gate
+def test_authority_change_stales_evidence(bound_evidence, field):
+    root, identity, *_ = bound_evidence
     identity[field] = "0" * 64
     assert (
         qualification_evidence.validation_status(root, "dependency_install", identity)[
@@ -87,18 +104,22 @@ def test_authority_change_stales_other_qualification_artifacts(bound_gate, field
     )
 
 
-def test_artifact_or_command_mutation_stales_gate(bound_gate):
-    root, identity, artifact, envelope_path, envelope = bound_gate
-    artifact.write_text('{"installed": false}\n')
-    assert (
-        qualification_evidence.validation_status(root, "dependency_install", identity)[
-            "status"
-        ]
-        == "STALE"
-    )
-    artifact.write_text('{"installed": true}\n')
-    envelope["command"] = "python -m pip install requirements-rsi-ci.lock"
-    envelope_path.write_text(json.dumps(envelope))
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda evidence: evidence.__setitem__("runner_id", "fake"),
+        lambda evidence: evidence.__setitem__("verifier_id", "fake"),
+        lambda evidence: evidence.__setitem__("phase", "artifact"),
+        lambda evidence: evidence.__setitem__("command", "arbitrary shell"),
+        lambda evidence: evidence["result"].__setitem__("status", "FAIL"),
+        lambda evidence: evidence["identity"].__setitem__("source_snapshot_sha256", "0" * 64),
+    ],
+)
+def test_policy_or_identity_tampering_stales_evidence(bound_evidence, mutation):
+    root, identity, path, evidence = bound_evidence
+    changed = json.loads(json.dumps(evidence))
+    mutation(changed)
+    path.write_bytes(canonical_bytes(changed))
     assert (
         qualification_evidence.validation_status(root, "dependency_install", identity)[
             "status"
@@ -107,10 +128,24 @@ def test_artifact_or_command_mutation_stales_gate(bound_gate):
     )
 
 
-def test_duplicate_json_keys_cannot_claim_pass(bound_gate):
-    root, identity, _, envelope_path, envelope = bound_gate
-    data = json.dumps(envelope)
-    envelope_path.write_text(data[:-1] + ', "status": "PASS"}')
+def test_unknown_fields_duplicate_keys_and_nonfinite_values_are_rejected(bound_evidence):
+    root, identity, path, evidence = bound_evidence
+    changed = dict(evidence, surprise=True)
+    path.write_bytes(canonical_bytes(changed))
+    assert (
+        qualification_evidence.validation_status(root, "dependency_install", identity)[
+            "status"
+        ]
+        == "STALE"
+    )
+    path.write_text('{"schema_version":2,"schema_version":2}')
+    assert (
+        qualification_evidence.validation_status(root, "dependency_install", identity)[
+            "status"
+        ]
+        == "STALE"
+    )
+    path.write_text('{"value":NaN}')
     assert (
         qualification_evidence.validation_status(root, "dependency_install", identity)[
             "status"

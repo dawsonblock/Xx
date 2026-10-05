@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -14,48 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tools import generate_release_manifests as manifests
-from tools.qualification_evidence import _reject_constant, _reject_duplicate_keys
+from tools.evidence_schema import canonical_bytes, parse_json, sha256, validate_evidence
+from tools.gate_specs import ARTIFACT_GATES, SOURCE_GATES, gate_spec
+from tools.release_state import ReleaseState
 
-LEDGER = "RELEASE_QUALIFICATION_LEDGER.json"
-LEDGER_SIGNATURE = "RELEASE_QUALIFICATION_LEDGER.sig"
+LEDGER = "SOURCE_QUALIFICATION_LEDGER.json"
+LEDGER_SIGNATURE = "SOURCE_QUALIFICATION_LEDGER.sig"
 LEDGER_PUBLIC_KEY = "release/qualification-ledger-public.pem"
-REQUIRED_GATES = frozenset(
-    {
-        "pytest",
-        "dependency_install",
-        "runtime_dependency_install",
-        "runtime_container",
-        "statistical_calibration",
-        "linux_sandbox",
-        "linux_hosted",
-        "macos_hosted",
-        "windows_hosted",
-        "benchmark_families",
-        "real_null_controls",
-        "degraded_controls",
-        "planted_improvements",
-        "crash_fault_injection",
-        "external_anchor",
-        "destructive_rollback",
-        "key_authority",
-        "evidence_tampering",
-        "atomic_promotion",
-        "package_integrity",
-        "clean_room",
-    }
-)
+REQUIRED_GATES = SOURCE_GATES
 
 
 def _json_bytes(data: bytes) -> Any:
-    return json.loads(
-        data.decode("utf-8"),
-        object_pairs_hook=_reject_duplicate_keys,
-        parse_constant=_reject_constant,
-    )
+    return parse_json(data)
 
 
 def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+    return sha256(data)
 
 
 def _qualification_path(name: Any) -> str:
@@ -75,8 +47,11 @@ def verify_signed_ledger(
     identity: dict[str, Any],
     source_commit: str,
     read_bytes: Any = None,
+    phase: str = "source",
 ) -> None:
-    """Verify one externally signed ledger and all of its evidence bytes."""
+    """Verify a signed source-only ledger against immutable source gate policy."""
+    if phase != "source":
+        raise ValueError("artifact qualification requires a separate attestation")
     if read_bytes is None:
 
         def read_bytes(name: str) -> bytes:
@@ -118,10 +93,19 @@ def verify_signed_ledger(
         if result.returncode != 0:
             raise ValueError("qualification ledger signature is invalid")
     ledger = _json_bytes(ledger_bytes)
-    if not isinstance(ledger, dict) or ledger.get("schema_version") != 1:
+    if ledger_bytes != canonical_bytes(ledger):
+        raise ValueError("qualification ledger is not canonical JSON")
+    if (
+        not isinstance(ledger, dict)
+        or set(ledger)
+        != {"schema_version", "qualification_status", "qualification_phase", "source_commit", "identity", "gates"}
+        or ledger.get("schema_version") != 2
+    ):
         raise ValueError("invalid qualification ledger schema")
-    if ledger.get("release_status") != "RELEASE_QUALIFIED":
-        raise ValueError("qualification ledger does not authorize a release")
+    if ledger.get("qualification_phase") != "source":
+        raise ValueError("qualification ledger is not source-only")
+    if ledger.get("qualification_status") != "SOURCE_QUALIFIED":
+        raise ValueError("qualification ledger does not qualify source")
     if ledger.get("source_commit") != source_commit:
         raise ValueError("qualification ledger source commit differs")
     expected_identity = {
@@ -139,50 +123,68 @@ def verify_signed_ledger(
         if not isinstance(gate, dict) or not isinstance(gate.get("gate_id"), str):
             raise TypeError("invalid qualification gate")
         gate_id = gate["gate_id"]
+        spec = gate_spec(gate_id)
+        if spec.phase != "source":
+            raise ValueError(f"artifact gate appears in source ledger: {gate_id}")
         if gate_id in by_id:
             raise ValueError(f"duplicate qualification gate: {gate_id}")
         by_id[gate_id] = gate
-        if gate.get("mandatory") is not True or gate.get("status") != "PASS":
-            raise ValueError(f"qualification gate is not PASS: {gate_id}")
-        if gate.get("exit_code") != 0 or not gate.get("command"):
-            raise ValueError(f"qualification gate has no successful command: {gate_id}")
-        if not isinstance(gate.get("environment"), dict) or not gate.get("platform"):
-            raise ValueError(f"qualification gate lacks environment: {gate_id}")
-        if not gate.get("started_at") or not gate.get("ended_at"):
-            raise ValueError(f"qualification gate lacks timing: {gate_id}")
-        if any(gate.get(key) != value for key, value in expected_identity.items()):
-            raise ValueError(f"stale qualification gate identity: {gate_id}")
+        required_fields = {
+            "gate_id",
+            "phase",
+            "runner_id",
+            "verifier_id",
+            "parameters",
+            "evidence_path",
+            "evidence_sha256",
+            "result",
+        }
+        if set(gate) != required_fields:
+            raise ValueError(f"qualification gate has invalid fields: {gate_id}")
+        if (
+            gate.get("phase") != spec.phase
+            or gate.get("runner_id") != spec.runner_id
+            or gate.get("verifier_id") != spec.verifier_id
+        ):
+            raise ValueError(f"qualification gate policy differs: {gate_id}")
+        parameters = gate.get("parameters")
+        if not isinstance(parameters, dict):
+            raise ValueError(f"qualification gate parameters are invalid: {gate_id}")
+        if set(parameters) - set(spec.parameter_schema) or any(
+            not isinstance(value, spec.parameter_schema[name])
+            for name, value in parameters.items()
+        ):
+            raise ValueError(f"qualification gate parameters differ: {gate_id}")
         evidence_path = _qualification_path(gate.get("evidence_path"))
+        if evidence_path != spec.evidence_path:
+            raise ValueError(f"qualification evidence path differs: {gate_id}")
         evidence_bytes = read_bytes(evidence_path)
         if gate.get("evidence_sha256") != _sha(evidence_bytes):
             raise ValueError(f"qualification evidence bytes differ: {gate_id}")
-        envelope_path = _qualification_path(gate.get("envelope_path"))
-        envelope_bytes = read_bytes(envelope_path)
-        if gate.get("envelope_sha256") != _sha(envelope_bytes):
-            raise ValueError(f"qualification envelope bytes differ: {gate_id}")
-        envelope = _json_bytes(envelope_bytes)
-        if (
-            not isinstance(envelope, dict)
-            or envelope.get("schema_version") != 1
-            or envelope.get("gate_id") != gate_id
-            or envelope.get("artifact") != evidence_path
-            or envelope.get("artifact_sha256") != gate["evidence_sha256"]
-            or envelope.get("command") != gate["command"]
-            or envelope.get("exit_code") != 0
-            or envelope.get("status") != "PASS"
-            or not str(envelope.get("python_version", "")).startswith("3.12.")
-            or not isinstance(envelope.get("platform"), str)
-            or not envelope.get("platform")
-            or any(
-                envelope.get(key) != value for key, value in expected_identity.items()
-            )
-        ):
-            raise ValueError(f"qualification envelope is stale: {gate_id}")
+        envelope = _json_bytes(evidence_bytes)
+        if evidence_bytes != canonical_bytes(envelope):
+            raise ValueError(f"qualification evidence is not canonical: {gate_id}")
+        validate_evidence(
+            envelope,
+            spec=spec,
+            identity=identity,
+            parameters=parameters,
+        )
+        if gate.get("result") != envelope["result"]:
+            raise ValueError(f"qualification gate result differs: {gate_id}")
     if set(by_id) != REQUIRED_GATES:
         raise ValueError("qualification ledger lacks the exact mandatory gate set")
+    for gate_id, gate in by_id.items():
+        if any(
+            dependency not in by_id
+            or by_id[dependency].get("result", {}).get("status") != "PASS"
+            for dependency in gate_spec(gate_id).dependencies
+        ):
+            raise ValueError(f"qualification gate dependency failed: {gate_id}")
 
 
-def verify_prebuild(expected_commit: str | None = None, *, root: Path = ROOT) -> None:
+def verify_source(expected_commit: str | None = None, *, root: Path = ROOT) -> None:
+    """Verify frozen source qualification without requiring built artifacts."""
     if sys.version_info[:2] != (3, 12):
         raise ValueError("release verification requires Python 3.12")
     subprocess.run(
@@ -210,8 +212,6 @@ def verify_prebuild(expected_commit: str | None = None, *, root: Path = ROOT) ->
     freeze = _json_bytes((root / "RELEASE_FREEZE_MANIFEST.json").read_bytes())
     if freeze.get("source_snapshot_status") != "COMMITTED_SOURCE_SNAPSHOT":
         raise ValueError("release source is not a committed snapshot")
-    if freeze.get("release_status") != "RELEASE_QUALIFIED":
-        raise ValueError("release status is not RELEASE_QUALIFIED")
     source_hashes = source.get("files")
     if not isinstance(source_hashes, dict) or any(
         not (root / path).is_file() or _sha((root / path).read_bytes()) != digest
@@ -222,6 +222,14 @@ def verify_prebuild(expected_commit: str | None = None, *, root: Path = ROOT) ->
         source_hashes
     ):
         raise ValueError("release source manifest digest is invalid")
+    if not {
+        LEDGER_PUBLIC_KEY,
+        "tools/verify_release.py",
+        "tools/gate_specs.py",
+        "tools/evidence_schema.py",
+        "tools/generate_release_manifests.py",
+    } <= set(source_hashes):
+        raise ValueError("release verification policy is not source-bound")
     tcb_hashes = tcb.get("files")
     if not isinstance(tcb_hashes, dict) or any(
         source_hashes.get(path) != digest for path, digest in tcb_hashes.items()
@@ -264,13 +272,203 @@ def verify_prebuild(expected_commit: str | None = None, *, root: Path = ROOT) ->
     )
 
 
+def verify_prebuild(expected_commit: str | None = None, *, root: Path = ROOT) -> None:
+    """Compatibility alias for callers that used the prebuild source gate."""
+    verify_source(expected_commit, root=root)
+
+
+def _verify_signed_bytes(
+    *,
+    root: Path,
+    payload: bytes,
+    signature: bytes,
+    public_key: bytes,
+) -> None:
+    if not signature or not public_key:
+        raise ValueError("release attestation signature or public key is missing")
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="aide-release-signature-") as temporary:
+        directory = Path(temporary)
+        (directory / "payload.json").write_bytes(payload)
+        (directory / "payload.sig").write_bytes(signature)
+        (directory / "public.pem").write_bytes(public_key)
+        result = subprocess.run(
+            [
+                "openssl",
+                "pkeyutl",
+                "-verify",
+                "-rawin",
+                "-pubin",
+                "-inkey",
+                str(directory / "public.pem"),
+                "-sigfile",
+                str(directory / "payload.sig"),
+                "-in",
+                str(directory / "payload.json"),
+            ],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError("release attestation signature is invalid")
+
+
+def _source_zip_hashes(path: Path) -> dict[str, str]:
+    import zipfile
+
+    hashes: dict[str, str] = {}
+    with zipfile.ZipFile(path) as archive:
+        for member in archive.infolist():
+            name = member.filename
+            if (
+                member.is_dir()
+                or name in hashes
+                or name.startswith("/")
+                or "\\" in name
+                or any(part in {"", ".", ".."} for part in name.split("/"))
+            ):
+                raise ValueError(f"unsafe or duplicate source ZIP member: {name}")
+            hashes[name] = _sha(archive.read(member))
+    return hashes
+
+
+def verify_artifacts(
+    *,
+    wheel: Path,
+    sdist: Path,
+    source_zip: Path,
+    container_digest: str,
+    attestation: Path,
+    attestation_signature: Path,
+    expected_commit: str | None = None,
+    root: Path = ROOT,
+) -> None:
+    """Verify exact artifact bytes against separately signed artifact evidence."""
+    verify_source(expected_commit, root=root)
+    from tools.verify_package import verify_archive
+
+    verify_archive(wheel, "wheel", root=root, integrity_only=True, expected_commit=expected_commit)
+    verify_archive(sdist, "sdist", root=root, integrity_only=True, expected_commit=expected_commit)
+    source = _json_bytes((root / "SOURCE_TREE_MANIFEST.json").read_bytes())
+    source_hashes = source.get("files")
+    if not isinstance(source_hashes, dict):
+        raise ValueError("source ZIP cannot be verified without source inventory")
+    expected_source_zip = {
+        **source_hashes,
+        **{
+            name: _sha((root / name).read_bytes())
+            for name in manifests.OUTPUTS
+            if (root / name).is_file()
+        },
+    }
+    if _source_zip_hashes(source_zip) != expected_source_zip:
+        raise ValueError("source ZIP inventory or bytes differ")
+    provenance_path = root / "BUILD_PROVENANCE.json"
+    if not provenance_path.is_file():
+        raise ValueError("build provenance is missing")
+    provenance_bytes = provenance_path.read_bytes()
+    provenance = _json_bytes(provenance_bytes)
+    if provenance_bytes != canonical_bytes(provenance):
+        raise ValueError("build provenance is not canonical JSON")
+    identity = _json_bytes((root / "IDENTITY_MANIFEST.json").read_bytes())
+    ledger_bytes = (root / LEDGER).read_bytes()
+    if (
+        provenance.get("source_snapshot_sha256") != identity.get("source_snapshot_sha256")
+        or provenance.get("source_qualification_ledger_sha256") != _sha(ledger_bytes)
+        or not str(provenance.get("python_version", "")).startswith("3.12.")
+    ):
+        raise ValueError("build provenance is stale")
+    if not isinstance(container_digest, str) or not container_digest:
+        raise ValueError("qualified container digest is required")
+    attestation_bytes = attestation.read_bytes()
+    attestation_data = _json_bytes(attestation_bytes)
+    if attestation_bytes != canonical_bytes(attestation_data):
+        raise ValueError("artifact attestation is not canonical JSON")
+    _verify_signed_bytes(
+        root=root,
+        payload=attestation_bytes,
+        signature=attestation_signature.read_bytes(),
+        public_key=(root / LEDGER_PUBLIC_KEY).read_bytes(),
+    )
+    required_attestation_fields = {
+        "schema_version",
+        "qualification_status",
+        "qualification_phase",
+        "identity",
+        "source_qualification_ledger_sha256",
+        "build_provenance_sha256",
+        "artifacts",
+        "gates",
+    }
+    if (
+        not isinstance(attestation_data, dict)
+        or set(attestation_data) != required_attestation_fields
+        or attestation_data.get("schema_version") != 1
+        or attestation_data.get("qualification_status") != "RELEASE_QUALIFIED"
+        or attestation_data.get("qualification_phase") != "artifact"
+        or attestation_data.get("identity") != {
+            key: value
+            for key, value in identity.items()
+            if key.endswith("_sha256") or key == "docker_base_image_digest"
+        }
+        or attestation_data.get("source_qualification_ledger_sha256") != _sha(ledger_bytes)
+        or attestation_data.get("build_provenance_sha256") != _sha(provenance_bytes)
+    ):
+        raise ValueError("artifact attestation identity differs")
+    artifacts = attestation_data.get("artifacts")
+    expected_artifacts = {
+        "wheel_sha256": _sha(wheel.read_bytes()),
+        "sdist_sha256": _sha(sdist.read_bytes()),
+        "source_zip_sha256": _sha(source_zip.read_bytes()),
+        "container_digest": container_digest,
+    }
+    if artifacts != expected_artifacts:
+        raise ValueError("artifact attestation hashes differ")
+    gates = attestation_data.get("gates")
+    if not isinstance(gates, list):
+        raise ValueError("artifact qualification gates are missing")
+    by_id = {}
+    for gate in gates:
+        if not isinstance(gate, dict) or not isinstance(gate.get("gate_id"), str):
+            raise ValueError("invalid artifact qualification gate")
+        spec = gate_spec(gate["gate_id"])
+        if spec.phase != "artifact" or gate["gate_id"] in by_id:
+            raise ValueError("unknown or duplicate artifact qualification gate")
+        if set(gate) != {"gate_id", "evidence_path", "evidence_sha256", "result"}:
+            raise ValueError("invalid artifact qualification gate fields")
+        if gate["evidence_path"] != spec.evidence_path:
+            raise ValueError("artifact qualification evidence path differs")
+        evidence_bytes = (root / spec.evidence_path).read_bytes()
+        evidence = _json_bytes(evidence_bytes)
+        if gate["evidence_sha256"] != _sha(evidence_bytes):
+            raise ValueError("artifact qualification evidence hash differs")
+        validate_evidence(evidence, spec=spec, identity=identity)
+        if gate["result"] != evidence["result"]:
+            raise ValueError("artifact qualification result differs")
+        by_id[spec.gate_id] = gate
+    if set(by_id) != ARTIFACT_GATES:
+        raise ValueError("artifact attestation lacks the exact mandatory gate set")
+    for gate_id in by_id:
+        missing = set(gate_spec(gate_id).dependencies) & ARTIFACT_GATES - set(by_id)
+        if missing:
+            raise ValueError(f"artifact qualification dependency missing: {gate_id}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prebuild", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--verify-source", action="store_true")
+    modes.add_argument("--verify-artifacts", action="store_true")
+    modes.add_argument("--prebuild", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--check-benchmark-manifest", action="store_true")
     parser.add_argument("--expected-commit")
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--sdist", type=Path)
+    parser.add_argument("--source-zip", type=Path)
+    parser.add_argument("--container-digest")
+    parser.add_argument("--artifact-attestation", type=Path)
+    parser.add_argument("--artifact-attestation-signature", type=Path)
     args = parser.parse_args(argv)
     if args.check_benchmark_manifest:
         from aide.rsi.benchmark import load_manifest, manifest_sha256, validate_manifest
@@ -284,17 +482,30 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("benchmark manifest digest mismatch")
         print("benchmark manifest verified")
         return 0
-    verify_prebuild(args.expected_commit)
-    if not args.prebuild:
-        if args.wheel is None or args.sdist is None:
-            parser.error("wheel and sdist are required after the prebuild gate")
-        from tools.verify_package import verify_archive
-
-        verify_archive(args.wheel, "wheel", expected_commit=args.expected_commit)
-        verify_archive(args.sdist, "sdist", expected_commit=args.expected_commit)
-    print(
-        "RELEASE QUALIFIED" if not args.prebuild else "PREBUILD QUALIFICATION VERIFIED"
-    )
+    if args.verify_artifacts:
+        required = (
+            args.wheel,
+            args.sdist,
+            args.source_zip,
+            args.container_digest,
+            args.artifact_attestation,
+            args.artifact_attestation_signature,
+        )
+        if any(value is None for value in required):
+            parser.error("--verify-artifacts requires all artifact and attestation inputs")
+        verify_artifacts(
+            wheel=args.wheel,
+            sdist=args.sdist,
+            source_zip=args.source_zip,
+            container_digest=args.container_digest,
+            attestation=args.artifact_attestation,
+            attestation_signature=args.artifact_attestation_signature,
+            expected_commit=args.expected_commit,
+        )
+        print(ReleaseState.RELEASE_QUALIFIED)
+        return 0
+    verify_source(args.expected_commit)
+    print(ReleaseState.SOURCE_QUALIFIED)
     return 0
 
 
