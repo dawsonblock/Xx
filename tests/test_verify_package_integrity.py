@@ -184,6 +184,17 @@ def test_valid_synthetic_wheel_and_sdist_pass_integrity_only(package_fixture, tm
     verify_package.verify_archive(sdist, "sdist", root=root, integrity_only=True)
 
 
+def test_duplicate_embedded_requirement_is_rejected(package_fixture, tmp_path):
+    root, wheel_files = package_fixture
+    wheel_files["requirements.txt"] = b"duplicate\n"
+    wheel = tmp_path / "duplicate.whl"
+    _write_wheel(wheel, wheel_files)
+    with pytest.raises(
+        ValueError, match="missing or duplicate embedded requirements.txt"
+    ):
+        verify_package.verify_archive(wheel, "wheel", root=root, integrity_only=True)
+
+
 @pytest.mark.parametrize(
     "attack",
     [

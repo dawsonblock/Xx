@@ -171,7 +171,6 @@ setup(
     cmdclass={"sdist": CheckedSdist, "bdist_wheel": CheckedWheel},
     package_data={
         "aide": [
-            "../requirements.txt",
             "utils/config.yaml",
             "utils/viz_templates/*",
             "webui/style.css",
