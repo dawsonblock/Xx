@@ -1,0 +1,17 @@
+{
+  "aggregate_tcb_sha256": "5ead43d71f6fb187325cebdca88b02f4d855ea1887560b0bbfa447927290f66d",
+  "benchmark_family_manifest_sha256": "ccb2b2d51ce8f4db5bd2d2ded718c2fc679aefaaeb515fdee151522eb5775c4d",
+  "dependency_lock_sha256": "1fe8cbe0b645c825ff8053454605e5861d2eac95452e484eab96173ea140dc2d",
+  "docker_base_image_digest": "dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+  "docker_build_context_sha256": "353b3020355a96a8c1eabaf00d42cd53374205dbf457dbeb963c044969179c2c",
+  "evaluator_sha256": "4d88fc9abb750936f8a6974f4126ac7c161a14f4d9e16f4dc2a7979d8da404ab",
+  "manifest_type": "release_identity",
+  "release_tcb_sha256": "7233a1d3f3088427270e2b748f053a771b75ef5b043741c1db9ed6087917fd6b",
+  "runtime_dependency_lock_sha256": "a98e4dd2e52927cad048beb8f175d5196cb2013a6e4e6f9e3defdec681b5fe1c",
+  "runtime_tcb_sha256": "f78060887e0bd817f6b552bba6f7e376058ee413b175a350331f8cd313fb7f7c",
+  "sandbox_tcb_sha256": "a0459580a6926ef4880f89aa204b7b35280ef2a86abb55948948bc44d4d3a1d5",
+  "schema_version": 1,
+  "source_snapshot_sha256": "353b3020355a96a8c1eabaf00d42cd53374205dbf457dbeb963c044969179c2c",
+  "statistical_protocol_sha256": "9f7ca2438516b911e6a3625de43b8612e8b7cfe0e717a67ec4b0b276bcdfc861",
+  "statistical_tcb_sha256": "8f96aafc40dcfb789c3247afb0d42d2f4584121af44925d628a5d0635719f14a"
+}
