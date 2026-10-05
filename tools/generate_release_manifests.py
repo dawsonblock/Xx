@@ -251,7 +251,7 @@ def _pytest_validation(
     expected_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     path = ROOT / "qualification/repair-1.3.6/pytest-junit.xml"
-    from tools.evidence_schema import parse_json, validate_evidence
+    from tools.evidence_schema import canonical_bytes, parse_json, validate_evidence
     from tools.gate_specs import gate_spec
 
     envelope_path = ROOT / gate_spec("pytest").evidence_path
@@ -278,6 +278,8 @@ def _pytest_validation(
             for name in ("tests", "failures", "errors", "skipped")
         }
         envelope = parse_json(envelope_path.read_bytes())
+        if envelope_path.read_bytes() != canonical_bytes(envelope):
+            raise ValueError("pytest evidence is not canonical")
     except (OSError, ET.ParseError, ValueError, json.JSONDecodeError):
         return {
             "status": "INVALID_REPORT",
@@ -301,10 +303,8 @@ def _pytest_validation(
         )
         details = envelope["result"]["details"]
         valid = (
-            envelope["artifacts"]
-            == [{"artifact_id": "junit", "sha256": junit_sha256}]
-            and details.get("test_inventory_sha256")
-            == _canonical_sha256(test_hashes)
+            envelope["artifacts"] == [{"artifact_id": "junit", "sha256": junit_sha256}]
+            and details.get("test_inventory_sha256") == _canonical_sha256(test_hashes)
             and details.get("passed")
             == counts["tests"]
             - counts["failures"]

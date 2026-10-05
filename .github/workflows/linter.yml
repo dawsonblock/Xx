@@ -27,18 +27,34 @@ jobs:
           ruff check --output-format=github aide/
           rsi_anchor_service.py tools/qualify_canary_statistics.py
           tools/generate_release_manifests.py tools/verify_package.py
+          tools/gate_specs.py tools/evidence_schema.py tools/release_state.py
+          tools/verify_release.py tools/qualification_evidence.py
+          tools/generate_build_provenance.py tools/run_qualification_tests.py
+          tools/build_source_zip.py setup.py
           tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
           tests/test_rsi_trusted_evaluator.py tests/test_rsi_reference_evaluator.py
           tests/test_rsi_multitask_canary.py
           tests/test_rsi_statistics_qualification_tool.py
+          tests/test_release_identity.py tests/test_signed_release_ledger.py
+          tests/test_generic_qualification_evidence.py
+          tests/test_qualification_evidence_binding.py tests/test_release_state.py
+          tests/test_verify_release_modes.py tests/test_verify_package_integrity.py
       - name: Run Black
         run: >-
           black --check --diff aide/
           rsi_anchor_service.py tools/qualify_canary_statistics.py
           tools/generate_release_manifests.py tools/verify_package.py
+          tools/gate_specs.py tools/evidence_schema.py tools/release_state.py
+          tools/verify_release.py tools/qualification_evidence.py
+          tools/generate_build_provenance.py tools/run_qualification_tests.py
+          tools/build_source_zip.py setup.py
           tests/test_rsi_anchor_service.py tests/test_rsi_statistics_budget.py
           tests/test_rsi_trusted_evaluator.py tests/test_rsi_reference_evaluator.py
           tests/test_rsi_multitask_canary.py
           tests/test_rsi_statistics_qualification_tool.py
+          tests/test_release_identity.py tests/test_signed_release_ledger.py
+          tests/test_generic_qualification_evidence.py
+          tests/test_qualification_evidence_binding.py tests/test_release_state.py
+          tests/test_verify_release_modes.py tests/test_verify_package_integrity.py
       - name: Check generated release manifests
         run: python tools/generate_release_manifests.py --check

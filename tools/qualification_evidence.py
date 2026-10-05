@@ -35,7 +35,9 @@ def validation_status(
             envelope,
             spec=spec,
             identity=identity,
-            parameters=envelope.get("parameters") if isinstance(envelope, dict) else None,
+            parameters=(
+                envelope.get("parameters") if isinstance(envelope, dict) else None
+            ),
         )
     except (OSError, UnicodeError, ValueError):
         return result

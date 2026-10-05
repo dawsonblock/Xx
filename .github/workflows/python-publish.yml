@@ -33,10 +33,10 @@ jobs:
           python-version: "3.12"
       - name: Install locked verification environment
         run: python -m pip install --require-hashes -r requirements-rsi-ci.lock
-      - name: Verify source, TCB, lock, ledger, and release status
+      - name: Verify source qualification
         run: |
           python tools/generate_release_manifests.py --check
-          python tools/verify_release.py --prebuild --expected-commit "$(git rev-parse HEAD)"
+          python tools/verify_release.py --verify-source --expected-commit "$(git rev-parse HEAD)"
       - name: Record build provenance for exact checkout
         run: python tools/generate_build_provenance.py
       - name: Build exact checkout
@@ -45,9 +45,17 @@ jobs:
         run: |
           wheel=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           sdist=$(find dist -maxdepth 1 -name '*.tar.gz' -print -quit)
+          source_zip="dist/aideml-rsi-$(cat VERSION)-source.zip"
+          python tools/build_source_zip.py "$source_zip"
+          container_digest=$(cat dist/container-digest.txt)
           test -n "$wheel" && test -n "$sdist"
           python tools/verify_package.py --expected-commit "$(git rev-parse HEAD)" --wheel "$wheel" --sdist "$sdist"
-          python tools/verify_release.py --expected-commit "$(git rev-parse HEAD)" --wheel "$wheel" --sdist "$sdist"
+          python tools/verify_release.py --verify-artifacts \
+            --expected-commit "$(git rev-parse HEAD)" \
+            --wheel "$wheel" --sdist "$sdist" --source-zip "$source_zip" \
+            --container-digest "$container_digest" \
+            --artifact-attestation ARTIFACT_ATTESTATION.json \
+            --artifact-attestation-signature ARTIFACT_ATTESTATION.sig
           sha256sum dist/* > dist/SHA256SUMS
       - name: Attest exact artifacts
         uses: actions/attest@v4

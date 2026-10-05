@@ -7,6 +7,7 @@ import json
 import pytest
 
 from tools.evidence_schema import canonical_bytes
+from tools.evidence_schema import validate_evidence
 from tools.gate_specs import GATE_SPECS
 from tools import qualification_evidence
 
@@ -36,9 +37,7 @@ def bound_evidence(tmp_path):
         "runner_id": spec.runner_id,
         "verifier_id": spec.verifier_id,
         "phase": "source",
-        "identity": {
-            key: identity[key] for key in spec.source_identity_requirements
-        },
+        "identity": {key: identity[key] for key in spec.source_identity_requirements},
         "environment": {
             "python": "3.12.1",
             "platform": "test-linux",
@@ -112,7 +111,9 @@ def test_authority_change_stales_evidence(bound_evidence, field):
         lambda evidence: evidence.__setitem__("phase", "artifact"),
         lambda evidence: evidence.__setitem__("command", "arbitrary shell"),
         lambda evidence: evidence["result"].__setitem__("status", "FAIL"),
-        lambda evidence: evidence["identity"].__setitem__("source_snapshot_sha256", "0" * 64),
+        lambda evidence: evidence["identity"].__setitem__(
+            "source_snapshot_sha256", "0" * 64
+        ),
     ],
 )
 def test_policy_or_identity_tampering_stales_evidence(bound_evidence, mutation):
@@ -128,7 +129,9 @@ def test_policy_or_identity_tampering_stales_evidence(bound_evidence, mutation):
     )
 
 
-def test_unknown_fields_duplicate_keys_and_nonfinite_values_are_rejected(bound_evidence):
+def test_unknown_fields_duplicate_keys_and_nonfinite_values_are_rejected(
+    bound_evidence,
+):
     root, identity, path, evidence = bound_evidence
     changed = dict(evidence, surprise=True)
     path.write_bytes(canonical_bytes(changed))
@@ -152,3 +155,29 @@ def test_unknown_fields_duplicate_keys_and_nonfinite_values_are_rejected(bound_e
         ]
         == "STALE"
     )
+
+
+def test_artifact_evidence_binds_runner_parameters_and_hashes(bound_evidence):
+    _, identity, _, _ = bound_evidence
+    spec = GATE_SPECS["wheel_integrity"]
+    artifact_hash = "8" * 64
+    evidence = {
+        "schema_version": 2,
+        "gate_id": spec.gate_id,
+        "runner_id": spec.runner_id,
+        "verifier_id": spec.verifier_id,
+        "phase": spec.phase,
+        "identity": {key: identity[key] for key in spec.source_identity_requirements},
+        "environment": {
+            "python": "3.12.3",
+            "platform": "test-linux",
+            "architecture": "x86_64",
+        },
+        "parameters": {"wheel_sha256": artifact_hash},
+        "artifacts": [{"artifact_id": "wheel", "sha256": artifact_hash}],
+        "result": {"status": "PASS", "exit_code": 0, "details": {}},
+    }
+    validate_evidence(evidence, spec=spec, identity=identity)
+    evidence["artifacts"][0]["sha256"] = "9" * 64
+    with pytest.raises(ValueError, match="hashes differ"):
+        validate_evidence(evidence, spec=spec, identity=identity)

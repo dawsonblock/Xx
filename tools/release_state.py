@@ -41,5 +41,7 @@ def transition(current: ReleaseState | str, target: ReleaseState | str) -> Relea
     except ValueError as error:
         raise ValueError("unknown release state") from error
     if target_state not in _TRANSITIONS[current_state]:
-        raise ValueError(f"illegal release transition: {current_state} -> {target_state}")
+        raise ValueError(
+            f"illegal release transition: {current_state} -> {target_state}"
+        )
     return target_state

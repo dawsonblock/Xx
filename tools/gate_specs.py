@@ -95,7 +95,11 @@ _DEPENDENCIES = {
     "sdist_integrity": ("source_manifest",),
     "source_zip_integrity": ("source_manifest",),
     "container_integrity": ("runtime_container",),
-    "clean_room_rebuild": ("wheel_integrity", "sdist_integrity", "source_zip_integrity"),
+    "clean_room_rebuild": (
+        "wheel_integrity",
+        "sdist_integrity",
+        "source_zip_integrity",
+    ),
 }
 
 _ARTIFACT_PARAMETERS = {
@@ -127,9 +131,7 @@ def _specs() -> dict[str, GateSpec]:
             verifier_id=f"{gate_id.replace('_', '-')}-evidence-v1",
             evidence_kind=gate_id,
             artifact_policy="sha256-list" if artifact_gate else "none",
-            parameter_schema=(
-                _ARTIFACT_PARAMETERS.get(gate_id, MappingProxyType({}))
-            ),
+            parameter_schema=(_ARTIFACT_PARAMETERS.get(gate_id, MappingProxyType({}))),
             dependencies=_DEPENDENCIES.get(gate_id, ()),
             evidence_path=f"qualification/evidence/{gate_id}.json",
             source_identity_requirements=_SOURCE_IDENTITY,
@@ -138,8 +140,12 @@ def _specs() -> dict[str, GateSpec]:
 
 
 GATE_SPECS: Mapping[str, GateSpec] = MappingProxyType(_specs())
-SOURCE_GATES = frozenset(gate_id for gate_id, spec in GATE_SPECS.items() if spec.phase == "source")
-ARTIFACT_GATES = frozenset(gate_id for gate_id, spec in GATE_SPECS.items() if spec.phase == "artifact")
+SOURCE_GATES = frozenset(
+    gate_id for gate_id, spec in GATE_SPECS.items() if spec.phase == "source"
+)
+ARTIFACT_GATES = frozenset(
+    gate_id for gate_id, spec in GATE_SPECS.items() if spec.phase == "artifact"
+)
 
 
 def gate_spec(gate_id: str) -> GateSpec:

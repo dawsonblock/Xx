@@ -73,7 +73,9 @@ def test_generated_evidence_does_not_change_source_identity(tmp_path, monkeypatc
     source = tmp_path / "tools/verify_release.py"
     source.parent.mkdir()
     source.write_text("source policy\n")
-    before = manifests._canonical_sha256(manifests._file_hashes(manifests._source_paths()))
+    before = manifests._canonical_sha256(
+        manifests._file_hashes(manifests._source_paths())
+    )
     generated = {
         "RELEASE_QUALIFICATION_LEDGER.json",
         "RELEASE_QUALIFICATION_LEDGER.sig",
@@ -90,7 +92,9 @@ def test_generated_evidence_does_not_change_source_identity(tmp_path, monkeypatc
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("generated evidence\n")
-    after = manifests._canonical_sha256(manifests._file_hashes(manifests._source_paths()))
+    after = manifests._canonical_sha256(
+        manifests._file_hashes(manifests._source_paths())
+    )
     assert before == after
 
 

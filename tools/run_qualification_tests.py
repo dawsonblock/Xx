@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import platform
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools import generate_release_manifests as manifests
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from tools import generate_release_manifests as manifests  # noqa: E402
+from tools.evidence_schema import canonical_bytes, sha256  # noqa: E402
+from tools.gate_specs import gate_spec  # noqa: E402
 
 
 def main() -> int:
@@ -33,11 +28,11 @@ def main() -> int:
         ]
     )
     report = manifests.ROOT / "qualification/repair-1.3.6/pytest-junit.xml"
-    envelope = report.with_name("pytest-evidence.json")
+    envelope = manifests.ROOT / gate_spec("pytest").evidence_path
     report.parent.mkdir(parents=True, exist_ok=True)
+    envelope.parent.mkdir(parents=True, exist_ok=True)
     report.unlink(missing_ok=True)
     envelope.unlink(missing_ok=True)
-    started = _now()
     completed = subprocess.run(
         [
             sys.executable,
@@ -50,40 +45,46 @@ def main() -> int:
         cwd=manifests.ROOT,
         check=False,
     )
-    ended = _now()
     counts = {name: 0 for name in ("tests", "failures", "errors", "skipped")}
     if report.is_file():
         root = ET.parse(report).getroot()
         suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
         for name in counts:
             counts[name] = sum(int(suite.attrib.get(name, "0")) for suite in suites)
+    spec = gate_spec("pytest")
     evidence = {
-        "schema_version": 1,
-        **{
-            key: value
-            for key, value in identity.items()
-            if key.endswith("_sha256") or key == "docker_base_image_digest"
+        "schema_version": 2,
+        "gate_id": spec.gate_id,
+        "runner_id": spec.runner_id,
+        "verifier_id": spec.verifier_id,
+        "phase": spec.phase,
+        "identity": {key: identity[key] for key in spec.source_identity_requirements},
+        "environment": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "architecture": platform.machine(),
         },
-        "python_version": platform.python_version(),
-        "platform": platform.platform(),
-        "test_command": manifests.TEST_QUALIFICATION_COMMAND,
-        "test_inventory_sha256": manifests._canonical_sha256(tests),
-        "junit_sha256": (
-            hashlib.sha256(report.read_bytes()).hexdigest()
+        "parameters": {},
+        "artifacts": (
+            [{"artifact_id": "junit", "sha256": sha256(report.read_bytes())}]
             if report.is_file()
-            else None
+            else []
         ),
-        "passed": counts["tests"]
-        - counts["failures"]
-        - counts["errors"]
-        - counts["skipped"],
-        "failed": counts["failures"] + counts["errors"],
-        "skipped": counts["skipped"],
-        "exit_code": completed.returncode,
-        "started_at": started,
-        "ended_at": ended,
+        "result": {
+            "status": "PASS" if completed.returncode == 0 else "FAIL",
+            "exit_code": completed.returncode,
+            "details": {
+                "passed": counts["tests"]
+                - counts["failures"]
+                - counts["errors"]
+                - counts["skipped"],
+                "failed": counts["failures"] + counts["errors"],
+                "skipped": counts["skipped"],
+                "test_inventory_sha256": manifests._canonical_sha256(tests),
+            },
+        },
     }
-    envelope.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
+    envelope.write_bytes(canonical_bytes(evidence))
     return completed.returncode
 
 

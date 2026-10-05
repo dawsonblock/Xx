@@ -9,7 +9,7 @@ from typing import Any
 
 from tools.gate_specs import GateSpec
 
-_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_DIGEST = re.compile(r"(?:sha256:)?[0-9a-f]{64}\Z")
 _FIELDS = {
     "schema_version",
     "gate_id",
@@ -80,7 +80,10 @@ def validate_evidence(
         key: identity.get(key) for key in spec.source_identity_requirements
     }
     if (
-        any(not isinstance(value, str) or not _DIGEST.fullmatch(value) for value in expected_identity.values())
+        any(
+            not isinstance(value, str) or not _DIGEST.fullmatch(value)
+            for value in expected_identity.values()
+        )
         or evidence.get("identity") != expected_identity
     ):
         raise ValueError("qualification evidence identity differs")
@@ -103,7 +106,9 @@ def validate_evidence(
         raise ValueError("qualification evidence parameters differ")
     if set(actual_parameters) - set(spec.parameter_schema):
         raise ValueError("qualification evidence has unknown parameters")
-    if spec.phase == "artifact" and set(actual_parameters) != set(spec.parameter_schema):
+    if spec.phase == "artifact" and set(actual_parameters) != set(
+        spec.parameter_schema
+    ):
         raise ValueError("artifact gate evidence is missing parameters")
     if any(
         not isinstance(value, spec.parameter_schema[name])

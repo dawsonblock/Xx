@@ -10,6 +10,7 @@ import hashlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.evidence_schema import canonical_bytes
 from tools.verify_release import ROOT, verify_prebuild
 
 
@@ -19,12 +20,16 @@ def main() -> int:
     ).strip()
     verify_prebuild(commit)
     identity = json.loads((ROOT / "IDENTITY_MANIFEST.json").read_text(encoding="utf-8"))
+    source = json.loads(
+        (ROOT / "SOURCE_TREE_MANIFEST.json").read_text(encoding="utf-8")
+    )
     ledger_hash = hashlib.sha256(
         (ROOT / "SOURCE_QUALIFICATION_LEDGER.json").read_bytes()
     ).hexdigest()
     provenance = {
         "schema_version": 1,
-        "source_commit": commit,
+        "source_commit": source["qualified_code_commit"],
+        "build_commit": commit,
         "source_qualification_ledger_sha256": ledger_hash,
         "python_version": platform.python_version(),
         "platform": platform.platform(),
@@ -35,9 +40,7 @@ def main() -> int:
             if key.endswith("_sha256") or key == "docker_base_image_digest"
         },
     }
-    (ROOT / "BUILD_PROVENANCE.json").write_text(
-        json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    (ROOT / "BUILD_PROVENANCE.json").write_bytes(canonical_bytes(provenance))
     return 0
 
 

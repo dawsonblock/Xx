@@ -240,19 +240,25 @@ def _check_qualification(
         source_commit=source["qualified_code_commit"],
         read_bytes=lambda name: _embedded_bytes(members, name, kind),
     )
-    provenance = json.loads(_embedded_bytes(members, "BUILD_PROVENANCE.json", kind))
-    if provenance.get("schema_version") != 1 or not str(
-        provenance.get("python_version", "")
-    ).startswith("3.12."):
+    from tools.evidence_schema import canonical_bytes
+
+    provenance_bytes = _embedded_bytes(members, "BUILD_PROVENANCE.json", kind)
+    provenance = json.loads(provenance_bytes)
+    if (
+        provenance_bytes != canonical_bytes(provenance)
+        or provenance.get("schema_version") != 1
+        or provenance.get("build_runner_id") != "python-build-sdist-wheel-v1"
+        or provenance.get("source_qualification_ledger_sha256") != _sha(ledger_bytes)
+        or provenance.get("source_commit") != source["qualified_code_commit"]
+        or not str(provenance.get("python_version", "")).startswith("3.12.")
+        or any(
+            provenance.get(field) != value
+            for field, value in identity.items()
+            if field.endswith("_sha256") or field == "docker_base_image_digest"
+        )
+    ):
         raise ValueError("build provenance is invalid")
-    if provenance.get("source_qualification_ledger_sha256") != _sha(ledger_bytes):
-        raise ValueError("build provenance does not bind source ledger")
-    for field, value in identity.items():
-        if (
-            field.endswith("_sha256") or field == "docker_base_image_digest"
-        ) and provenance.get(field) != value:
-            raise ValueError(f"stale build provenance: {field}")
-    if expected_commit and provenance.get("source_commit") != expected_commit:
+    if expected_commit and provenance.get("build_commit") != expected_commit:
         raise ValueError("build provenance has a different source commit")
 
 
@@ -459,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         + (
             "; qualification not asserted"
             if args.integrity_only
-            else "; release qualification verified"
+            else "; source qualification verified"
         )
     )
     return 0

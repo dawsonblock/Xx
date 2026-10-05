@@ -130,6 +130,8 @@ def release_evidence_files():
     ledger = Path("SOURCE_QUALIFICATION_LEDGER.json")
     if not ledger.is_file():
         return []
+    from tools.gate_specs import gate_spec
+
     data = json.loads(ledger.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("gates"), list):
         raise TypeError("release qualification ledger is invalid")
@@ -138,11 +140,14 @@ def release_evidence_files():
         if not isinstance(gate, dict):
             raise TypeError("release qualification gate is invalid")
         name = gate.get("evidence_path")
+        spec = gate_spec(gate.get("gate_id"))
         if (
             not isinstance(name, str)
             or not name.startswith("qualification/")
             or "\\" in name
             or any(part in {"", ".", ".."} for part in name.split("/"))
+            or name != spec.evidence_path
+            or spec.phase != "source"
         ):
             raise ValueError("unsafe release evidence path")
         if not Path(name).is_file():

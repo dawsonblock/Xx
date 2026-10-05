@@ -89,7 +89,9 @@ def signed_ledger(tmp_path):
             "runner_id": spec.runner_id,
             "verifier_id": spec.verifier_id,
             "phase": "source",
-            "identity": {key: identity[key] for key in spec.source_identity_requirements},
+            "identity": {
+                key: identity[key] for key in spec.source_identity_requirements
+            },
             "environment": {
                 "python": "3.12.3",
                 "platform": "test-linux",
@@ -187,6 +189,7 @@ def test_valid_signer_cannot_redirect_evidence(signed_ledger):
 
 def test_valid_signer_cannot_invent_gate(signed_ledger):
     with pytest.raises(ValueError, match="unknown qualification gate"):
+
         def mutate(ledger):
             ledger["gates"].pop()
             ledger["gates"].append({"gate_id": "invented"})
@@ -228,7 +231,11 @@ def test_pytest_evidence_cannot_bypass_common_schema(signed_ledger):
 
 def test_package_integrity_gates_are_artifact_only():
     assert not ({"package_integrity", "wheel_integrity"} & SOURCE_GATES)
-    assert {"wheel_integrity", "sdist_integrity", "source_zip_integrity"} <= ARTIFACT_GATES
+    assert {
+        "wheel_integrity",
+        "sdist_integrity",
+        "source_zip_integrity",
+    } <= ARTIFACT_GATES
 
 
 def test_source_ledger_rejects_artifact_phase(signed_ledger):

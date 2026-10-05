@@ -246,7 +246,7 @@ def test_stale_qualification_cannot_be_accepted(package_fixture, tmp_path):
     root, files = package_fixture
     path = tmp_path / "unqualified.whl"
     _write_wheel(path, files)
-    with pytest.raises(ValueError, match="release status"):
+    with pytest.raises(ValueError, match="source status"):
         verify_package.verify_archive(path, "wheel", root=root)
 
 
